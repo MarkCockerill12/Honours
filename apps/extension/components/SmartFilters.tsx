@@ -1,257 +1,103 @@
-"use client"
+import React, { useState, useEffect } from 'react';
+import { Switch } from '@/components/ui/switch';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Shield, ShieldAlert, Zap, EyeOff } from 'lucide-react';
 
-import React, { useState } from "react"
-import { ChevronDown, ChevronUp, Plus, Trash2, Settings2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Slider } from "@/components/ui/slider"
-import { Switch } from "@/components/ui/switch"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
-import { Label } from "@/components/ui/label"
-import { useTheme } from "@/packages/ui/ThemeProvider"
-import type { SmartFilter, BlurMethod } from "@/packages/ui/types"
+// IMPORT SHARED LOGIC
+import { parseAdblockRules } from '@/packages/core/src/adblock';
 
-interface SmartFiltersProps {
-  filters: SmartFilter[]
-  onFiltersChange: (filters: SmartFilter[]) => void
-  contextLevel: number
-  onContextLevelChange: (level: number) => void
-  blurMethod: BlurMethod
-  onBlurMethodChange: (method: BlurMethod) => void
-}
+export function SmartFilters() {
+  const [adblockEnabled, setAdblockEnabled] = useState(false);
+  const [trackerBlocking, setTrackerBlocking] = useState(false);
+  const [stats, setStats] = useState({ adsBlocked: 0, trackersBlocked: 0 });
 
-export function SmartFilters({
-  filters,
-  onFiltersChange,
-  contextLevel,
-  onContextLevelChange,
-  blurMethod,
-  onBlurMethodChange,
-}: SmartFiltersProps) {
-  const { colors } = useTheme()
-  const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [newBlockTerm, setNewBlockTerm] = useState("")
-  const [newExceptWhen, setNewExceptWhen] = useState("")
-
-  const addFilter = () => {
-    if (!newBlockTerm.trim()) return
-    const newFilter: SmartFilter = {
-      id: Date.now().toString(),
-      blockTerm: newBlockTerm.trim(),
-      exceptWhen: newExceptWhen.trim(),
-      enabled: true,
+  // 1. On Mount: Check storage for saved settings
+  useEffect(() => {
+    // Mock loading from chrome.storage.local
+    const saved = localStorage.getItem('adblock_settings');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      setAdblockEnabled(parsed.adblock);
+      setTrackerBlocking(parsed.trackers);
     }
-    onFiltersChange([...filters, newFilter])
-    setNewBlockTerm("")
-    setNewExceptWhen("")
-  }
+  }, []);
 
-  const removeFilter = (id: string) => {
-    onFiltersChange(filters.filter(f => f.id !== id))
-  }
+  // 2. Effect: Update Rules when toggle changes
+  useEffect(() => {
+    // This is where we would call the Chrome DNR API
+    // chrome.declarativeNetRequest.updateDynamicRules(...)
+    
+    // For now, we use our Core logic to generate the rules
+    const rules = parseAdblockRules(adblockEnabled);
+    console.log("Active Rules Generated:", rules.length);
+    
+    // Save state
+    localStorage.setItem('adblock_settings', JSON.stringify({
+      adblock: adblockEnabled,
+      trackers: trackerBlocking
+    }));
 
-  const toggleFilter = (id: string) => {
-    onFiltersChange(
-      filters.map(f => f.id === id ? { ...f, enabled: !f.enabled } : f)
-    )
-  }
-
-  const updateFilter = (id: string, field: "blockTerm" | "exceptWhen", value: string) => {
-    onFiltersChange(
-      filters.map(f => f.id === id ? { ...f, [field]: value } : f)
-    )
-  }
+  }, [adblockEnabled, trackerBlocking]);
 
   return (
-    <div className={`rounded-2xl ${colors.bgSecondary} ${colors.border} border p-4`}>
-      <h3 className={`text-sm font-semibold mb-4 ${colors.text}`}>Smart Content Filters</h3>
-      
-      {/* Context Slider */}
-      <div className="mb-4">
-        <div className="flex justify-between items-center mb-2">
-          <span className={`text-xs ${colors.textSecondary}`}>Strict</span>
-          <span className={`text-xs font-medium ${colors.text}`}>Context Level: {contextLevel}%</span>
-          <span className={`text-xs ${colors.textSecondary}`}>Nuanced</span>
+    <Card className="w-full border-zinc-800 bg-zinc-950 text-zinc-100">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium">Smart Filters</CardTitle>
+          <Shield className={`h-4 w-4 ${adblockEnabled ? 'text-emerald-500' : 'text-zinc-600'}`} />
         </div>
-        <Slider
-          value={[contextLevel]}
-          onValueChange={([val]) => onContextLevelChange(val)}
-          max={100}
-          step={1}
-          className="cursor-pointer"
-        />
-        <p className={`text-xs ${colors.textSecondary} mt-1`}>
-          {contextLevel < 30 
-            ? "Blocks all matching content strictly" 
-            : contextLevel < 70 
-            ? "Uses context to determine relevance"
-            : "Only blocks clearly problematic content"}
-        </p>
-      </div>
-
-      {/* Add New Filter */}
-      <div className="space-y-2 mb-4">
-        <div className="flex gap-2">
-          <Input
-            value={newBlockTerm}
-            onChange={(e) => setNewBlockTerm(e.target.value)}
-            placeholder="Block word/phrase..."
-            className={`flex-1 h-8 text-xs ${colors.bg} ${colors.text}`}
-          />
-          <Button 
-            onClick={addFilter}
-            size="sm"
-            className="h-8 px-3 hover:scale-105 active:scale-95"
-            disabled={!newBlockTerm.trim()}
-          >
-            <Plus size={14} />
-          </Button>
-        </div>
-        <Input
-          value={newExceptWhen}
-          onChange={(e) => setNewExceptWhen(e.target.value)}
-          placeholder="UNLESS contains... (optional)"
-          className={`h-8 text-xs ${colors.bg} ${colors.text}`}
-        />
-      </div>
-
-      {/* Active Filters - Fixed height with scroll */}
-      <div className={`space-y-2 mb-4 h-28 overflow-y-auto pr-1 ${colors.border} border rounded-lg p-2`}>
-        {filters.length === 0 ? (
-          <p className={`text-xs ${colors.textSecondary} text-center py-4`}>
-            No filters added yet. Add one above.
-          </p>
-        ) : (
-          filters.map((filter) => (
-            <div 
-              key={filter.id}
-              className={`
-                flex items-start gap-2 p-2 rounded-lg bg-black/20
-                transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
-              `}
-            >
-              <Switch 
-                checked={filter.enabled}
-                onCheckedChange={() => toggleFilter(filter.id)}
-                className="scale-75 mt-1"
-              />
-              <div className="flex-1 min-w-0 space-y-1">
-                <Input
-                  value={filter.blockTerm}
-                  onChange={(e) => updateFilter(filter.id, "blockTerm", e.target.value)}
-                  className={`h-6 text-xs ${colors.bg} ${colors.text} border-none p-1`}
-                  placeholder="Block term..."
-                />
-                <div className="flex items-center gap-1">
-                  <span className={`text-xs ${colors.textSecondary} whitespace-nowrap`}>unless:</span>
-                  <Input
-                    value={filter.exceptWhen}
-                    onChange={(e) => updateFilter(filter.id, "exceptWhen", e.target.value)}
-                    className={`h-5 text-xs ${colors.bg} ${colors.text} border-none p-1`}
-                    placeholder="(empty = always block)"
-                  />
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => removeFilter(filter.id)}
-                className="h-6 w-6 p-0 hover:scale-110 active:scale-95"
-              >
-                <Trash2 size={14} className={colors.danger} />
-              </Button>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* Advanced Settings Dropdown */}
-      <div className={`rounded-xl ${colors.border} border overflow-hidden`}>
-        <button
-          onClick={() => setAdvancedOpen(!advancedOpen)}
-          className={`
-            w-full flex items-center justify-between p-3
-            ${colors.bgSecondary} ${colors.text}
-            transition-all duration-200 hover:bg-black/10
-          `}
-        >
-          <div className="flex items-center gap-2">
-            <Settings2 size={16} />
-            <span className="text-sm font-medium">Advanced Settings</span>
-          </div>
-          {advancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
+      </CardHeader>
+      <CardContent className="space-y-4">
         
-        {advancedOpen && (
-          <div className={`p-4 border-t ${colors.border} space-y-4`}>
-            {/* Blur Method */}
-            <div>
-              <h4 className={`text-xs font-semibold mb-2 ${colors.textSecondary}`}>
-                Content Hiding Method
-              </h4>
-              <RadioGroup 
-                value={blurMethod} 
-                onValueChange={(val) => onBlurMethodChange(val as BlurMethod)}
-                className="grid grid-cols-2 gap-2"
-              >
-                {[
-                  { value: "blackbar", label: "Black Bar", desc: "Solid black overlay" },
-                  { value: "blur", label: "Blur", desc: "Gaussian blur effect" },
-                  { value: "kitten", label: "Kitten", desc: "Replace with cat image" },
-                  { value: "warning", label: "Warning", desc: "Show warning message" },
-                ].map((option) => (
-                  <div 
-                    key={option.value}
-                    className={`
-                      flex items-center gap-2 p-2 rounded-lg
-                      ${blurMethod === option.value ? "bg-black/30" : "bg-black/10"}
-                      transition-all duration-200 hover:scale-105 active:scale-95
-                      cursor-pointer
-                    `}
-                    onClick={() => onBlurMethodChange(option.value as BlurMethod)}
-                  >
-                    <RadioGroupItem value={option.value} id={option.value} />
-                    <Label htmlFor={option.value} className={`text-xs ${colors.text} cursor-pointer`}>
-                      {option.label}
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
+        {/* Adblock Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${adblockEnabled ? 'bg-emerald-500/10' : 'bg-zinc-900'}`}>
+              <Zap className={`h-4 w-4 ${adblockEnabled ? 'text-emerald-500' : 'text-zinc-500'}`} />
             </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">Ad Blocker</span>
+              <span className="text-xs text-zinc-500">Block intrusive ads</span>
+            </div>
+          </div>
+          <Switch checked={adblockEnabled} onCheckedChange={setAdblockEnabled} />
+        </div>
 
-            {/* Preset Filters */}
-            <div>
-              <h4 className={`text-xs font-semibold mb-2 ${colors.textSecondary}`}>
-                Quick Add Presets
-              </h4>
-              <div className="flex flex-wrap gap-1">
-                {["Violence", "Profanity", "Politics", "Spoilers", "NSFW"].map((preset) => (
-                  <Button
-                    key={preset}
-                    variant="outline"
-                    size="sm"
-                    className={`
-                      h-6 text-xs px-2
-                      transition-all duration-200 hover:scale-105 active:scale-95
-                    `}
-                    onClick={() => {
-                      const newFilter: SmartFilter = {
-                        id: Date.now().toString(),
-                        blockTerm: preset.toLowerCase(),
-                        exceptWhen: "",
-                        enabled: true,
-                      }
-                      onFiltersChange([...filters, newFilter])
-                    }}
-                  >
-                    + {preset}
-                  </Button>
-                ))}
+        {/* Tracker Toggle */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${trackerBlocking ? 'bg-blue-500/10' : 'bg-zinc-900'}`}>
+              <EyeOff className={`h-4 w-4 ${trackerBlocking ? 'text-blue-500' : 'text-zinc-500'}`} />
+            </div>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">Tracker Blocker</span>
+              <span className="text-xs text-zinc-500">Stop data harvesting</span>
+            </div>
+          </div>
+          <Switch checked={trackerBlocking} onCheckedChange={setTrackerBlocking} />
+        </div>
+
+        {/* Stats Section */}
+        {(adblockEnabled || trackerBlocking) && (
+          <div className="mt-4 rounded-md bg-zinc-900/50 p-3">
+            <div className="flex justify-between items-center text-xs text-zinc-400 mb-2">
+              <span>Session Stats</span>
+              <Badge variant="outline" className="border-zinc-700 text-zinc-400">Live</Badge>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-zinc-900 rounded p-2 text-center">
+                <span className="block text-lg font-bold text-emerald-500">{stats.adsBlocked}</span>
+                <span className="text-[10px] text-zinc-500">Ads</span>
+              </div>
+              <div className="bg-zinc-900 rounded p-2 text-center">
+                <span className="block text-lg font-bold text-blue-500">{stats.trackersBlocked}</span>
+                <span className="text-[10px] text-zinc-500">Trackers</span>
               </div>
             </div>
           </div>
         )}
-      </div>
-    </div>
-  )
+      </CardContent>
+    </Card>
+  );
 }
