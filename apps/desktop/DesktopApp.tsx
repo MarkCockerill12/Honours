@@ -41,7 +41,7 @@ export function DesktopApp({
   onVpnToggle,
   onAdblockToggle,
   stats,
-}: DesktopAppProps) {
+}: Readonly<DesktopAppProps>) {
   const { colors, theme, setTheme } = useTheme()
   const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(defaultServers[0])
   const [systemAdblock, setSystemAdblock] = useState(true)

@@ -103,14 +103,14 @@ export function ExtensionApp({
         <CyberScanner />
 
         {/* Smart Filters */}
-        <SmartFilters
+        {/* <SmartFilters
           filters={filters}
           onFiltersChange={onFiltersChange}
           contextLevel={contextLevel}
           onContextLevelChange={onContextLevelChange}
           blurMethod={blurMethod}
           onBlurMethodChange={onBlurMethodChange}
-        />
+        /> */}
       </div>
     </ScalableContainer>
   )
