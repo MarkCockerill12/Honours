@@ -52,6 +52,7 @@ export function MobileApp({
     <ScalableContainer className="w-full max-w-[390px] min-h-[844px] mx-auto">
       <div className="flex flex-col h-full">
         {/* Status Bar Mockup */}
+        {/* TODO: Connect to native bridge for real-time battery and signal strength data */}
         <div className={`flex items-center justify-between px-6 py-2 ${colors.bgSecondary}`}>
           <span className={`text-xs font-semibold ${colors.text}`}>9:41</span>
           <div className="flex items-center gap-1">

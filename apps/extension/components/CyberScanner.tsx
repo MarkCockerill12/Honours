@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldAlert, ShieldCheck, Scan } from 'lucide-react';
 
 // IMPORT FROM YOUR NEW CORE PACKAGE
-import { scanUrl } from '@/apps/extension/Utils/security'; 
+import { scanUrl } from '../Utils/security'; 
 
 export function CyberScanner() {
   const [autoScan, setAutoScan] = useState(false);
@@ -14,6 +14,7 @@ export function CyberScanner() {
 
   // Simulating getting the current tab URL
   useEffect(() => {
+    // TODO: Integrate with chrome.tabs API to detect current active URL real-time
     // In a real Chrome Extension, this would be:
     // chrome.tabs.query({active: true, currentWindow: true}, (tabs) => ...)
     setCurrentUrl(window.location.href); 

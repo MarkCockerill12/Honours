@@ -25,6 +25,7 @@ export function SmartFilters() {
 
   // 2. Effect: Update Rules when toggle changes
   useEffect(() => {
+    // TODO: Implement chrome.declarativeNetRequest to apply these rules at the browser level
     // This is where we would call the Chrome DNR API
     // chrome.declarativeNetRequest.updateDynamicRules(...)
     

@@ -100,7 +100,7 @@ export function ExtensionApp({
         <TrackerCard stats={stats} compact />
 
         {/* Cyber Scanner */}
-        <CyberScanner compact />
+        <CyberScanner />
 
         {/* Smart Filters */}
         <SmartFilters

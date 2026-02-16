@@ -1,23 +1,26 @@
+// packages/core/src/adblock.ts
+
 export const AD_BLOCK_LISTS = {
   EASYLIST: "https://easylist.to/easylist/easylist.txt",
   ADGUARD: "https://filters.adtidy.org/extension/chromium/filters/2.txt"
 };
 
-export const parseAdblockRules = (toggleState: boolean) => {
-  if (!toggleState) return [];
+// This function returns generic rules that any app (Mobile/Ext) can use
+// TODO: Implement full Manifest V3 Rule generation logic and persistent IDs
+export const parseAdblockRules = (enabled: boolean) => {
+  if (!enabled) return [];
 
-  // In a real app, this would return the Rule ID set for Manifest V3
-  // For the report: We return the configuration object
   return [
-    {
-      id: 1,
-      priority: 1,
-      action: { type: "block" },
-      condition: { 
-        urlFilter: "||doubleclick.net^", 
-        resourceTypes: ["script", "image", "xmlhttprequest"] 
-      }
-    },
-    // ... extensive list would be generated here
+    { domain: "doubleclick.net", type: "block" },
+    { domain: "google-analytics.com", type: "block" },
+    { domain: "facebook.com/tr/", type: "block" }
   ];
+};
+
+// TODO: Align rule format with specific platform requirements (e.g. Android Webview vs. Chrome DNR)
+export const getAdblockConfig = (enabled: boolean) => {
+  return {
+    active: enabled,
+    rules: parseAdblockRules(enabled)
+  };
 };

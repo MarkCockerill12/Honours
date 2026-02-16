@@ -1,3 +1,4 @@
+// TODO: Implement MutationObserver to handle dynamically loaded content without re-scanning everything
 export const blurContent = (rootElement: HTMLElement, keywords: string[]) => {
   if (!keywords || keywords.length === 0) return;
 
