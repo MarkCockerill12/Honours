@@ -33,10 +33,13 @@ export const scanUrl = (urlString: string): ScanResult => {
       return { url: urlString, isSafe: false, threatType: 'phishing', details: 'Known Phishing Domain' };
     }
 
-    // 2. Check IP Address Hostnames (Often used by malware)
+    // 2. Check IP Address Hostnames (BUT ignore localhost/127.0.0.1)
     // Matches 192.168.1.1 etc.
     if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) {
-      return { url: urlString, isSafe: false, threatType: 'suspicious', details: 'Raw IP Address Usage' };
+      // ✅ FIX: Allow local development IPs
+      if (hostname !== '127.0.0.1' && hostname !== 'localhost') {
+        return { url: urlString, isSafe: false, threatType: 'suspicious', details: 'Raw IP Address Usage' };
+      }
     }
 
     // 3. Check for File Extensions in URL (Malware Download)

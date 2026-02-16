@@ -8,10 +8,11 @@ import { scanUrl, ScanResult } from '../Utils/security';
 export function CyberScanner() {
   const [currentUrl, setCurrentUrl] = useState('');
   const [urlStatus, setUrlStatus] = useState<ScanResult | null>(null);
-  const [autoScan, setAutoScan] = useState(false); // ✅ Restored Toggle State
+  const [autoScan, setAutoScan] = useState(false);
   
   // Page Scan State
   const [isScanning, setIsScanning] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scanReport, setScanReport] = useState<{
     total: number;
     bad: number;
@@ -26,62 +27,93 @@ export function CyberScanner() {
         if (tabs[0]?.url) callback(tabs[0].url, tabs[0].id);
       });
     } 
-    // 2. Dev Mode (Iframe fallback) - Just uses window location if cant reach parent
+    // 2. Dev Mode (Iframe fallback)
     else {
-      console.log("Dev Mode: chrome.tabs not available directly.");
-      setCurrentUrl("http://localhost-dev-mode"); 
+      // We are in dev mode, likely localhost
+      setCurrentUrl("http://localhost (Dev Mode)"); 
     }
   };
 
   // 1. On Load & Auto-Scan Logic
   useEffect(() => {
-    // Load preference
     const savedAuto = localStorage.getItem('autoscan_enabled') === 'true';
     setAutoScan(savedAuto);
 
-    // Initial URL Check
     getTabUrl((url, id) => {
       setCurrentUrl(url);
       const result = scanUrl(url);
       setUrlStatus(result);
 
-      // ✅ Trigger Auto-Scan if enabled
-      if (savedAuto) {
+      if (savedAuto && id) {
         triggerPageScan(id);
       }
     });
   }, []);
 
-  // 2. Toggle Handler
   const toggleAutoScan = (enabled: boolean) => {
     setAutoScan(enabled);
     localStorage.setItem('autoscan_enabled', String(enabled));
   };
 
-  // 3. The Scanning Logic (Extracted for reuse)
+  // 3. The Scanning Logic
   const triggerPageScan = (tabId?: number) => {
-    if (!tabId && typeof chrome !== 'undefined' && chrome.tabs) {
-       // Try to find ID if missing
+    setErrorMessage(null);
+    setIsScanning(true);
+    setScanReport(null);
+
+    // ============================================================
+    // 🛠️ DEV MODE BRIDGE (Fixes "Not working in Dev Mode")
+    // ============================================================
+    if (typeof chrome === 'undefined' || !chrome.tabs) {
+      console.log("Environment: Dev Mode (Using Bridge)");
+      window.parent.postMessage({ action: 'EXECUTE_SCAN' }, '*');
+      
+      const handleBridgeResult = (event: MessageEvent) => {
+        if (event.data.action === 'SCAN_RESULT') {
+          setIsScanning(false); // ✅ Stop loading
+          window.removeEventListener('message', handleBridgeResult);
+
+          if (event.data.error) {
+             console.warn("Bridge Error:", event.data.error);
+             setErrorMessage("Connection failed. Refresh the web page.");
+             return;
+          }
+          if (event.data.data) {
+             setScanReport({
+              total: event.data.data.linkCount,
+              bad: event.data.data.maliciousCount,
+              type: event.data.data.type
+            });
+          }
+        }
+      };
+      window.addEventListener('message', handleBridgeResult);
+      return; 
+    }
+
+    // ============================================================
+    // PRODUCTION MODE (Real Extension)
+    // ============================================================
+    if (!tabId) {
        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
          if (tabs[0]?.id) triggerPageScan(tabs[0].id);
+         else {
+            setIsScanning(false);
+            setErrorMessage("No active tab found.");
+         }
        });
        return;
     }
 
-    if (!tabId) return; // Can't scan without a tab ID
-
-    setIsScanning(true);
-    setScanReport(null);
-
-    // Send message to Content Script
     chrome.tabs.sendMessage(
       tabId, 
       { action: "SCAN_PAGE_LINKS" }, 
       (response) => {
-        setIsScanning(false);
-        // Handle undefined response (e.g., content script not loaded yet)
-        if (chrome.runtime.lastError || !response) {
-          console.warn("Scan failed or script not ready");
+        setIsScanning(false); // ✅ FIX: Stop loading even if error occurs
+        
+        if (chrome.runtime.lastError) {
+          console.warn("Scan failed:", chrome.runtime.lastError.message);
+          setErrorMessage("Connection failed. Try refreshing the web page.");
           return;
         }
 
@@ -127,13 +159,11 @@ export function CyberScanner() {
           )}
         </div>
 
-        {/* ✅ Restored Toggle */}
         <div className="flex items-center justify-between">
           <span className="text-sm text-zinc-400">Auto-Scan Pages</span>
           <Switch checked={autoScan} onCheckedChange={toggleAutoScan} />
         </div>
 
-        {/* Deep Scan Button */}
         <div className="space-y-2">
           <Button 
             className="w-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-2"
@@ -144,7 +174,12 @@ export function CyberScanner() {
             {isScanning ? "Scanning Page..." : "Scan Page Content"}
           </Button>
 
-          {/* Scan Report */}
+           {errorMessage && (
+            <div className="p-2 text-xs bg-red-500/10 text-red-500 border border-red-500/20 rounded">
+              ⚠️ {errorMessage}
+            </div>
+          )}
+
           {scanReport && (
             <div className="text-xs bg-zinc-900 p-2 rounded border border-zinc-800 animate-in fade-in slide-in-from-top-2">
               <div className="flex items-center justify-between mb-1">
