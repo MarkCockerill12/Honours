@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Privacy Protector (Dev)",
+  "version": "1.0",
+  "description": "Honours Project Dev Build",
+  "permissions": ["storage", "activeTab", "scripting", "declarativeNetRequest"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "extension-loader.html",
+    "default_title": "Open Blocker"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ app.use(cors()); // Allow your extension/app to talk to this
 app.use(express.json());
 
 // CONFIG
+// TODO: Securely manage the DeepL API Key using environment variables or a secret manager
 const DEEPL_API_KEY = process.env.DEEPL_KEY || 'your-key-here';
 const PORT = 8080;
 
@@ -44,6 +45,7 @@ app.post('/api/translate', async (req, res) => {
  * Simple check to see if VPN server is alive
  */
 app.get('/api/vpn/status', (req, res) => {
+  // TODO: Implement actual logic to check status of WireGuard and Dante services
   // You could add logic here to check if WireGuard/Dante is running
   res.json({ status: 'active', server: 'EC2-Frankfurt', load: '12%' });
 });

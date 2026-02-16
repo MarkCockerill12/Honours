@@ -14,6 +14,7 @@ export default function Home() {
   const [platform, setPlatform] = useState<Platform>("extension")
   
   // Shared protection state
+  // TODO: Persist protection state in local storage or sync with backend
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: true,
@@ -21,6 +22,7 @@ export default function Home() {
   })
   
   // Tracker stats (simulated)
+  // TODO: Fetch real-time statistics from the backend analytics service
   const [stats] = useState<TrackerStats>({
     bandwidthSaved: 847,
     timeSaved: 32,

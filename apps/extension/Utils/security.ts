@@ -1,3 +1,4 @@
+// TODO: Replace with a production-grade threat intelligence API (e.g. Google Safe Browsing)
 // A mock database of bad domains for the prototype
 const THREAT_DB = [
   "suspicious-bank-login.com",

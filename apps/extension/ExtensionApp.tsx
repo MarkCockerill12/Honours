@@ -100,17 +100,17 @@ export function ExtensionApp({
         <TrackerCard stats={stats} compact />
 
         {/* Cyber Scanner */}
-        <CyberScanner compact />
+        <CyberScanner />
 
         {/* Smart Filters */}
-        <SmartFilters
+        {/* <SmartFilters
           filters={filters}
           onFiltersChange={onFiltersChange}
           contextLevel={contextLevel}
           onContextLevelChange={onContextLevelChange}
           blurMethod={blurMethod}
           onBlurMethodChange={onBlurMethodChange}
-        />
+        /> */}
       </div>
     </ScalableContainer>
   )

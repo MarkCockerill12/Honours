@@ -6,6 +6,7 @@ export interface VpnServer {
   proxyPort: number; // For Extension (SOCKS5)
 }
 
+// TODO: Fetch server configurations from the management API instead of hardcoding
 export const VPN_SERVERS: VpnServer[] = [
   {
     id: 'aws-eu-1',

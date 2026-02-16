@@ -1,3 +1,4 @@
+// TODO: Replace hardcoded URL with environment-based configuration for production
 // Replace with your actual EC2 IP/DNS
 const BACKEND_URL = "http://YOUR_EC2_IP:8080/api/translate";
 

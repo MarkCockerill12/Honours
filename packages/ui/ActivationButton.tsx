@@ -47,6 +47,7 @@ export function ActivationButton({ protection, onToggle, size = "md" }: Activati
     if (!protection.isActive) {
       triggerLightning()
     }
+    // TODO: Implement haptic feedback for mobile touch devices
     onToggle()
   }
 

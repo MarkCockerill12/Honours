@@ -41,7 +41,7 @@ export function DesktopApp({
   onVpnToggle,
   onAdblockToggle,
   stats,
-}: DesktopAppProps) {
+}: Readonly<DesktopAppProps>) {
   const { colors, theme, setTheme } = useTheme()
   const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(defaultServers[0])
   const [systemAdblock, setSystemAdblock] = useState(true)
@@ -86,6 +86,7 @@ export function DesktopApp({
               {[Minus, Minimize2, X].map((Icon, index) => (
                 <button
                   key={index}
+                  // TODO: Implement shell-aware logic for process minimization and termination
                   className={`
                     p-1.5 rounded transition-all duration-200 hover:scale-110 active:scale-95
                     ${index === 2 ? "hover:bg-red-500 hover:text-white" : "hover:bg-black/20"}
