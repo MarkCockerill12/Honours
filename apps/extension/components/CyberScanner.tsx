@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ShieldAlert, ShieldCheck, Scan } from 'lucide-react';
 
 // IMPORT FROM YOUR NEW CORE PACKAGE
-import { scanUrl } from '@/packages/core/src/security'; 
+import { scanUrl } from '@/apps/extension/Utils/security'; 
 
 export function CyberScanner() {
   const [autoScan, setAutoScan] = useState(false);
