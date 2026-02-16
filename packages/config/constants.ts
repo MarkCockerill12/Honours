@@ -16,30 +16,6 @@ export const API_ENDPOINTS = {
   STATS_API: process.env.NEXT_PUBLIC_STATS_API || "/api/stats",
 }
 
-// Default filter presets
-export const FILTER_PRESETS = {
-  violence: {
-    blockTerm: "violence",
-    exceptWhen: "news report",
-  },
-  profanity: {
-    blockTerm: "profanity",
-    exceptWhen: "",
-  },
-  politics: {
-    blockTerm: "political",
-    exceptWhen: "educational",
-  },
-  spoilers: {
-    blockTerm: "spoiler",
-    exceptWhen: "",
-  },
-  nsfw: {
-    blockTerm: "nsfw",
-    exceptWhen: "",
-  },
-}
-
 // VPN server regions
 export const VPN_REGIONS = [
   { id: "uk", name: "United Kingdom", emoji: "🇬🇧" },
