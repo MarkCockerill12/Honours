@@ -145,6 +145,8 @@ export default function Home() {
                 onVpnToggle={handleVpnToggle}
                 onAdblockToggle={handleAdblockToggle}
                 stats={stats}
+                onTest={async () => ({ isBlocked: true, output: "Mock Test" })}
+                onReset={async () => console.log("Reset clicked")}
               />
             </div>
           )}

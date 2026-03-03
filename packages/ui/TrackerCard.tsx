@@ -4,7 +4,7 @@ import React, { useRef, useEffect, useState } from "react";
 import { TrendingUp, Clock, PoundSterling } from "lucide-react";
 import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
-import type { TrackerStats } from "./types";
+import type { TrackerStats, Theme } from "./types";
 
 interface TrackerCardProps {
   stats: TrackerStats;
