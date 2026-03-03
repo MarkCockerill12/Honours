@@ -1,199 +1,212 @@
 "use client"
 
 import React, { useState } from "react"
-import { Monitor, Minimize2, X, Minus, Palette } from "lucide-react"
+import { Shield, Globe, Terminal, CheckCircle2, AlertCircle } from "lucide-react"
 import { useTheme } from "@/packages/ui/ThemeProvider"
 import { ActivationButton } from "@/packages/ui/ActivationButton"
-import { ProtectionToggles } from "@/packages/ui/ProtectionToggles"
-import { TrackerCard } from "@/packages/ui/TrackerCard"
 import { ScalableContainer } from "@/packages/ui/ScalableContainer"
-import type { ProtectionState, TrackerStats, ServerLocation, Theme } from "@/packages/ui/types"
-import { ServerList } from "@/apps/mobile/components/ServerList"
+import { TrackerCard } from "@/packages/ui/TrackerCard"
+import type { ProtectionState, TrackerStats } from "@/packages/ui/types"
 import { SystemToggles } from "./components/SystemToggles"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 
 interface DesktopAppProps {
   protection: ProtectionState
   onProtectionToggle: () => void
   onVpnToggle: () => void
   onAdblockToggle: () => void
+  onTest: () => Promise<{ isBlocked: boolean; output: string } | null>
+  onReset: () => Promise<void>
   stats: TrackerStats
+  loading?: boolean
+  dnsInfo?: Record<string, string[]>
 }
-
-const defaultServers: ServerLocation[] = [
-  { id: "uk", name: "London", country: "United Kingdom", flag: "GB", ping: 12, load: 35, x: 48, y: 30 },
-  { id: "us-east", name: "New York", country: "United States", flag: "US", ping: 78, load: 62, x: 25, y: 35 },
-  { id: "us-west", name: "Los Angeles", country: "United States", flag: "US", ping: 145, load: 45, x: 12, y: 38 },
-  { id: "de", name: "Frankfurt", country: "Germany", flag: "DE", ping: 28, load: 55, x: 52, y: 28 },
-  { id: "jp", name: "Tokyo", country: "Japan", flag: "JP", ping: 180, load: 30, x: 85, y: 35 },
-  { id: "nl", name: "Amsterdam", country: "Netherlands", flag: "NL", ping: 22, load: 48, x: 50, y: 28 },
-]
 
 export function DesktopApp({
   protection,
   onProtectionToggle,
   onVpnToggle,
   onAdblockToggle,
+  onTest,
+  onReset,
   stats,
+  loading = false,
+  dnsInfo = {},
 }: Readonly<DesktopAppProps>) {
-  const { colors, theme, setTheme } = useTheme()
-  const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(defaultServers[0])
-  const [systemAdblock, setSystemAdblock] = useState(true)
-  const [dnsOverHttps, setDnsOverHttps] = useState(true)
+  const { colors } = useTheme()
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ isBlocked: boolean; output: string } | null>(null)
+
+  // Find the primary DNS (usually first non-empty adapter)
+  const adapterNames = Object.keys(dnsInfo);
+  const primaryAdapter = adapterNames.find(name => dnsInfo[name].length > 0) || adapterNames[0];
+  const activeDns = dnsInfo[primaryAdapter] || [];
+
+  const handleTest = async () => {
+    setTesting(true)
+    try {
+      const result = await onTest()
+      setTestResult(result)
+    } catch (err) {
+      console.error('Test failed', err)
+    } finally {
+      setTesting(false)
+      setTimeout(() => setTestResult(null), 5000)
+    }
+  }
 
   return (
-    <ScalableContainer className="w-full max-w-[1200px] min-h-[700px] mx-auto">
-      {/* Window Frame */}
-      <div className={`rounded-2xl overflow-hidden ${colors.border} border shadow-2xl`}>
-        {/* Title Bar */}
-        <div className={`flex items-center justify-between px-4 py-2 ${colors.bgSecondary} ${colors.border} border-b`}>
-          <div className="flex items-center gap-2">
-            <Monitor size={16} className={colors.textSecondary} />
-            <span 
-              className={`text-sm font-semibold ${colors.text}`}
-              style={{
-                fontFamily: theme === "vaporwave" ? "'Comic Sans MS', cursive" : undefined,
-              }}
-            >
-               Blocker - General{"'"}s Quarters
-            </span>
-          </div>
+    <ScalableContainer className="w-full h-screen mx-auto overflow-hidden text-zinc-100">
+      <div className={`${colors.bg} h-full flex flex-col relative`}>
+        {/* Ambient Background Glow */}
+        <div className={`absolute -top-40 -right-40 w-96 h-96 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-all duration-1000 ${protection.isActive ? 'bg-emerald-500' : 'bg-red-500'}`} />
+        <div className={`absolute -bottom-40 -left-40 w-96 h-96 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-all duration-1000 ${protection.isActive ? 'bg-blue-500' : 'bg-orange-500'}`} />
+
+        {/* Compact Header */}
+        <div className={`glass-card border-b border-zinc-800/50 px-6 py-4 flex items-center justify-between z-10 relative`}>
           <div className="flex items-center gap-3">
-            {/* Theme Selector */}
-            <div className="flex items-center gap-2">
-              <Palette size={14} className={colors.textSecondary} />
-              <Select value={theme} onValueChange={(val) => setTheme(val as Theme)}>
-                <SelectTrigger className={`w-32 h-7 text-xs ${colors.bg} ${colors.text} ${colors.border}`}>
-                  <SelectValue placeholder="Theme" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="dark">Dark</SelectItem>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="vaporwave">Vaporwave</SelectItem>
-                  <SelectItem value="frutiger-aero">Frutiger Aero</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className={`p-2 rounded-xl border transition-all duration-500 ${protection.isActive ? 'bg-emerald-500/20 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-red-500/10 border-red-500/20'}`}>
+                <Shield className={`w-5 h-5 transition-colors duration-500 ${protection.isActive ? 'text-emerald-400' : 'text-red-400'}`} />
+            </div>
+            <div className="flex flex-col">
+                <h1 className={`text-sm font-black tracking-tight ${colors.text} leading-tight`}>AD-BLOCK SHIELD</h1>
+                <p className={`text-[9px] font-bold ${colors.textSecondary} opacity-40 uppercase`}>Honours Project Edition</p>
+            </div>
+          </div>
+          <div className={`text-[9px] font-mono px-2 py-0.5 rounded-full border ${colors.border} ${colors.textSecondary} opacity-60`}>
+            BUILD v1.0.42 [STABLE]
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col overflow-hidden items-center">
+          {/* Dashboard Body */}
+          <div className="w-full max-w-5xl p-6 lg:p-10 flex-1 overflow-y-auto">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-stretch">
+              
+              {/* Left Column: Stats & Testing */}
+              <div className="md:col-span-5 space-y-6 flex flex-col z-10">
+                <div className={`flex-1 rounded-[2rem] glass-card p-8 flex flex-col justify-between hover-lift transition-all duration-500 ${protection.isActive ? 'border-emerald-500/20 shadow-[0_8px_32px_rgba(16,185,129,0.05)]' : 'border-zinc-800'}`}>
+                    <div>
+                        <h3 className={`text-xs font-black uppercase tracking-[0.2em] text-zinc-400 mb-6 flex items-center gap-2`}>
+                          <span className={`w-2 h-2 rounded-full ${protection.isActive ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`} />
+                          System Integrity
+                        </h3>
+                        <div className="space-y-5">
+                            <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
+                                <span className={`text-sm tracking-wide text-zinc-300 font-medium`}>DNS Protocol</span>
+                                <span className={`text-xs font-mono px-3 py-1 rounded-full font-bold tracking-wider ${protection.isActive ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
+                                    {protection.isActive ? 'ADGUARD-DNS' : 'UNPROTECTED'}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
+                                <span className={`text-sm tracking-wide text-zinc-300 font-medium`}>Local Resolver</span>
+                                <span className="text-xs font-mono text-blue-400 bg-blue-500/10 px-3 py-1 border border-blue-500/30 rounded-full font-bold tracking-wider">SYSTEM-LEVEL</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button
+                        onClick={handleTest}
+                        disabled={testing || !protection.isActive}
+                        className={`mt-10 w-full py-4 rounded-2xl flex items-center justify-center gap-3 text-sm font-black tracking-widest transition-all shadow-lg
+                            ${testing ? 'opacity-50' : 'hover-lift hover:scale-[1.02] active:scale-[0.98]'}
+                            ${testResult 
+                                ? (testResult.isBlocked ? 'bg-emerald-500 text-emerald-950 shadow-emerald-500/25' : 'bg-red-500 text-white shadow-red-500/25')
+                                : (protection.isActive ? 'bg-zinc-100 hover:bg-white text-zinc-900 shadow-white/10' : 'bg-zinc-800/50 text-zinc-500 border border-zinc-700/50')}`}
+                    >
+                        {testing ? (
+                            <div className="w-5 h-5 border-3 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : testResult ? (
+                            testResult.isBlocked ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />
+                        ) : <Terminal className="w-5 h-5" />}
+                        
+                        {testing ? 'VALIDATING...' : testResult ? (testResult.isBlocked ? 'BLOCKER ACTIVE' : 'PROTECTION FAILED!') : 'TEST SHIELD'}
+                    </button>
+                    
+                    <button
+                        onClick={onReset}
+                        className={`mt-4 w-full py-3 rounded-xl text-xs font-bold tracking-[0.2em] uppercase opacity-40 hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 border border-transparent hover:border-red-500/20 transition-all text-zinc-500`}
+                    >
+                        Emergency Reset
+                    </button>
+                </div>
+
+                <div className="z-10 bg-black/20 rounded-[2rem] p-1 border border-zinc-800/50">
+                  <TrackerCard stats={stats} />
+                </div>
+              </div>
+
+              {/* Right Column: Main Controls */}
+              <div className="md:col-span-7 z-10">
+                <div className={`h-full rounded-[2.5rem] glass-card p-8 lg:p-12 relative overflow-hidden flex flex-col items-center justify-center transition-all duration-700 hover-lift ${protection.isActive ? 'border-emerald-500/30 shadow-[0_0_50px_rgba(16,185,129,0.1)]' : 'border-red-500/20'}`}>
+                   <div className={`absolute inset-0 transition-opacity duration-1000 ${protection.isActive ? 'opacity-10 animate-pulse-glow' : 'opacity-0'} pointer-events-none bg-emerald-500 blur-[100px]`} />
+
+                   <div className="relative z-10 flex flex-col items-center text-center w-full">
+                        <div className="mb-12">
+                            <h2 className={`text-5xl lg:text-6xl font-black ${colors.text} mb-4 tracking-tighter ${protection.isActive ? 'drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]' : ''} transition-all duration-500`}>
+                                {protection.isActive ? "SECURED" : "PAUSED"}
+                            </h2>
+                            <p className={`text-base font-medium ${colors.textSecondary} max-w-sm mx-auto leading-relaxed tracking-wide`}>
+                                {protection.isActive 
+                                    ? "Network traffic is encrypted and filtered. Tracking domains are blocked system-wide." 
+                                    : "Ad-blocking suspended. Your privacy is currently exposed to networks."}
+                            </p>
+                        </div>
+
+                      <div className={`transition-all duration-700 py-6 relative ${protection.isActive ? 'animate-shield-pulse scale-110' : 'scale-100 grayscale-[0.2]'}`}>
+                        {protection.isActive && (
+                            <div className="absolute inset-0 -m-8 rounded-full border border-emerald-500/20 animate-glow-ring pointer-events-none mix-blend-screen" />
+                        )}
+                        <ActivationButton
+                          protection={protection}
+                          onToggle={onProtectionToggle}
+                          size="xl"
+                          loading={loading}
+                        />
+                      </div>
+
+                      <div className="mt-10 w-full max-w-xs">
+                        <SystemToggles 
+                            systemAdblock={protection.adblockEnabled}
+                            onSystemAdblockToggle={onAdblockToggle}
+                            vpn={protection.vpnEnabled}
+                            onVpnToggle={onVpnToggle}
+                        />
+                      </div>
+                   </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Footer */}
+        <div className={`glass-card border-t border-zinc-800/50 px-8 py-4 flex items-center justify-between text-xs font-bold tracking-widest z-10 relative`}>
+          <div className="flex items-center gap-10">
+            <div className="flex items-center gap-3">
+                <div className={`w-3 h-3 rounded-full relative`}>
+                    <div className={`absolute inset-0 rounded-full transition-all duration-300 ${protection.isActive ? 'bg-emerald-400 animate-ping opacity-30' : 'hidden'}`} />
+                    <div className={`absolute inset-0 rounded-full transition-all duration-500 ${protection.isActive ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.8)]' : 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]'}`} />
+                </div>
+                <span className={`tracking-[0.2em] ${protection.isActive ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {protection.isActive ? 'ENCRYPTED & FILTERED' : 'SYSTEM EXPOSED'}
+                </span>
             </div>
             
-            {/* Window Controls */}
-            <div className="flex items-center gap-1">
-              {[Minus, Minimize2, X].map((Icon, index) => (
-                <button
-                  key={index}
-                  // TODO: Implement shell-aware logic for process minimization and termination
-                  className={`
-                    p-1.5 rounded transition-all duration-200 hover:scale-110 active:scale-95
-                    ${index === 2 ? "hover:bg-red-500 hover:text-white" : "hover:bg-black/20"}
-                  `}
-                >
-                  <Icon size={14} className={index === 2 ? "" : colors.textSecondary} />
-                </button>
-              ))}
+            <div className="hidden sm:flex items-center gap-3 opacity-60">
+                <span className="opacity-70 uppercase tracking-widest">Adapter:</span>
+                <span className="text-zinc-200">{primaryAdapter || "SCANNING..."}</span>
             </div>
           </div>
-        </div>
-
-        {/* Main Content */}
-        <div className={`${colors.bg} p-6`}>
-          <div className="grid grid-cols-12 gap-6">
-            {/* Left Sidebar - Stats & Server List */}
-            <div className="col-span-3 space-y-6">
-              {/* Tracker Stats */}
-              <TrackerCard stats={stats} />
-
-              {/* Connection Status */}
-              {selectedServer && (
-                <div className={`rounded-2xl ${colors.bgSecondary} ${colors.border} border p-4`}>
-                  <h3 className={`text-sm font-semibold mb-3 ${colors.text}`}>Current Connection</h3>
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl">{selectedServer.flag}</span>
-                    <div>
-                      <p className={`font-medium ${colors.text}`}>{selectedServer.name}</p>
-                      <p className={`text-xs ${colors.textSecondary}`}>{selectedServer.country}</p>
-                      <p className={`text-xs ${protection.isActive && protection.vpnEnabled ? colors.success : colors.textSecondary}`}>
-                        {protection.isActive && protection.vpnEnabled ? `Connected - ${selectedServer.ping}ms` : "Disconnected"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Server List */}
-              <div className={`rounded-2xl ${colors.bgSecondary} ${colors.border} border p-4`}>
-                <ServerList
-                  servers={defaultServers}
-                  selectedServer={selectedServer}
-                  onServerSelect={setSelectedServer}
-                />
-              </div>
+          
+          <div className="flex items-center gap-8">
+             <div className="flex items-center gap-4">
+                <span className="opacity-50 uppercase tracking-widest text-[10px]">Active Node:</span>
+                <span className={`bg-black/30 px-3 py-1 rounded font-mono text-[11px] border ${protection.isActive ? 'border-blue-500/30 text-blue-400 shadow-[inset_0_0_10px_rgba(59,130,246,0.1)]' : 'border-zinc-800 text-zinc-500'}`}>
+                    {activeDns[0] || '127.0.0.1'}
+                </span>
             </div>
-
-            {/* Center - Activation & Controls */}
-            <div className="col-span-6 flex flex-col items-center justify-center space-y-8">
-              {/* Activation Button - Centered */}
-              <div className="flex flex-col items-center">
-                <ActivationButton 
-                  protection={protection}
-                  onToggle={onProtectionToggle}
-                  size="lg"
-                />
-                
-                <div className="mt-8">
-                  <ProtectionToggles
-                    protection={protection}
-                    onVpnToggle={onVpnToggle}
-                    onAdblockToggle={onAdblockToggle}
-                    layout="horizontal"
-                  />
-                </div>
-              </div>
-
-              {/* Status Message */}
-              <div className={`text-center ${colors.textSecondary}`}>
-                <p className={`text-lg font-medium ${protection.isActive ? colors.success : colors.danger}`}>
-                  {protection.isActive ? "Protection Active" : "Protection Disabled"}
-                </p>
-                <p className="text-sm mt-1">
-                  {protection.isActive 
-                    ? `VPN: ${protection.vpnEnabled ? "Connected" : "Off"} | AdBlock: ${protection.adblockEnabled ? "Enabled" : "Off"}`
-                    : "Click the shield to activate protection"
-                  }
-                </p>
-              </div>
-            </div>
-
-            {/* Right Sidebar - System Settings */}
-            <div className="col-span-3 space-y-6">
-              {/* System Toggles */}
-              <SystemToggles
-                systemAdblock={systemAdblock}
-                onSystemAdblockToggle={() => setSystemAdblock(!systemAdblock)}
-                dnsOverHttps={dnsOverHttps}
-                onDnsOverHttpsToggle={() => setDnsOverHttps(!dnsOverHttps)}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Status Bar */}
-        <div className={`flex items-center justify-between px-4 py-2 ${colors.bgSecondary} ${colors.border} border-t text-xs ${colors.textSecondary}`}>
-          <div className="flex items-center gap-4">
-            <span className={protection.isActive ? colors.success : colors.danger}>
-              {protection.isActive ? "Protection Active" : "Protection Disabled"}
-            </span>
-            <span>|</span>
-            <span>VPN: {protection.vpnEnabled ? "On" : "Off"}</span>
-            <span>|</span>
-            <span>AdBlock: {protection.adblockEnabled ? "On" : "Off"}</span>
-          </div>
-          <div>
-            <span>v1.0.0-prototype</span>
+            <Globe className={`w-5 h-5 transition-all duration-1000 ${protection.isActive ? 'text-blue-400 opacity-80 animate-pulse' : 'text-zinc-600 opacity-40'}`} />
           </div>
         </div>
       </div>

@@ -11,7 +11,7 @@ interface ServerListProps {
   onServerSelect: (server: ServerLocation) => void
 }
 
-export function ServerList({ servers, selectedServer, onServerSelect }: ServerListProps) {
+export function ServerList({ servers = [], selectedServer, onServerSelect }: ServerListProps) {
   const { colors, theme } = useTheme()
 
   const getPingColor = (ping: number) => {
@@ -26,10 +26,26 @@ export function ServerList({ servers, selectedServer, onServerSelect }: ServerLi
     return "bg-red-400"
   }
 
+  // Get themed scrollbar classes
+  const getScrollbarClass = () => {
+    switch (theme) {
+      case 'dark':
+        return 'scrollbar-dark'
+      case 'light':
+        return 'scrollbar-light'
+      case 'vaporwave':
+        return 'scrollbar-vaporwave'
+      case 'frutiger-aero':
+        return 'scrollbar-frutiger'
+      default:
+        return 'scrollbar-dark'
+    }
+  }
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 flex flex-col min-h-0">
       <h3 className={`text-sm font-semibold ${colors.text} mb-3`}>Available Servers</h3>
-      <div className="space-y-2 max-h-48 overflow-y-auto">
+      <div className={`space-y-2 flex-1 min-h-0 overflow-y-auto pr-2 ${getScrollbarClass()}`}>
         {servers.map((server) => (
           <button
             key={server.id}

@@ -1,41 +1,57 @@
 "use client"
 
-import React, { useState } from "react"
-import { Monitor, Smartphone, Chrome } from "lucide-react"
+import React, { useState, useRef, useEffect } from "react"
+import { Monitor, Smartphone, Globe } from "lucide-react"
+import anime from "animejs"
 import { Button } from "@/components/ui/button"
 import { ThemeProvider, themeConfigs } from "@/packages/ui/ThemeProvider"
-import type { Theme, Platform, ProtectionState, TrackerStats, SmartFilter, BlurMethod } from "@/packages/ui/types"
-import { ExtensionApp } from "@/apps/extension/ExtensionApp"
+import type { Theme, Platform, ProtectionState, TrackerStats } from "@/packages/ui/types"
+import ExtensionApp from "@/apps/extension/ExtensionApp"
 import { MobileApp } from "@/apps/mobile/MobileApp"
 import { DesktopApp } from "@/apps/desktop/DesktopApp"
 
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("dark")
   const [platform, setPlatform] = useState<Platform>("extension")
-  
-  // Shared protection state
-  // TODO: Persist protection state in local storage or sync with backend
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
-    vpnEnabled: true,
+    vpnEnabled: false,
     adblockEnabled: true,
   })
-  
-  // Tracker stats (simulated)
-  // TODO: Fetch real-time statistics from the backend analytics service
   const [stats] = useState<TrackerStats>({
     bandwidthSaved: 847,
     timeSaved: 32,
     dataValueReclaimed: 4.73,
   })
-  
-  // Extension-specific state
-  const [filters, setFilters] = useState<SmartFilter[]>([
-    { id: "1", blockTerm: "war", exceptWhen: "peace treaty", enabled: true },
-    { id: "2", blockTerm: "violence", exceptWhen: "", enabled: true },
-  ])
-  const [contextLevel, setContextLevel] = useState(50)
-  const [blurMethod, setBlurMethod] = useState<BlurMethod>("blur")
+
+  const contentRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
+
+  // Content switch animation
+  useEffect(() => {
+    if (!contentRef.current) return
+    anime({
+      targets: contentRef.current,
+      opacity: [0, 1],
+      translateY: [15, 0],
+      duration: 500,
+      easing: "easeOutExpo",
+    })
+  }, [platform])
+
+  // Tab buttons entrance
+  useEffect(() => {
+    if (!tabsRef.current) return
+    const buttons = tabsRef.current.querySelectorAll("button")
+    anime({
+      targets: buttons,
+      scale: [0.8, 1],
+      opacity: [0, 1],
+      delay: anime.stagger(80),
+      duration: 500,
+      easing: "easeOutBack",
+    })
+  }, [])
 
   const handleProtectionToggle = () => {
     setProtection(prev => ({ ...prev, isActive: !prev.isActive }))
@@ -49,110 +65,71 @@ export default function Home() {
     setProtection(prev => ({ ...prev, adblockEnabled: !prev.adblockEnabled }))
   }
 
-  const colors = themeConfigs[theme]
-
-  const platformIcons = {
-    extension: Chrome,
-    mobile: Smartphone,
-    desktop: Monitor,
-  }
+  const platforms: { id: Platform; label: string; icon: React.ComponentType<any> }[] = [
+    { id: "extension", label: "Extension", icon: Globe },
+    { id: "mobile", label: "Mobile", icon: Smartphone },
+    { id: "desktop", label: "Desktop", icon: Monitor },
+  ]
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
-      <div className={`min-h-screen ${colors.bg} transition-colors duration-300`}>
-        {/* Dev Control Bar - Platform Selector Only */}
-        <div className={`sticky top-0 z-50 ${colors.bgSecondary} ${colors.border} border-b backdrop-blur-sm`}>
-          <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between">
-              {/* Dev Mode Label */}
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-medium px-2 py-1 rounded bg-amber-500/20 text-amber-400`}>
-                  DEV MODE
-                </span>
-                <span className={`text-sm ${colors.textSecondary}`}>
-                  Platform Preview
-                </span>
-              </div>
-
-              {/* Platform Selector */}
-              <div className="flex items-center gap-2">
-                {(["extension", "mobile", "desktop"] as Platform[]).map((p) => {
-                  const Icon = platformIcons[p]
-                  return (
-                    <Button
-                      key={p}
-                      variant={platform === p ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setPlatform(p)}
-                      className={`
-                        flex items-center gap-2 capitalize
-                        transition-all duration-200 hover:scale-105 active:scale-95
-                      `}
-                    >
-                      <Icon size={16} />
-                      {p}
-                    </Button>
-                  )
-                })}
-              </div>
-            </div>
+      <div className="h-screen overflow-hidden bg-zinc-950 flex flex-col">
+        {/* Platform Selector */}
+        <div className="flex justify-center p-4 shrink-0">
+          <div ref={tabsRef} className="flex gap-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
+            {platforms.map(({ id, label, icon: Icon }) => (
+              <Button
+                key={id}
+                variant={platform === id ? "default" : "ghost"}
+                size="sm"
+                onClick={() => setPlatform(id)}
+                className={`flex items-center gap-2 text-sm transition-all duration-200 ${
+                  platform === id
+                    ? "bg-zinc-700 text-white shadow-md"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                <Icon size={16} />
+                {label}
+              </Button>
+            ))}
           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="py-8 px-4 pb-20">
-          <div className="max-w-7xl mx-auto">
-            {/* Platform Preview */}
-            <div className="flex justify-center">
-              {platform === "extension" && (
-                <ExtensionApp
-                  protection={protection}
-                  onProtectionToggle={handleProtectionToggle}
-                  onVpnToggle={handleVpnToggle}
-                  onAdblockToggle={handleAdblockToggle}
-                  stats={stats}
-                  filters={filters}
-                  onFiltersChange={setFilters}
-                  contextLevel={contextLevel}
-                  onContextLevelChange={setContextLevel}
-                  blurMethod={blurMethod}
-                  onBlurMethodChange={setBlurMethod}
-                />
-              )}
-              
-              {platform === "mobile" && (
-                <MobileApp
-                  protection={protection}
-                  onProtectionToggle={handleProtectionToggle}
-                  onVpnToggle={handleVpnToggle}
-                  onAdblockToggle={handleAdblockToggle}
-                  stats={stats}
-                />
-              )}
-              
-              {platform === "desktop" && (
-                <DesktopApp
-                  protection={protection}
-                  onProtectionToggle={handleProtectionToggle}
-                  onVpnToggle={handleVpnToggle}
-                  onAdblockToggle={handleAdblockToggle}
-                  stats={stats}
-                />
-              )}
+        {/* Content */}
+        <div ref={contentRef} className="flex-1 min-h-0 flex justify-center overflow-hidden">
+          {platform === "extension" && (
+            <div className="h-full overflow-y-auto w-full max-w-[420px]">
+              <ExtensionApp
+                protection={protection}
+                onProtectionToggle={handleProtectionToggle}
+                onVpnToggle={handleVpnToggle}
+                onAdblockToggle={handleAdblockToggle}
+              />
             </div>
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className={`fixed bottom-0 left-0 right-0 ${colors.bgSecondary} ${colors.border} border-t py-2 px-4`}>
-          <div className="max-w-7xl mx-auto flex items-center justify-between text-xs">
-            <span className={colors.textSecondary}>
-              Cybersecurity Honours Project - Frontend Prototype
-            </span>
-            <span className={colors.textSecondary}>
-              Backend integration points marked with TODO comments
-            </span>
-          </div>
+          )}
+          {platform === "mobile" && (
+            <div className="h-full overflow-y-auto w-full max-w-[420px]">
+              <MobileApp
+                protection={protection}
+                onProtectionToggle={handleProtectionToggle}
+                onVpnToggle={handleVpnToggle}
+                onAdblockToggle={handleAdblockToggle}
+                stats={stats}
+              />
+            </div>
+          )}
+          {platform === "desktop" && (
+            <div className="h-full overflow-y-auto w-full">
+              <DesktopApp
+                protection={protection}
+                onProtectionToggle={handleProtectionToggle}
+                onVpnToggle={handleVpnToggle}
+                onAdblockToggle={handleAdblockToggle}
+                stats={stats}
+              />
+            </div>
+          )}
         </div>
       </div>
     </ThemeProvider>

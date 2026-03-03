@@ -8,10 +8,11 @@ import type { ProtectionState } from "./types"
 interface ActivationButtonProps {
   protection: ProtectionState
   onToggle: () => void
-  size?: "sm" | "md" | "lg"
+  size?: "sm" | "md" | "lg" | "xl"
+  loading?: boolean
 }
 
-export function ActivationButton({ protection, onToggle, size = "md" }: ActivationButtonProps) {
+export function ActivationButton({ protection, onToggle, size = "md", loading = false }: ActivationButtonProps) {
   const { theme, colors } = useTheme()
   const [isPressed, setIsPressed] = useState(false)
   const [lightningBolts, setLightningBolts] = useState<Array<{ id: number; angle: number; delay: number }>>([])
@@ -21,12 +22,14 @@ export function ActivationButton({ protection, onToggle, size = "md" }: Activati
     sm: "w-20 h-20",
     md: "w-32 h-32",
     lg: "w-40 h-40",
+    xl: "w-56 h-56",
   }
 
   const iconSizes = {
     sm: 32,
     md: 48,
     lg: 64,
+    xl: 80,
   }
 
   const triggerLightning = () => {
@@ -72,37 +75,65 @@ export function ActivationButton({ protection, onToggle, size = "md" }: Activati
     }
   }
 
+  const buttonRadius = size === "xl" ? 112 : size === "lg" ? 80 : size === "md" ? 64 : 40; // Half of button size
+
   return (
     <div className="relative flex items-center justify-center">
-      {/* Lightning bolts */}
-      {lightningBolts.map((bolt) => (
-        <div
-          key={bolt.id}
-          className="absolute pointer-events-none"
-          style={{
-            transform: `rotate(${bolt.angle}deg)`,
-          }}
-        >
-          <svg
-            className="lightning-bolt"
-            width="80"
-            height="20"
-            viewBox="0 0 80 20"
+      {/* Outer spinning ring for loading state */}
+      {loading && (
+        <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-400 border-r-emerald-400/30 animate-spin z-[10]" 
+             style={{ width: '110%', height: '110%', left: '-5%', top: '-5%' }} />
+      )}
+
+      {/* Lightning bolts - shoot from button edge */}
+      {lightningBolts.map((bolt) => {
+        // Calculate position on button circumference
+        const angleRad = (bolt.angle * Math.PI) / 180;
+        const startX = Math.cos(angleRad) * buttonRadius;
+        const startY = Math.sin(angleRad) * buttonRadius;
+        
+        return (
+          <div
+            key={bolt.id}
+            className="absolute pointer-events-none z-50"
             style={{
-              animation: `lightning-shoot 0.4s ease-out ${bolt.delay}ms forwards`,
-              opacity: 0,
+              left: `calc(50% + ${startX}px)`,
+              top: `calc(50% + ${startY}px)`,
+              transform: `rotate(${bolt.angle}deg) translateX(0)`,
+              transformOrigin: 'left center',
             }}
           >
-            <path
-              d="M0,10 L15,8 L12,10 L30,7 L25,10 L45,5 L38,10 L60,3 L50,10 L80,0"
-              fill="none"
-              stroke={theme === "vaporwave" ? "#f472b6" : theme === "frutiger-aero" ? "#38bdf8" : "#34d399"}
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </div>
-      ))}
+            <svg
+              className="lightning-bolt"
+              width="80"
+              height="20"
+              viewBox="0 0 80 20"
+              style={{
+                animation: `lightning-shoot 0.4s ease-out ${bolt.delay}ms forwards`,
+                opacity: 0,
+              }}
+            >
+              <path
+                d="M0,10 L15,8 L12,10 L30,7 L25,10 L45,5 L38,10 L60,3 L50,10 L80,0"
+                fill="none"
+                stroke={theme === "vaporwave" ? "#f472b6" : theme === "frutiger-aero" ? "#38bdf8" : "#34d399"}
+                strokeWidth="3"
+                strokeLinecap="round"
+                filter="url(#glow)"
+              />
+              <defs>
+                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+                  <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+                  <feMerge>
+                    <feMergeNode in="coloredBlur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
+              </defs>
+            </svg>
+          </div>
+        );
+      })}
 
       {/* Glow ring */}
       {protection.isActive && (

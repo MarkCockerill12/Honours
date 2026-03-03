@@ -1,6 +1,5 @@
-// TODO: Replace hardcoded URL with environment-based configuration for production
-// Replace with your actual EC2 IP/DNS
-const BACKEND_URL = "http://YOUR_EC2_IP:8080/api/translate";
+// Backend API configuration
+const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080/api/translate";
 
 export const translateText = async (text: string, targetLang: string = 'EN') => {
   try {

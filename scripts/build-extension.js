@@ -17,9 +17,12 @@ const buildConfig = {
 };
 
 if (watchMode) {
-  chokidar.watch(['./apps/extension/Utils/**/*.ts', './packages/**/*.ts']).on('change', async () => {
+  console.log('👁️  Watching for changes in extension files...');
+  chokidar.watch(['./apps/extension/**/*.ts', './apps/extension/**/*.tsx', './packages/**/*.ts']).on('change', async (path) => {
+    console.log('⚡ File changed:', path);
     console.log('⚡ Rebuilding Extension Scripts...');
     await build(buildConfig);
+    console.log('✓ Extension scripts rebuilt');
   });
 } else {
   build(buildConfig);

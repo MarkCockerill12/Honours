@@ -52,8 +52,10 @@ export function ScalableContainer({
   return (
     <div 
       className={`
-        w-full h-full ${colors.bg} ${colors.text}
+        w-full min-h-fit ${colors.bg} ${colors.text}
         transition-all duration-300 ease-out
+        responsive-p
+        overflow-auto
         ${className}
       `}
       style={{
@@ -62,7 +64,9 @@ export function ScalableContainer({
         ...getBackgroundStyle(),
       }}
     >
-      {children}
+      <div className="w-full h-full">
+        {children}
+      </div>
     </div>
   )
 }

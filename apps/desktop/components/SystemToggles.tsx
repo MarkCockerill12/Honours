@@ -8,15 +8,15 @@ import { useTheme } from "@/packages/ui/ThemeProvider"
 interface SystemTogglesProps {
   systemAdblock: boolean
   onSystemAdblockToggle: () => void
-  dnsOverHttps: boolean
-  onDnsOverHttpsToggle: () => void
+  vpn: boolean
+  onVpnToggle: () => void
 }
 
 export function SystemToggles({
   systemAdblock,
   onSystemAdblockToggle,
-  dnsOverHttps,
-  onDnsOverHttpsToggle,
+  vpn,
+  onVpnToggle,
 }: SystemTogglesProps) {
   const { colors } = useTheme()
 
@@ -30,16 +30,16 @@ export function SystemToggles({
     },
     {
       icon: Lock,
-      label: "DNS over HTTPS",
-      description: "Encrypt DNS queries",
-      enabled: dnsOverHttps,
-      onToggle: onDnsOverHttpsToggle,
+      label: "Encrypted VPN (BETA)",
+      description: "Route traffic via secure tunnel",
+      enabled: vpn,
+      onToggle: onVpnToggle,
     },
   ]
 
   return (
     <div className={`rounded-2xl ${colors.bgSecondary} ${colors.border} border p-4`}>
-      <h3 className={`text-sm font-semibold mb-4 ${colors.text}`}>System Integration</h3>
+      <h3 className={`text-sm font-semibold mb-4 ${colors.text}`}>Protection Layers</h3>
       
       <div className="space-y-3">
         {toggles.map((toggle) => (
@@ -49,8 +49,9 @@ export function SystemToggles({
               flex items-center gap-3 p-3 rounded-xl bg-black/10
               transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
               cursor-pointer
+              ${toggle.label.includes('BETA') ? 'opacity-50 cursor-not-allowed' : ''}
             `}
-            onClick={toggle.onToggle}
+            onClick={() => !toggle.label.includes('BETA') && toggle.onToggle()}
           >
             <div className={`
               p-2 rounded-lg
@@ -68,8 +69,9 @@ export function SystemToggles({
             </div>
             <Switch 
               checked={toggle.enabled}
-              onCheckedChange={toggle.onToggle}
+              onCheckedChange={() => !toggle.label.includes('BETA') && toggle.onToggle()}
               onClick={(e) => e.stopPropagation()}
+              disabled={toggle.label.includes('BETA')}
             />
           </div>
         ))}

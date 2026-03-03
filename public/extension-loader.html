@@ -1,38 +1,84 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8">
     <style>
-      body { margin: 0; padding: 0; width: 400px; height: 600px; overflow: hidden; }
-      iframe { width: 100%; height: 100%; border: none; }
+      body { 
+        margin: 0; 
+        padding: 0; 
+        width: 400px; 
+        height: 600px; 
+        overflow: hidden;
+        background: #09090b;
+      }
+      iframe { 
+        width: 100%; 
+        height: 100%; 
+        border: none; 
+      }
     </style>
   </head>
   <body>
-    <iframe src="http://localhost:3000/extension" allow="clipboard-read; clipboard-write"></iframe>
+    <iframe id="app-frame" src="http://localhost:3000/extension" title="Extension App" allow="clipboard-read; clipboard-write"></iframe>
 
     <script>
-      // THE BRIDGE: Listen for requests from the Next.js App (Iframe)
+      const iframe = document.getElementById('app-frame');
+      
+      console.log('[Extension Loader] Popup opened, Chrome APIs available:', !!chrome.tabs);
+      
+      // Create a bridge to pass Chrome API calls from iframe to this context
       window.addEventListener('message', (event) => {
+        // Only accept messages from our iframe
+        if (event.source !== iframe.contentWindow) return;
         
-        // 1. Receive Command from Localhost
-        if (event.data.action === 'EXECUTE_SCAN') {
-          // 2. Use Real Extension API (Only possible here)
-          chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-            if (!tabs[0] || !tabs[0].id) return;
-            
-            // 3. Talk to the Web Page (Content Script)
-            chrome.tabs.sendMessage(tabs[0].id, { action: "SCAN_PAGE_LINKS" }, (response) => {
-              
-              // 4. Send Result BACK to Localhost
-              const iframe = document.querySelector('iframe');
-              iframe.contentWindow.postMessage({ 
-                action: 'SCAN_RESULT', 
-                data: response,
-                error: chrome.runtime.lastError ? chrome.runtime.lastError.message : null
-              }, '*');
-            });
+        const { action, requestId, data } = event.data;
+        console.log('[Extension Loader] Received message from iframe:', action, 'requestId:', requestId);
+        
+        if (action === 'QUERY_TABS') {
+          console.log('[Extension Loader] Querying tabs with:', data.query);
+          chrome.tabs.query(data.query, (tabs) => {
+            console.log('[Extension Loader] Query result:', tabs.length, 'tabs found');
+            iframe.contentWindow.postMessage({
+              action: 'QUERY_TABS_RESPONSE',
+              requestId,
+              tabs,
+              error: chrome.runtime.lastError?.message
+            }, '*');
           });
         }
+        
+        if (action === 'SEND_MESSAGE') {
+          console.log('[Extension Loader] Sending message to tab:', data.tabId, 'message:', data.message.action);
+          chrome.tabs.sendMessage(data.tabId, data.message, (response) => {
+            console.log('[Extension Loader] Message response received:', response);
+            iframe.contentWindow.postMessage({
+              action: 'SEND_MESSAGE_RESPONSE',
+              requestId,
+              response,
+              error: chrome.runtime.lastError?.message
+            }, '*');
+          });
+        }
+        
+        if (action === 'CHECK_CHROME_AVAILABLE') {
+          iframe.contentWindow.postMessage({
+            action: 'CHROME_AVAILABLE_RESPONSE',
+            available: !!(chrome && chrome.tabs)
+          }, '*');
+        }
       });
+      
+      iframe.onload = function() {
+        console.log('[Extension Loader] Iframe loaded, sending bridge ready signal');
+        // Notify iframe that Chrome APIs are available via bridge
+        setTimeout(() => {
+          iframe.contentWindow.postMessage({
+            action: 'CHROME_BRIDGE_READY',
+            available: !!(chrome && chrome.tabs)
+          }, '*');
+          console.log('[Extension Loader] Bridge ready signal sent');
+        }, 200);
+      };
     </script>
   </body>
 </html>
