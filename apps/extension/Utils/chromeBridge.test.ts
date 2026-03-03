@@ -13,7 +13,21 @@ describe("chromeBridge", () => {
     const mockWindow = {
       self: { name: "iframe" },
       top: { name: "top" },
-      parent: { postMessage: vi.fn() },
+      parent: {
+        postMessage: vi.fn((payload) => {
+          setTimeout(() => {
+            const callback = bridgeModule.env.pendingRequests.get(payload.requestId);
+            if (callback) {
+              if (payload.action === 'QUERY_TABS') {
+                callback({ tabs: [{ id: 1, url: 'http://localhost' }] });
+              } else {
+                callback({ response: { success: false, mock: true } });
+              }
+              bridgeModule.env.pendingRequests.delete(payload.requestId);
+            }
+          }, 10);
+        }),
+      },
       addEventListener: vi.fn(),
       location: {
         href: "http://localhost:3000",
