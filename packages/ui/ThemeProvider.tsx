@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import React, { createContext, useContext } from "react"
-import type { Theme, ThemeColors } from "./types"
+import React, { createContext, useContext } from "react";
+import type { Theme, ThemeColors } from "./types";
 
 const themeConfigs: Record<Theme, ThemeColors> = {
   dark: {
@@ -52,20 +52,20 @@ const themeConfigs: Record<Theme, ThemeColors> = {
     warning: "text-amber-700",
     danger: "text-red-700",
   },
-}
+};
 
 interface ThemeContextType {
-  theme: Theme
-  colors: ThemeColors
-  setTheme: (theme: Theme) => void
+  theme: Theme;
+  colors: ThemeColors;
+  setTheme: (theme: Theme) => void;
 }
 
-const ThemeContext = createContext<ThemeContextType | null>(null)
+const ThemeContext = createContext<ThemeContextType | null>(null);
 
 export function useTheme() {
-  const context = useContext(ThemeContext)
-  if (!context) throw new Error("useTheme must be used within ThemeProvider")
-  return context
+  const context = useContext(ThemeContext);
+  if (!context) throw new Error("useTheme must be used within ThemeProvider");
+  return context;
 }
 
 export function ThemeProvider({
@@ -73,15 +73,17 @@ export function ThemeProvider({
   theme,
   setTheme,
 }: {
-  children: React.ReactNode
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  children: React.ReactNode;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
 }) {
   return (
-    <ThemeContext.Provider value={{ theme, colors: themeConfigs[theme], setTheme }}>
+    <ThemeContext.Provider
+      value={{ theme, colors: themeConfigs[theme], setTheme }}
+    >
       {children}
     </ThemeContext.Provider>
-  )
+  );
 }
 
-export { themeConfigs }
+export { themeConfigs };

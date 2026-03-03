@@ -3,33 +3,33 @@
 
 export interface MobileAdBlockConfig {
   enabled: boolean;
-  method: 'dns-profile' | 'local-vpn' | 'private-dns';
+  method: "dns-profile" | "local-vpn" | "private-dns";
   dnsServers: string[];
 }
 
 // Mobile-optimized DNS servers
 export const MOBILE_DNS_SERVERS = {
   adguard: {
-    ipv4: ['94.140.14.14', '94.140.15.15'],
-    ipv6: ['2a10:50c0::ad1:ff', '2a10:50c0::ad2:ff'],
-    dns_over_https: 'https://dns.adguard.com/dns-query',
-    dns_over_tls: 'dns.adguard.com',
-    description: 'AdGuard DNS - Blocks ads, trackers, malware'
+    ipv4: ["94.140.14.14", "94.140.15.15"],
+    ipv6: ["2a10:50c0::ad1:ff", "2a10:50c0::ad2:ff"],
+    dns_over_https: "https://dns.adguard.com/dns-query",
+    dns_over_tls: "dns.adguard.com",
+    description: "AdGuard DNS - Blocks ads, trackers, malware",
   },
   cloudflare_malware: {
-    ipv4: ['1.1.1.2', '1.0.0.2'],
-    ipv6: ['2606:4700:4700::1112', '2606:4700:4700::1002'],
-    dns_over_https: 'https://security.cloudflare-dns.com/dns-query',
-    dns_over_tls: 'security.cloudflare-dns.com',
-    description: 'Cloudflare for Families - Blocks malware'
+    ipv4: ["1.1.1.2", "1.0.0.2"],
+    ipv6: ["2606:4700:4700::1112", "2606:4700:4700::1002"],
+    dns_over_https: "https://security.cloudflare-dns.com/dns-query",
+    dns_over_tls: "security.cloudflare-dns.com",
+    description: "Cloudflare for Families - Blocks malware",
   },
   quad9: {
-    ipv4: ['9.9.9.9', '149.112.112.112'],
-    ipv6: ['2620:fe::fe', '2620:fe::9'],
-    dns_over_https: 'https://dns.quad9.net/dns-query',
-    dns_over_tls: 'dns.quad9.net',
-    description: 'Quad9 - Blocks malicious domains'
-  }
+    ipv4: ["9.9.9.9", "149.112.112.112"],
+    ipv6: ["2620:fe::fe", "2620:fe::9"],
+    dns_over_https: "https://dns.quad9.net/dns-query",
+    dns_over_tls: "dns.quad9.net",
+    description: "Quad9 - Blocks malicious domains",
+  },
 };
 
 /**
@@ -40,7 +40,7 @@ export const generateiOSConfigProfile = (): string => {
   const uuid1 = generateUUID();
   const uuid2 = generateUUID();
   const uuid3 = generateUUID();
-  
+
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -191,24 +191,24 @@ Technical:
 - Does NOT send data to external servers
 `,
   blockedDomains: [
-    'doubleclick.net',
-    'googlesyndication.com',
-    'googleadservices.com',
-    'facebook.com',
-    'connect.facebook.net',
-    'advertising.com',
-    'adnxs.com',
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "facebook.com",
+    "connect.facebook.net",
+    "advertising.com",
+    "adnxs.com",
     // ... more domains from DESKTOP_BLOCKLIST
-  ]
+  ],
 };
 
 /**
  * Generate UUID for iOS config profile
  */
 function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
@@ -227,11 +227,13 @@ export const supportsPrivateDNS = (): boolean => {
  */
 export const downloadiOSProfile = () => {
   const profile = generateiOSConfigProfile();
-  const blob = new Blob([profile], { type: 'application/x-apple-aspen-config' });
+  const blob = new Blob([profile], {
+    type: "application/x-apple-aspen-config",
+  });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = 'PrivacyProtector-AdBlock.mobileconfig';
+  a.download = "PrivacyProtector-AdBlock.mobileconfig";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -255,6 +257,6 @@ export interface MobileBlockStats {
  */
 export const calculateMobileSavings = (bytesBlocked: number): number => {
   const gbBlocked = bytesBlocked / (1024 * 1024 * 1024);
-  const costPerGB = 7.50; // Average UK mobile data cost in GBP
+  const costPerGB = 7.5; // Average UK mobile data cost in GBP
   return gbBlocked * costPerGB;
 };

@@ -9,7 +9,11 @@ declare global {
   interface Window {
     electron?: {
       systemAdBlock: {
-        checkStatus: () => Promise<{ active: boolean; adapters: string[]; error?: string }>;
+        checkStatus: () => Promise<{
+          active: boolean;
+          adapters: string[];
+          error?: string;
+        }>;
         enable: () => Promise<{ success: boolean; message: string }>;
         disable: () => Promise<{ success: boolean; message: string }>;
         forceReset: () => Promise<{ success: boolean; message: string }>;
@@ -22,7 +26,9 @@ declare global {
   }
 }
 
-const isElectron = () => (globalThis.window !== undefined) && !!(globalThis.window as any).electron?.systemAdBlock;
+const isElectron = () =>
+  globalThis.window !== undefined &&
+  !!(globalThis.window as any).electron?.systemAdBlock;
 
 export default function DesktopPage() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -62,10 +68,10 @@ export default function DesktopPage() {
       const api = (globalThis.window as any).electron;
       // Using direct channel if exposed or specific method
       if (api.systemAdBlock && api.systemAdBlock.testDns) {
-          return await api.systemAdBlock.testDns();
+        return await api.systemAdBlock.testDns();
       }
       // Fallback
-      return await api.invoke('adblock:test-dns');
+      return await api.invoke("adblock:test-dns");
     } catch (err) {
       console.error("Test invocation failed:", err);
       return null;
@@ -78,18 +84,24 @@ export default function DesktopPage() {
   // On mount: check status
   useEffect(() => {
     if (!isElectron()) {
-        console.warn("Dev mode: System functions are simulated.");
-        return;
+      console.warn("Dev mode: System functions are simulated.");
+      return;
     }
     const sync = async () => {
       try {
         const api = (globalThis.window as any).electron;
         const status = await api.systemAdBlock.checkStatus();
-        if (status.error === 'Not Admin') {
-            setError("Requires Administrator privileges! Please restart Terminal as Admin.");
+        if (status.error === "Not Admin") {
+          setError(
+            "Requires Administrator privileges! Please restart Terminal as Admin.",
+          );
         }
         if (status.active) {
-          setProtection(prev => ({ ...prev, isActive: true, adblockEnabled: true }));
+          setProtection((prev) => ({
+            ...prev,
+            isActive: true,
+            adblockEnabled: true,
+          }));
         }
         await updateDnsInfo();
       } catch (err) {
@@ -105,12 +117,17 @@ export default function DesktopPage() {
     const interval = setInterval(async () => {
       if (isTogglingRef.current) return;
       try {
-        const status = await (globalThis.window as any).electron.systemAdBlock.checkStatus();
+        const status = await (
+          globalThis.window as any
+        ).electron.systemAdBlock.checkStatus();
         await updateDnsInfo();
-        
-        setProtection(prev => {
+
+        setProtection((prev) => {
           if (prev.isActive && prev.adblockEnabled && !status.active) {
-            return { ...prev, isActive: prev.vpnEnabled ? prev.isActive : false };
+            return {
+              ...prev,
+              isActive: prev.vpnEnabled ? prev.isActive : false,
+            };
           }
           return prev;
         });
@@ -123,8 +140,12 @@ export default function DesktopPage() {
 
   const handleProtectionToggle = useCallback(async () => {
     if (isTogglingRef.current) return;
-    
-    if (!protection.isActive && !protection.adblockEnabled && !protection.vpnEnabled) {
+
+    if (
+      !protection.isActive &&
+      !protection.adblockEnabled &&
+      !protection.vpnEnabled
+    ) {
       setError("Enable VPN or AdBlock before activating.");
       return;
     }
@@ -141,14 +162,16 @@ export default function DesktopPage() {
           const api = (globalThis.window as any).electron;
           const result = await api.systemAdBlock.disable();
           if (result.success) {
-            setStatusMessage("Protection Disabled: All system settings restored.");
+            setStatusMessage(
+              "Protection Disabled: All system settings restored.",
+            );
           } else {
             setError(`Restoration Error: ${result.message}`);
           }
         } else if (!isElectron()) {
           setStatusMessage("Simulation disabled.");
         }
-        setProtection(prev => ({ ...prev, isActive: false }));
+        setProtection((prev) => ({ ...prev, isActive: false }));
         await updateDnsInfo();
       } else {
         // === ACTIVATE ===
@@ -160,7 +183,9 @@ export default function DesktopPage() {
             const result = await api.systemAdBlock.enable();
             if (result.success) {
               adBlockSuccess = true;
-              setStatusMessage("AdBlock Active: System-wide DNS + Hosts protection enabled.");
+              setStatusMessage(
+                "AdBlock Active: System-wide DNS + Hosts protection enabled.",
+              );
             } else {
               setError(`AdBlock Error: ${result.message}`);
             }
@@ -174,8 +199,10 @@ export default function DesktopPage() {
           setError("VPN connectivity is currently in Beta.");
         }
 
-        const canActivate = (protection.adblockEnabled && adBlockSuccess) || (protection.vpnEnabled && isVpnSupported);
-        setProtection(prev => ({ ...prev, isActive: canActivate }));
+        const canActivate =
+          (protection.adblockEnabled && adBlockSuccess) ||
+          (protection.vpnEnabled && isVpnSupported);
+        setProtection((prev) => ({ ...prev, isActive: canActivate }));
         await updateDnsInfo();
       }
     } finally {
@@ -185,9 +212,11 @@ export default function DesktopPage() {
   }, [protection, updateDnsInfo, isVpnSupported]);
 
   const handleVpnToggle = useCallback(() => {
-    setProtection(prev => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
+    setProtection((prev) => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
     if (protection.isActive) {
-      setError("VPN connectivity is currently in Beta and cannot be toggled while active.");
+      setError(
+        "VPN connectivity is currently in Beta and cannot be toggled while active.",
+      );
     }
   }, [protection.isActive]);
 
@@ -195,25 +224,29 @@ export default function DesktopPage() {
     if (!isElectron()) return;
     setIsToggling(true);
     try {
-        const api = (globalThis.window as any).electron;
-        const result = await api.systemAdBlock.forceReset();
-        if (result.success) {
-            setStatusMessage("SYSTEM RESET COMPLETE: Network settings restored.");
-            setProtection({ isActive: false, vpnEnabled: false, adblockEnabled: true });
-        } else {
-            setError(`Reset Failed: ${result.message}`);
-        }
-        await updateDnsInfo();
+      const api = (globalThis.window as any).electron;
+      const result = await api.systemAdBlock.forceReset();
+      if (result.success) {
+        setStatusMessage("SYSTEM RESET COMPLETE: Network settings restored.");
+        setProtection({
+          isActive: false,
+          vpnEnabled: false,
+          adblockEnabled: true,
+        });
+      } else {
+        setError(`Reset Failed: ${result.message}`);
+      }
+      await updateDnsInfo();
     } catch (err: any) {
-        setError(`Critical Error: ${err.message}`);
+      setError(`Critical Error: ${err.message}`);
     } finally {
-        setIsToggling(false);
+      setIsToggling(false);
     }
   }, [updateDnsInfo]);
 
   const handleAdblockToggle = useCallback(async () => {
     const nextState = !protection.adblockEnabled;
-    setProtection(prev => ({ ...prev, adblockEnabled: nextState }));
+    setProtection((prev) => ({ ...prev, adblockEnabled: nextState }));
 
     if (protection.isActive && isElectron()) {
       setIsToggling(true);
@@ -242,13 +275,25 @@ export default function DesktopPage() {
           {error && (
             <div className="bg-red-500/90 backdrop-blur-md text-white px-4 py-3 rounded-xl shadow-2xl border border-red-400/50 flex items-start gap-3 animate-in slide-in-from-right">
               <div className="flex-1 text-sm font-semibold">{error}</div>
-              <button onClick={() => setError(null)} className="text-white hover:opacity-75">×</button>
+              <button
+                onClick={() => setError(null)}
+                className="text-white hover:opacity-75"
+              >
+                ×
+              </button>
             </div>
           )}
           {statusMessage && (
             <div className="bg-emerald-600/90 backdrop-blur-md text-white px-4 py-3 rounded-xl shadow-2xl border border-emerald-400/50 flex items-start gap-3 animate-in slide-in-from-right">
-              <div className="flex-1 text-sm font-semibold">{statusMessage}</div>
-              <button onClick={() => setStatusMessage(null)} className="text-white hover:opacity-75">×</button>
+              <div className="flex-1 text-sm font-semibold">
+                {statusMessage}
+              </div>
+              <button
+                onClick={() => setStatusMessage(null)}
+                className="text-white hover:opacity-75"
+              >
+                ×
+              </button>
             </div>
           )}
         </div>
@@ -268,4 +313,3 @@ export default function DesktopPage() {
     </ThemeProvider>
   );
 }
-

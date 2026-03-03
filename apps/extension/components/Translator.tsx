@@ -1,25 +1,31 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Languages, RefreshCw, CheckCircle2, X, Loader2 } from 'lucide-react';
-import anime from 'animejs';
-import { chromeBridge } from '../Utils/chromeBridge';
+import React, { useState, useRef, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Languages, RefreshCw, CheckCircle2, X, Loader2 } from "lucide-react";
+import anime from "animejs";
+import { chromeBridge } from "../Utils/chromeBridge";
 
 const SUPPORTED_LANGUAGES = [
-  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
-  { code: 'fr', name: 'French', flag: '🇫🇷' },
-  { code: 'de', name: 'German', flag: '🇩🇪' },
-  { code: 'it', name: 'Italian', flag: '🇮🇹' },
-  { code: 'ja', name: 'Japanese', flag: '🇯🇵' },
-  { code: 'zh-CN', name: 'Chinese', flag: '🇨🇳' },
-  { code: 'ru', name: 'Russian', flag: '🇷🇺' },
-  { code: 'ar', name: 'Arabic', flag: '🇸🇦' },
-  { code: 'pt', name: 'Portuguese', flag: '🇵🇹' },
-  { code: 'ko', name: 'Korean', flag: '🇰🇷' }
+  { code: "es", name: "Spanish", flag: "🇪🇸" },
+  { code: "fr", name: "French", flag: "🇫🇷" },
+  { code: "de", name: "German", flag: "🇩🇪" },
+  { code: "it", name: "Italian", flag: "🇮🇹" },
+  { code: "ja", name: "Japanese", flag: "🇯🇵" },
+  { code: "zh-CN", name: "Chinese", flag: "🇨🇳" },
+  { code: "ru", name: "Russian", flag: "🇷🇺" },
+  { code: "ar", name: "Arabic", flag: "🇸🇦" },
+  { code: "pt", name: "Portuguese", flag: "🇵🇹" },
+  { code: "ko", name: "Korean", flag: "🇰🇷" },
 ];
 
 export function Translator() {
-  const [targetLang, setTargetLang] = useState('es');
+  const [targetLang, setTargetLang] = useState("es");
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationActive, setIsTranslationActive] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -43,7 +49,7 @@ export function Translator() {
       translateY: [-5, 0],
       opacity: [0, 1],
       duration: 400,
-      easing: 'easeOutExpo',
+      easing: "easeOutExpo",
     });
   }, [status]);
 
@@ -56,7 +62,7 @@ export function Translator() {
         height: [0, activeBannerRef.current.scrollHeight],
         opacity: [0, 1],
         duration: 400,
-        easing: 'easeOutExpo',
+        easing: "easeOutExpo",
       });
     }
   }, [isTranslationActive]);
@@ -65,19 +71,19 @@ export function Translator() {
   useEffect(() => {
     if (!progressRef.current) return;
     if (isTranslating) {
-      progressRef.current.style.display = 'block';
+      progressRef.current.style.display = "block";
       anime({
         targets: progressRef.current,
-        width: ['0%', '90%'],
+        width: ["0%", "90%"],
         duration: 8000,
-        easing: 'easeOutQuad',
+        easing: "easeOutQuad",
       });
     } else if (translatedCount > 0) {
       anime({
         targets: progressRef.current,
-        width: '100%',
+        width: "100%",
         duration: 300,
-        easing: 'easeOutQuad',
+        easing: "easeOutQuad",
         complete: () => {
           setTimeout(() => {
             if (progressRef.current) {
@@ -87,9 +93,9 @@ export function Translator() {
                 duration: 500,
                 complete: () => {
                   if (progressRef.current) {
-                    progressRef.current.style.display = 'none';
-                    progressRef.current.style.opacity = '1';
-                    progressRef.current.style.width = '0%';
+                    progressRef.current.style.display = "none";
+                    progressRef.current.style.opacity = "1";
+                    progressRef.current.style.width = "0%";
                   }
                 },
               });
@@ -102,7 +108,7 @@ export function Translator() {
 
   const handleTranslate = async () => {
     setIsTranslating(true);
-    setStatus('Translating...');
+    setStatus("Translating...");
     setTranslatedCount(0);
 
     // Button spin animation
@@ -111,29 +117,32 @@ export function Translator() {
         targets: translateBtnRef.current,
         rotate: 360,
         duration: 600,
-        easing: 'easeOutExpo',
+        easing: "easeOutExpo",
       });
     }
 
     if (!chromeBridge.isAvailable()) {
       setIsTranslating(false);
-      setStatus('Chrome APIs not available.');
+      setStatus("Chrome APIs not available.");
       return;
     }
 
     try {
-      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
+      const tabs = await chromeBridge.queryTabs({
+        active: true,
+        currentWindow: true,
+      });
       if (!tabs[0]?.id) {
         setIsTranslating(false);
-        setStatus('Error: No active tab.');
+        setStatus("Error: No active tab.");
         return;
       }
 
-      const response = await chromeBridge.sendMessage(tabs[0].id, { 
-        action: 'TRANSLATE_PAGE', 
-        targetLang 
+      const response = await chromeBridge.sendMessage(tabs[0].id, {
+        action: "TRANSLATE_PAGE",
+        targetLang,
       });
-      
+
       setIsTranslating(false);
 
       if (response?.success) {
@@ -141,7 +150,7 @@ export function Translator() {
         setTranslatedCount(response.count);
         setStatus(`✓ Translated ${response.count} elements.`);
       } else {
-        setStatus('Translation failed.');
+        setStatus("Translation failed.");
       }
     } catch (error: any) {
       setIsTranslating(false);
@@ -150,21 +159,26 @@ export function Translator() {
   };
 
   const handleClearTranslation = async () => {
-    setStatus('Clearing...');
+    setStatus("Clearing...");
 
     if (!chromeBridge.isAvailable()) {
-      setStatus('Chrome APIs not available.');
+      setStatus("Chrome APIs not available.");
       return;
     }
 
     try {
-      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
+      const tabs = await chromeBridge.queryTabs({
+        active: true,
+        currentWindow: true,
+      });
       if (!tabs[0]?.id) {
-        setStatus('Error: No active tab.');
+        setStatus("Error: No active tab.");
         return;
       }
 
-      await chromeBridge.sendMessage(tabs[0].id, { action: 'CLEAR_TRANSLATIONS' });
+      await chromeBridge.sendMessage(tabs[0].id, {
+        action: "CLEAR_TRANSLATIONS",
+      });
 
       // Animate banner out
       if (activeBannerRef.current) {
@@ -173,7 +187,7 @@ export function Translator() {
           height: 0,
           opacity: 0,
           duration: 300,
-          easing: 'easeInQuad',
+          easing: "easeInQuad",
           complete: () => {
             setIsTranslationActive(false);
             setTranslatedCount(0);
@@ -183,24 +197,29 @@ export function Translator() {
         setIsTranslationActive(false);
         setTranslatedCount(0);
       }
-      setStatus('Translations cleared.');
+      setStatus("Translations cleared.");
     } catch (error: any) {
       setStatus(`Failed: ${error.message}`);
     }
   };
 
-  const selectedLang = SUPPORTED_LANGUAGES.find(l => l.code === targetLang);
+  const selectedLang = SUPPORTED_LANGUAGES.find((l) => l.code === targetLang);
 
   return (
     <div ref={containerRef} className="w-full text-zinc-100 space-y-3">
       {/* Translation Active Banner */}
       {isTranslationActive && (
-        <div ref={activeBannerRef} className="overflow-hidden" style={{ height: 0, opacity: 0 }}>
+        <div
+          ref={activeBannerRef}
+          className="overflow-hidden"
+          style={{ height: 0, opacity: 0 }}
+        >
           <div className="flex items-center justify-between p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
             <div className="flex items-center gap-2">
               <Languages className="h-3.5 w-3.5 text-blue-400" />
               <span className="text-xs text-blue-400 font-medium">
-                {selectedLang?.flag} Translated to {selectedLang?.name} ({translatedCount} elements)
+                {selectedLang?.flag} Translated to {selectedLang?.name} (
+                {translatedCount} elements)
               </span>
             </div>
             <Button
@@ -214,7 +233,7 @@ export function Translator() {
           </div>
         </div>
       )}
-      
+
       {/* Language selector + translate button */}
       <div className="flex gap-2">
         <Select value={targetLang} onValueChange={setTargetLang}>
@@ -222,15 +241,15 @@ export function Translator() {
             <SelectValue placeholder="Select Language" />
           </SelectTrigger>
           <SelectContent>
-            {SUPPORTED_LANGUAGES.map(lang => (
+            {SUPPORTED_LANGUAGES.map((lang) => (
               <SelectItem key={lang.code} value={lang.code}>
                 {lang.flag} {lang.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-        
-        <Button 
+
+        <Button
           ref={translateBtnRef}
           className="bg-blue-600 hover:bg-blue-500 text-white shrink-0 w-9 h-9 p-0 transition-all duration-200"
           onClick={handleTranslate}
@@ -250,7 +269,7 @@ export function Translator() {
         <div
           ref={progressRef}
           className="absolute top-0 left-0 h-full bg-gradient-to-r from-blue-500 to-cyan-400 rounded-full"
-          style={{ width: '0%', display: 'none' }}
+          style={{ width: "0%", display: "none" }}
         />
       </div>
 
@@ -259,13 +278,20 @@ export function Translator() {
         <div
           ref={statusRef}
           className={`text-[10px] px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5
-            ${status.includes('Error') || status.includes('Failed') || status.includes('not available')
-              ? 'bg-red-500/10 border-red-500/20 text-red-400' 
-              : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`
-          }
+            ${
+              status.includes("Error") ||
+              status.includes("Failed") ||
+              status.includes("not available")
+                ? "bg-red-500/10 border-red-500/20 text-red-400"
+                : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+            }`}
           style={{ opacity: 0 }}
         >
-          {!status.includes('Error') && !status.includes('Failed') && !status.includes('not available') && <CheckCircle2 className="h-3 w-3" />}
+          {!status.includes("Error") &&
+            !status.includes("Failed") &&
+            !status.includes("not available") && (
+              <CheckCircle2 className="h-3 w-3" />
+            )}
           {status}
         </div>
       )}

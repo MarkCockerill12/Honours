@@ -1,48 +1,53 @@
-"use client"
+"use client";
 
-import React, { useState, useRef, useEffect } from "react"
-import { Monitor, Smartphone, Globe } from "lucide-react"
-import anime from "animejs"
-import { Button } from "@/components/ui/button"
-import { ThemeProvider, themeConfigs } from "@/packages/ui/ThemeProvider"
-import type { Theme, Platform, ProtectionState, TrackerStats } from "@/packages/ui/types"
-import ExtensionApp from "@/apps/extension/ExtensionApp"
-import { MobileApp } from "@/apps/mobile/MobileApp"
-import { DesktopApp } from "@/apps/desktop/DesktopApp"
+import React, { useState, useRef, useEffect } from "react";
+import { Monitor, Smartphone, Globe } from "lucide-react";
+import anime from "animejs";
+import { Button } from "@/components/ui/button";
+import { ThemeProvider, themeConfigs } from "@/packages/ui/ThemeProvider";
+import type {
+  Theme,
+  Platform,
+  ProtectionState,
+  TrackerStats,
+} from "@/packages/ui/types";
+import ExtensionApp from "@/apps/extension/ExtensionApp";
+import { MobileApp } from "@/apps/mobile/MobileApp";
+import { DesktopApp } from "@/apps/desktop/DesktopApp";
 
 export default function Home() {
-  const [theme, setTheme] = useState<Theme>("dark")
-  const [platform, setPlatform] = useState<Platform>("extension")
+  const [theme, setTheme] = useState<Theme>("dark");
+  const [platform, setPlatform] = useState<Platform>("extension");
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: false,
     adblockEnabled: true,
-  })
+  });
   const [stats] = useState<TrackerStats>({
     bandwidthSaved: 847,
     timeSaved: 32,
     dataValueReclaimed: 4.73,
-  })
+  });
 
-  const contentRef = useRef<HTMLDivElement>(null)
-  const tabsRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
 
   // Content switch animation
   useEffect(() => {
-    if (!contentRef.current) return
+    if (!contentRef.current) return;
     anime({
       targets: contentRef.current,
       opacity: [0, 1],
       translateY: [15, 0],
       duration: 500,
       easing: "easeOutExpo",
-    })
-  }, [platform])
+    });
+  }, [platform]);
 
   // Tab buttons entrance
   useEffect(() => {
-    if (!tabsRef.current) return
-    const buttons = tabsRef.current.querySelectorAll("button")
+    if (!tabsRef.current) return;
+    const buttons = tabsRef.current.querySelectorAll("button");
     anime({
       targets: buttons,
       scale: [0.8, 1],
@@ -50,33 +55,43 @@ export default function Home() {
       delay: anime.stagger(80),
       duration: 500,
       easing: "easeOutBack",
-    })
-  }, [])
+    });
+  }, []);
 
   const handleProtectionToggle = () => {
-    setProtection(prev => ({ ...prev, isActive: !prev.isActive }))
-  }
+    setProtection((prev) => ({ ...prev, isActive: !prev.isActive }));
+  };
 
   const handleVpnToggle = () => {
-    setProtection(prev => ({ ...prev, vpnEnabled: !prev.vpnEnabled }))
-  }
+    setProtection((prev) => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
+  };
 
   const handleAdblockToggle = () => {
-    setProtection(prev => ({ ...prev, adblockEnabled: !prev.adblockEnabled }))
-  }
+    setProtection((prev) => ({
+      ...prev,
+      adblockEnabled: !prev.adblockEnabled,
+    }));
+  };
 
-  const platforms: { id: Platform; label: string; icon: React.ComponentType<any> }[] = [
+  const platforms: {
+    id: Platform;
+    label: string;
+    icon: React.ComponentType<any>;
+  }[] = [
     { id: "extension", label: "Extension", icon: Globe },
     { id: "mobile", label: "Mobile", icon: Smartphone },
     { id: "desktop", label: "Desktop", icon: Monitor },
-  ]
+  ];
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
       <div className="h-screen overflow-hidden bg-zinc-950 flex flex-col">
         {/* Platform Selector */}
         <div className="flex justify-center p-4 shrink-0">
-          <div ref={tabsRef} className="flex gap-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
+          <div
+            ref={tabsRef}
+            className="flex gap-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800"
+          >
             {platforms.map(({ id, label, icon: Icon }) => (
               <Button
                 key={id}
@@ -97,7 +112,10 @@ export default function Home() {
         </div>
 
         {/* Content */}
-        <div ref={contentRef} className="flex-1 min-h-0 flex justify-center overflow-hidden">
+        <div
+          ref={contentRef}
+          className="flex-1 min-h-0 flex justify-center overflow-hidden"
+        >
           {platform === "extension" && (
             <div className="h-full overflow-y-auto w-full max-w-[420px]">
               <ExtensionApp
@@ -133,5 +151,5 @@ export default function Home() {
         </div>
       </div>
     </ThemeProvider>
-  )
+  );
 }

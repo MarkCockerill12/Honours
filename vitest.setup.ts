@@ -1,5 +1,5 @@
-import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import "@testing-library/jest-dom";
+import { vi } from "vitest";
 
 // Mock chrome APIs
 const storageStore: Record<string, any> = {};
@@ -17,8 +17,8 @@ global.chrome = {
       get: vi.fn((keys, cb) => {
         const result: Record<string, any> = {};
         if (Array.isArray(keys)) {
-          keys.forEach(k => result[k] = storageStore[k]);
-        } else if (typeof keys === 'string') {
+          keys.forEach((k) => (result[k] = storageStore[k]));
+        } else if (typeof keys === "string") {
           result[keys] = storageStore[keys];
         } else {
           Object.assign(result, storageStore);
@@ -30,9 +30,9 @@ global.chrome = {
         cb?.();
       }),
       clear: vi.fn((cb) => {
-        Object.keys(storageStore).forEach(k => delete storageStore[k]);
+        Object.keys(storageStore).forEach((k) => delete storageStore[k]);
         cb?.();
-      })
+      }),
     },
   },
   tabs: {

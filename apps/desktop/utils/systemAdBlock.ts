@@ -1,18 +1,18 @@
 // System-level Ad Blocking for Windows
 // Uses DNS settings modification to block ads system-wide
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
+import { exec } from "child_process";
+import { promisify } from "util";
+import fs from "fs";
+import path from "path";
+import os from "os";
 
 const execAsync = promisify(exec);
 
 // AdGuard DNS servers for ad blocking
 const ADGUARD_DNS = {
-  primary: '94.140.14.14',
-  secondary: '94.140.15.15',
+  primary: "94.140.14.14",
+  secondary: "94.140.15.15",
 };
 
 // Backup original DNS settings
@@ -30,24 +30,30 @@ let originalAdapters: NetworkAdapter[] = [];
 async function getNetworkAdapters(): Promise<NetworkAdapter[]> {
   try {
     const { stdout } = await execAsync(
-      'powershell "Get-NetAdapter | Where-Object {$_.Status -eq \'Up\'} | Select-Object -ExpandProperty Name"'
+      "powershell \"Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | Select-Object -ExpandProperty Name\"",
     );
-    
-    const adapterNames = stdout.trim().split('\n').filter(n => n.trim());
+
+    const adapterNames = stdout
+      .trim()
+      .split("\n")
+      .filter((n) => n.trim());
     const adapters: NetworkAdapter[] = [];
 
     for (const name of adapterNames) {
       try {
         const { stdout: dnsOutput } = await execAsync(
-          `powershell "Get-DnsClientServerAddress -InterfaceAlias '${name.trim()}' -AddressFamily IPv4 | Select-Object -ExpandProperty ServerAddresses"`
+          `powershell "Get-DnsClientServerAddress -InterfaceAlias '${name.trim()}' -AddressFamily IPv4 | Select-Object -ExpandProperty ServerAddresses"`,
         );
-        
-        const originalDNS = dnsOutput.trim().split('\n').filter(d => d.trim());
-        
+
+        const originalDNS = dnsOutput
+          .trim()
+          .split("\n")
+          .filter((d) => d.trim());
+
         adapters.push({
           name: name.trim(),
           interfaceName: name.trim(),
-          originalDNS: originalDNS.length > 0 ? originalDNS : ['DHCP'],
+          originalDNS: originalDNS.length > 0 ? originalDNS : ["DHCP"],
         });
       } catch (err) {
         console.error(`Failed to get DNS for adapter ${name}:`, err);
@@ -56,49 +62,62 @@ async function getNetworkAdapters(): Promise<NetworkAdapter[]> {
 
     return adapters;
   } catch (error) {
-    console.error('Failed to get network adapters:', error);
-    throw new Error('Failed to get network adapters. Run as Administrator.');
+    console.error("Failed to get network adapters:", error);
+    throw new Error("Failed to get network adapters. Run as Administrator.");
   }
 }
 
 /**
  * Set DNS servers for a specific network adapter
  */
-async function setAdapterDNS(interfaceName: string, primaryDNS: string, secondaryDNS?: string): Promise<void> {
+async function setAdapterDNS(
+  interfaceName: string,
+  primaryDNS: string,
+  secondaryDNS?: string,
+): Promise<void> {
   try {
     // Set primary DNS
     await execAsync(
-      `powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${interfaceName}' -ServerAddresses '${primaryDNS}'${secondaryDNS ? `,'${secondaryDNS}'` : ''}"`,
-      { windowsHide: true }
+      `powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${interfaceName}' -ServerAddresses '${primaryDNS}'${secondaryDNS ? `,'${secondaryDNS}'` : ""}"`,
+      { windowsHide: true },
     );
-    
-    console.log(`Set DNS for ${interfaceName}: ${primaryDNS}${secondaryDNS ? `, ${secondaryDNS}` : ''}`);
+
+    console.log(
+      `Set DNS for ${interfaceName}: ${primaryDNS}${secondaryDNS ? `, ${secondaryDNS}` : ""}`,
+    );
   } catch (error) {
     console.error(`Failed to set DNS for ${interfaceName}:`, error);
-    throw new Error(`Failed to set DNS for ${interfaceName}. Administrator privileges required.`);
+    throw new Error(
+      `Failed to set DNS for ${interfaceName}. Administrator privileges required.`,
+    );
   }
 }
 
 /**
  * Restore original DNS settings for an adapter
  */
-async function restoreAdapterDNS(interfaceName: string, originalDNS: string[]): Promise<void> {
+async function restoreAdapterDNS(
+  interfaceName: string,
+  originalDNS: string[],
+): Promise<void> {
   try {
-    if (originalDNS.includes('DHCP') || originalDNS.length === 0) {
+    if (originalDNS.includes("DHCP") || originalDNS.length === 0) {
       // Restore to DHCP
       await execAsync(
         `powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${interfaceName}' -ResetServerAddresses"`,
-        { windowsHide: true }
+        { windowsHide: true },
       );
       console.log(`Restored DHCP DNS for ${interfaceName}`);
     } else {
       // Restore specific DNS servers
-      const dnsServers = originalDNS.map(d => `'${d}'`).join(',');
+      const dnsServers = originalDNS.map((d) => `'${d}'`).join(",");
       await execAsync(
         `powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${interfaceName}' -ServerAddresses ${dnsServers}"`,
-        { windowsHide: true }
+        { windowsHide: true },
       );
-      console.log(`Restored DNS for ${interfaceName}: ${originalDNS.join(', ')}`);
+      console.log(
+        `Restored DNS for ${interfaceName}: ${originalDNS.join(", ")}`,
+      );
     }
   } catch (error) {
     console.error(`Failed to restore DNS for ${interfaceName}:`, error);
@@ -109,7 +128,10 @@ async function restoreAdapterDNS(interfaceName: string, originalDNS: string[]): 
 /**
  * Check if AdGuard DNS is currently active
  */
-export async function checkAdBlockStatus(): Promise<{ active: boolean; adapters: string[] }> {
+export async function checkAdBlockStatus(): Promise<{
+  active: boolean;
+  adapters: string[];
+}> {
   try {
     const adapters = await getNetworkAdapters();
     const activeAdapters: string[] = [];
@@ -117,13 +139,19 @@ export async function checkAdBlockStatus(): Promise<{ active: boolean; adapters:
     for (const adapter of adapters) {
       try {
         const { stdout } = await execAsync(
-          `powershell "Get-DnsClientServerAddress -InterfaceAlias '${adapter.interfaceName}' -AddressFamily IPv4 | Select-Object -ExpandProperty ServerAddresses"`
+          `powershell "Get-DnsClientServerAddress -InterfaceAlias '${adapter.interfaceName}' -AddressFamily IPv4 | Select-Object -ExpandProperty ServerAddresses"`,
         );
-        
-        const currentDNS = stdout.trim().split('\n').map(d => d.trim());
-        
+
+        const currentDNS = stdout
+          .trim()
+          .split("\n")
+          .map((d) => d.trim());
+
         // Check if AdGuard DNS is set
-        if (currentDNS.includes(ADGUARD_DNS.primary) || currentDNS.includes(ADGUARD_DNS.secondary)) {
+        if (
+          currentDNS.includes(ADGUARD_DNS.primary) ||
+          currentDNS.includes(ADGUARD_DNS.secondary)
+        ) {
           activeAdapters.push(adapter.name);
         }
       } catch (err) {
@@ -136,7 +164,7 @@ export async function checkAdBlockStatus(): Promise<{ active: boolean; adapters:
       adapters: activeAdapters,
     };
   } catch (error) {
-    console.error('Failed to check ad block status:', error);
+    console.error("Failed to check ad block status:", error);
     return { active: false, adapters: [] };
   }
 }
@@ -144,25 +172,30 @@ export async function checkAdBlockStatus(): Promise<{ active: boolean; adapters:
 /**
  * Enable system-wide ad blocking using AdGuard DNS
  */
-export async function enableSystemAdBlock(): Promise<{ success: boolean; message: string; adapters: string[] }> {
+export async function enableSystemAdBlock(): Promise<{
+  success: boolean;
+  message: string;
+  adapters: string[];
+}> {
   try {
     // Check if running as administrator
     const isAdmin = await checkAdminPrivileges();
     if (!isAdmin) {
       return {
         success: false,
-        message: 'Administrator privileges required. Right-click and "Run as Administrator".',
+        message:
+          'Administrator privileges required. Right-click and "Run as Administrator".',
         adapters: [],
       };
     }
 
     // Get all network adapters
     const adapters = await getNetworkAdapters();
-    
+
     if (adapters.length === 0) {
       return {
         success: false,
-        message: 'No active network adapters found.',
+        message: "No active network adapters found.",
         adapters: [],
       };
     }
@@ -174,7 +207,11 @@ export async function enableSystemAdBlock(): Promise<{ success: boolean; message
     const changedAdapters: string[] = [];
     for (const adapter of adapters) {
       try {
-        await setAdapterDNS(adapter.interfaceName, ADGUARD_DNS.primary, ADGUARD_DNS.secondary);
+        await setAdapterDNS(
+          adapter.interfaceName,
+          ADGUARD_DNS.primary,
+          ADGUARD_DNS.secondary,
+        );
         changedAdapters.push(adapter.name);
       } catch (err) {
         console.error(`Failed to set DNS for ${adapter.name}:`, err);
@@ -183,16 +220,16 @@ export async function enableSystemAdBlock(): Promise<{ success: boolean; message
 
     // Flush DNS cache
     try {
-      await execAsync('ipconfig /flushdns', { windowsHide: true });
-      console.log('DNS cache flushed');
+      await execAsync("ipconfig /flushdns", { windowsHide: true });
+      console.log("DNS cache flushed");
     } catch (err) {
-      console.error('Failed to flush DNS cache:', err);
+      console.error("Failed to flush DNS cache:", err);
     }
 
     if (changedAdapters.length === 0) {
       return {
         success: false,
-        message: 'Failed to enable ad blocking on any network adapter.',
+        message: "Failed to enable ad blocking on any network adapter.",
         adapters: [],
       };
     }
@@ -203,10 +240,10 @@ export async function enableSystemAdBlock(): Promise<{ success: boolean; message
       adapters: changedAdapters,
     };
   } catch (error: any) {
-    console.error('Failed to enable ad blocking:', error);
+    console.error("Failed to enable ad blocking:", error);
     return {
       success: false,
-      message: error.message || 'Failed to enable ad blocking.',
+      message: error.message || "Failed to enable ad blocking.",
       adapters: [],
     };
   }
@@ -215,25 +252,28 @@ export async function enableSystemAdBlock(): Promise<{ success: boolean; message
 /**
  * Disable system-wide ad blocking and restore original DNS
  */
-export async function disableSystemAdBlock(): Promise<{ success: boolean; message: string }> {
+export async function disableSystemAdBlock(): Promise<{
+  success: boolean;
+  message: string;
+}> {
   try {
     if (originalAdapters.length === 0) {
       // Try to get adapters and restore to DHCP
       const adapters = await getNetworkAdapters();
       for (const adapter of adapters) {
         try {
-          await restoreAdapterDNS(adapter.interfaceName, ['DHCP']);
+          await restoreAdapterDNS(adapter.interfaceName, ["DHCP"]);
         } catch (err) {
           console.error(`Failed to restore ${adapter.name}:`, err);
         }
       }
-      
+
       // Flush DNS cache
-      await execAsync('ipconfig /flushdns', { windowsHide: true });
-      
+      await execAsync("ipconfig /flushdns", { windowsHide: true });
+
       return {
         success: true,
-        message: 'Ad blocking disabled. DNS reset to DHCP.',
+        message: "Ad blocking disabled. DNS reset to DHCP.",
       };
     }
 
@@ -247,19 +287,19 @@ export async function disableSystemAdBlock(): Promise<{ success: boolean; messag
     }
 
     // Flush DNS cache
-    await execAsync('ipconfig /flushdns', { windowsHide: true });
+    await execAsync("ipconfig /flushdns", { windowsHide: true });
 
     originalAdapters = [];
 
     return {
       success: true,
-      message: 'Ad blocking disabled. Original DNS settings restored.',
+      message: "Ad blocking disabled. Original DNS settings restored.",
     };
   } catch (error: any) {
-    console.error('Failed to disable ad blocking:', error);
+    console.error("Failed to disable ad blocking:", error);
     return {
       success: false,
-      message: error.message || 'Failed to disable ad blocking.',
+      message: error.message || "Failed to disable ad blocking.",
     };
   }
 }
@@ -271,9 +311,9 @@ async function checkAdminPrivileges(): Promise<boolean> {
   try {
     // Try to write to a system directory to check admin privileges
     const { stdout } = await execAsync(
-      'powershell -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"'
+      'powershell -Command "([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)"',
     );
-    return stdout.trim().toLowerCase() === 'true';
+    return stdout.trim().toLowerCase() === "true";
   } catch (error) {
     return false;
   }

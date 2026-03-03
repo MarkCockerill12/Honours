@@ -253,10 +253,7 @@ export function CyberScanner() {
   }
 
   return (
-    <div
-      ref={cardRef}
-      className="w-full text-zinc-100 space-y-4"
-    >
+    <div ref={cardRef} className="w-full text-zinc-100 space-y-4">
       {/* Status Banner */}
       <div
         ref={statusRef}

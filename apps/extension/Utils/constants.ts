@@ -20,4 +20,4 @@ export const FILTER_PRESETS = {
     blockTerm: "nsfw",
     exceptWhen: "",
   },
-}
+};
