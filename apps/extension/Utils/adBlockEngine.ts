@@ -105,42 +105,64 @@ export const initBlockStats = async (): Promise<BlockStats> => {
   });
 };
 
+let memoryStats: BlockStats | null = null;
+let saveTimeout: NodeJS.Timeout | null = null;
+
 // Update stats when a request is blocked
 export const recordBlockedRequest = async (
   resourceType: string,
   url: string,
   category: "ads" | "trackers" | "analytics" | "social" | "youtube",
 ) => {
-  const stats = await initBlockStats();
+  // 1. Initialize memory stats if missing
+  memoryStats ??= await initBlockStats();
 
-  // Determine size based on resource type
+  // 2. Determine size based on resource type
   const size =
     AVG_SIZES[resourceType as keyof typeof AVG_SIZES] || AVG_SIZES.other;
 
-  stats.totalBlocked++;
-  stats.bandwidthSaved += size;
-  stats.blockedByType[category]++;
+  // 3. Increment counters in memory synchronously to avoid race conditions
+  memoryStats.totalBlocked++;
+  memoryStats.bandwidthSaved += size;
+  memoryStats.blockedByType[category]++;
 
-  // Calculate time saved (assume 10 Mbps connection = 1.25 MB/s)
   const timeSavedSeconds = size / (1.25 * 1024 * 1024);
-  stats.timeSaved += timeSavedSeconds;
+  memoryStats.timeSaved += timeSavedSeconds;
 
-  // Calculate money saved
   const mbSaved = size / (1024 * 1024);
-  stats.moneySaved += mbSaved * COST_PER_MB;
-
-  stats.lastUpdated = Date.now();
+  memoryStats.moneySaved += mbSaved * COST_PER_MB;
+  memoryStats.lastUpdated = Date.now();
 
   console.log(
     `[AdBlock] Blocked ${category}: ${url.substring(0, 50)}... (${(size / 1024).toFixed(1)}KB saved)`,
   );
 
-  if (isChromeStorageAvailable()) {
-    await chrome.storage.local.set({ blockStats: stats });
-  } else {
-    saveStatsToLocalStorage(stats);
+  // 4. Debounce the storage write to batch multiple rapid blocks into one disk I/O
+  if (!saveTimeout) {
+    saveTimeout = setTimeout(async () => {
+      // Flush to exact storage
+      if (isChromeStorageAvailable()) {
+        await chrome.storage.local.set({ blockStats: memoryStats });
+      } else {
+        saveStatsToLocalStorage(memoryStats!);
+      }
+
+      // Also record to Electron if available (for unified stats)
+      const api = (globalThis.window as any)?.electron;
+      if (api?.systemAdBlock?.recordBlock) {
+        try {
+          // We just send a ping to Electron, the actual tracking is done in main.js
+          await api.systemAdBlock.recordBlock({ size, category });
+        } catch (e) {
+          console.warn("[AdBlock] Failed to record block to Electron:", e);
+        }
+      }
+      
+      saveTimeout = null;
+    }, 2000); // 2 second batching window
   }
-  return stats;
+
+  return memoryStats;
 };
 
 // Get current stats
@@ -159,90 +181,8 @@ export const resetBlockStats = async () => {
   return newStats;
 };
 
-// Comprehensive filter lists (domains to block)
-export const AD_DOMAINS = [
-  // Google Ads
-  "doubleclick.net",
-  "googlesyndication.com",
-  "googleadservices.com",
-  "google-analytics.com",
-  "googletagmanager.com",
-  "googletagservices.com",
-  "adservice.google.com",
+// Comprehensive filter lists generation using @ghostery/adblocker
 
-  // YouTube Ads
-  "youtube.com/api/stats/ads",
-  "youtube.com/pagead/",
-  "youtube.com/ptracking",
-  "youtube.com/get_midroll_info",
-  "googlevideo.com/videoplayback",
-
-  // Facebook/Meta
-  "facebook.com/tr/",
-  "facebook.net",
-  "fbcdn.net/tr",
-  "connect.facebook.net",
-
-  // Amazon
-  "amazon-adsystem.com",
-  "amazonclix.com",
-
-  // Ad Networks
-  "adnxs.com",
-  "advertising.com",
-  "adsrvr.org",
-  "adroll.com",
-  "adsafeprotected.com",
-  "criteo.com",
-  "criteo.net",
-  "casalemedia.com",
-  "pubmatic.com",
-  "rubiconproject.com",
-  "taboola.com",
-  "outbrain.com",
-  "revcontent.com",
-  "mgid.com",
-
-  // Analytics & Tracking
-  "hotjar.com",
-  "mouseflow.com",
-  "clarity.ms",
-  "fullstory.com",
-  "segment.com",
-  "segment.io",
-  "mixpanel.com",
-  "amplitude.com",
-
-  // Social Media Trackers
-  "twitter.com/i/adsct",
-  "ads-twitter.com",
-  "t.co/i/adsct",
-  "linkedin.com/px/",
-  "snapchat.com/tr",
-
-  // More Ad Networks
-  "ad.doubleclick.net",
-  "pubads.g.doubleclick.net",
-  "securepubads.g.doubleclick.net",
-  "tpc.googlesyndication.com",
-  "pagead2.googlesyndication.com",
-  "media.net",
-  "advertising.com",
-  "adtechus.com",
-];
-
-// YouTube-specific ad indicators in URLs
-export const YOUTUBE_AD_PATTERNS = [
-  "/api/stats/ads",
-  "/pagead/",
-  "/ptracking",
-  "/get_midroll_info",
-  "ad_type=",
-  "&adformat=",
-  "/generate_204",
-];
-
-// CSS Selectors for ad elements (EasyList-style)
 export const AD_SELECTORS = [
   // Generic ad containers
   '[class*="ad-container"]',
@@ -294,99 +234,46 @@ export const isAdOrTracker = (
 } => {
   const urlLower = url.toLowerCase();
 
-  // YouTube ads
-  if (
-    urlLower.includes("youtube.com") ||
-    urlLower.includes("googlevideo.com")
-  ) {
-    for (const pattern of YOUTUBE_AD_PATTERNS) {
-      if (urlLower.includes(pattern.toLowerCase())) {
-        return { isAd: true, category: "youtube" };
-      }
-    }
+  if (urlLower.includes("youtube.com/pagead") || urlLower.includes("youtube.com/api/stats")) {
+    return { isAd: true, category: "youtube" };
   }
-
-  // Check against domain list
-  for (const domain of AD_DOMAINS) {
-    if (urlLower.includes(domain)) {
-      // Categorize
-      if (
-        domain.includes("analytic") ||
-        domain.includes("segment") ||
-        domain.includes("mixpanel")
-      ) {
-        return { isAd: true, category: "analytics" };
-      }
-      if (
-        domain.includes("facebook") ||
-        domain.includes("twitter") ||
-        domain.includes("linkedin")
-      ) {
-        return { isAd: true, category: "social" };
-      }
-      if (
-        domain.includes("hotjar") ||
-        domain.includes("mouseflow") ||
-        domain.includes("fullstory")
-      ) {
-        return { isAd: true, category: "trackers" };
-      }
-      return { isAd: true, category: "ads" };
-    }
+  if (urlLower.includes("facebook") || urlLower.includes("twitter")) {
+    return { isAd: true, category: "social" };
+  }
+  if (urlLower.includes("doubleclick") || urlLower.includes("googlesyndication") || urlLower.includes("googleads")) {
+    return { isAd: true, category: "ads" };
+  }
+  if (urlLower.includes("google-analytics") || urlLower.includes("tracker")) {
+    return { isAd: true, category: "analytics" };
   }
 
   return { isAd: false, category: null };
 };
 
-// Generate declarativeNetRequest rules
-export const generateDNRRules = (): chrome.declarativeNetRequest.Rule[] => {
-  const rules: chrome.declarativeNetRequest.Rule[] = [];
-  let ruleId = 1;
+// Generate declarativeNetRequest rules via ghostery webextension package
+export const setupDeclarativeNetRequestRules = async (): Promise<boolean> => {
+  try {
+    const { FiltersEngine } = require("@ghostery/adblocker-webextension");
+    
+    // Fetch and compile standard lists:
+    console.log("[AdBlock] Fetching EasyList & EasyPrivacy rulesets...");
+    const engine = await FiltersEngine.fromLists(fetch as any, [
+      "https://easylist.to/easylist/easylist.txt",
+      "https://easylist.to/easylist/easyprivacy.txt",
+    ]);
 
-  // Block ad domains
-  for (const domain of AD_DOMAINS) {
-    rules.push({
-      id: ruleId++,
-      priority: 1,
-      action: { type: chrome.declarativeNetRequest.RuleActionType.BLOCK },
-      condition: {
-        urlFilter: `*://*.${domain}/*`,
-        resourceTypes: [
-          chrome.declarativeNetRequest.ResourceType.SCRIPT,
-          chrome.declarativeNetRequest.ResourceType.IMAGE,
-          chrome.declarativeNetRequest.ResourceType.STYLESHEET,
-          chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
-          chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
-          chrome.declarativeNetRequest.ResourceType.MEDIA,
-        ],
-      },
-    });
-  }
-
-  // Block YouTube-specific ad patterns on YouTube and Google Video domains
-  const youtubeDomains = ["youtube.com", "googlevideo.com"];
-  for (const domain of youtubeDomains) {
-    for (const pattern of YOUTUBE_AD_PATTERNS) {
-      rules.push({
-        id: ruleId++,
-        priority: 2, // Higher priority for YouTube specific rules
-        action: { type: chrome.declarativeNetRequest.RuleActionType.BLOCK },
-        condition: {
-          urlFilter: `*://*.${domain}/*${pattern}*`,
-          resourceTypes: [
-            chrome.declarativeNetRequest.ResourceType.SCRIPT,
-            chrome.declarativeNetRequest.ResourceType.IMAGE,
-            chrome.declarativeNetRequest.ResourceType.STYLESHEET,
-            chrome.declarativeNetRequest.ResourceType.XMLHTTPREQUEST,
-            chrome.declarativeNetRequest.ResourceType.SUB_FRAME,
-            chrome.declarativeNetRequest.ResourceType.MEDIA,
-            chrome.declarativeNetRequest.ResourceType.MAIN_FRAME, // Block ad frames too
-            chrome.declarativeNetRequest.ResourceType.OTHER,
-          ],
-        },
-      });
+    // Push the compiled declarativeNetRequest structure dynamically onto the extension
+    if (typeof chrome !== "undefined" && chrome.declarativeNetRequest) {
+      await engine.updateDeclarativeNetRequestRules(chrome.declarativeNetRequest);
+      console.log("[AdBlock] Successfully injected DNR rules natively via @ghostery/adblocker-webextension");
+      return true;
+    } else {
+      console.warn("[AdBlock] Chrome DNR API is unavailable. Are we running inside an extension manifest v3?");
+      return false;
     }
+  } catch (err) {
+    console.error("[AdBlock] Error loading adblock packages dynamically:", err);
+    return false;
   }
-
-  return rules;
 };
+

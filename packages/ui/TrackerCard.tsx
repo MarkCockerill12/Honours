@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useMemo } from "react";
 import { TrendingUp, Clock, PoundSterling } from "lucide-react";
 import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
@@ -11,16 +11,18 @@ interface TrackerCardProps {
   compact?: boolean;
 }
 
+interface AnimatedValueProps {
+  value: number;
+  format: (n: number) => string;
+  suffix?: string;
+}
+
 // Animated number component
 function AnimatedValue({
   value,
   format,
   suffix = "",
-}: {
-  value: number;
-  format: (n: number) => string;
-  suffix?: string;
-}) {
+}: Readonly<AnimatedValueProps>) {
   const ref = useRef<HTMLSpanElement>(null);
   const prevValue = useRef(0);
 
@@ -61,9 +63,25 @@ function AnimatedValue({
   );
 }
 
-export function TrackerCard({ stats, compact = false }: TrackerCardProps) {
-  const { colors, theme } = useTheme();
+export function TrackerCard({
+  stats,
+  compact = false,
+}: Readonly<TrackerCardProps>) {
+  const { theme, colors } = useTheme();
   const cardRef = useRef<HTMLDivElement>(null);
+
+  const glassCardClass = useMemo(() => {
+    switch (theme) {
+      case "dark":
+        return "glass-card";
+      case "vaporwave":
+        return "glass-card-vaporwave";
+      case "frutiger-aero":
+        return "glass-card-frutiger";
+      default:
+        return "glass-card-light";
+    }
+  }, [theme]);
   const [hasEnteredView, setHasEnteredView] = useState(false);
 
   const formatBandwidth = (bytes: number) => {
@@ -104,12 +122,41 @@ export function TrackerCard({ stats, compact = false }: TrackerCardProps) {
     });
   }, []);
 
+  const statsConfig = useMemo(
+    () => [
+      {
+        icon: TrendingUp,
+        value: stats.bandwidthSaved,
+        format: formatBandwidth,
+        label: "Bandwidth",
+        colorClass: colors.success,
+      },
+      {
+        icon: Clock,
+        value: stats.timeSaved,
+        format: formatTime,
+        label: "Time",
+        colorClass: colors.warning,
+      },
+      {
+        icon: PoundSterling,
+        value: stats.dataValueReclaimed ?? 0,
+        format: (n: number) => `£${n.toFixed(2)}`,
+        label: "Value",
+        colorClass: theme === "vaporwave" ? "text-pink-400" : colors.success,
+      },
+    ],
+    [stats, colors, theme],
+  );
+
   const getHoverGlow = () => {
     switch (theme) {
       case "vaporwave":
         return "hover:shadow-[0_0_20px_rgba(244,114,182,0.15)]";
       case "frutiger-aero":
         return "hover:shadow-[0_0_20px_rgba(56,189,248,0.15)]";
+      case "cyberpunk":
+        return "hover:shadow-[0_0_25px_rgba(254,240,138,0.25)]";
       case "light":
         return "hover:shadow-[0_0_20px_rgba(59,130,246,0.1)]";
       default:
@@ -121,8 +168,7 @@ export function TrackerCard({ stats, compact = false }: TrackerCardProps) {
     return (
       <div
         ref={cardRef}
-        className={`flex items-center justify-around p-3 rounded-2xl hover-lift transition-all duration-300 ${getHoverGlow()}
-          ${theme === "dark" ? "glass-card" : theme === "vaporwave" ? "glass-card-vaporwave" : theme === "frutiger-aero" ? "glass-card-frutiger" : "glass-card-light"}`}
+        className={`flex items-center justify-around p-3 rounded-2xl hover-lift transition-all duration-300 ${getHoverGlow()} ${glassCardClass}`}
       >
         <div className="stat-item flex items-center gap-2 transition-transform duration-200 hover:scale-110">
           <TrendingUp className={colors.success} size={16} />
@@ -160,8 +206,7 @@ export function TrackerCard({ stats, compact = false }: TrackerCardProps) {
   return (
     <div
       ref={cardRef}
-      className={`p-5 rounded-[2rem] hover-lift transition-all duration-300 ${getHoverGlow()}
-        ${theme === "dark" ? "glass-card" : theme === "vaporwave" ? "glass-card-vaporwave" : theme === "frutiger-aero" ? "glass-card-frutiger" : "glass-card-light"}`}
+      className={`p-5 rounded-4xl hover-lift transition-all duration-300 ${getHoverGlow()} ${glassCardClass}`}
       style={{ opacity: 0 }}
     >
       <div className="flex items-center justify-between mb-4">
@@ -177,32 +222,9 @@ export function TrackerCard({ stats, compact = false }: TrackerCardProps) {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
-        {[
-          {
-            icon: TrendingUp,
-            value: stats.bandwidthSaved,
-            format: formatBandwidth,
-            label: "Bandwidth",
-            colorClass: colors.success,
-          },
-          {
-            icon: Clock,
-            value: stats.timeSaved,
-            format: formatTime,
-            label: "Time",
-            colorClass: colors.warning,
-          },
-          {
-            icon: PoundSterling,
-            value: stats.dataValueReclaimed ?? 0,
-            format: (n: number) => `£${n.toFixed(2)}`,
-            label: "Value",
-            colorClass:
-              theme === "vaporwave" ? "text-pink-400" : colors.success,
-          },
-        ].map((stat, i) => (
+        {statsConfig.map((stat) => (
           <div
-            key={i}
+            key={stat.label}
             className={`stat-item flex flex-col items-center p-4 rounded-2xl bg-black/10 transition-all duration-300 hover:bg-black/20 hover:-translate-y-1 shadow-inner`}
           >
             <div

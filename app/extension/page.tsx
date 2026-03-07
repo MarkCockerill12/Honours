@@ -1,8 +1,9 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ExtensionApp from "@/apps/extension/ExtensionApp";
 import { ThemeProvider } from "@/packages/ui/ThemeProvider";
-import type { Theme, ProtectionState } from "@/packages/ui/types";
+import type { Theme, ProtectionState, SmartFilter } from "@/packages/ui/types";
+import { blurContent, clearBlurContent } from "@/apps/extension/Utils/content";
 
 export default function ExtensionPage() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -12,40 +13,31 @@ export default function ExtensionPage() {
     adblockEnabled: true,
   });
 
-  // Setup console log interceptor for dev mode
+  const testContentRef = useRef<HTMLDivElement>(null);
+
+  const [filters, setFilters] = useState<SmartFilter[]>([
+    {
+      id: "1",
+      blockTerm: "facebook",
+      exceptWhen: "",
+      enabled: true,
+      blockScope: "word",
+    },
+    {
+      id: "2",
+      blockTerm: "doubleclick",
+      exceptWhen: "",
+      enabled: true,
+      blockScope: "word",
+    },
+  ]);
+
+  // Sync stats with Electron if available
   useEffect(() => {
-    console.log("[ExtensionPage] Component mounted - Development mode active");
-    console.log(
-      "[ExtensionPage] Chrome extension APIs available:",
-      typeof chrome !== "undefined" && !!chrome.tabs,
-    );
-
-    // Listen for messages from child iframes (for dev mode testing)
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.action === "EXECUTE_SCAN") {
-        console.log(
-          "[ExtensionPage] Received EXECUTE_SCAN message from iframe",
-        );
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    // Notify child iframes that we are ready (simulating extension bridge)
-    const iframes = document.querySelectorAll("iframe");
-    iframes.forEach((iframe) => {
-      iframe.contentWindow?.postMessage(
-        { action: "CHROME_BRIDGE_READY", available: true },
-        "*",
-      );
-    });
-
-    // Also handle immediate readiness for cases like current page hosting the component
-    window.postMessage({ action: "CHROME_BRIDGE_READY", available: true }, "*");
-
-    return () => {
-      window.removeEventListener("message", handleMessage);
-    };
+    const api = (globalThis.window as any).electron;
+    if (api?.systemAdBlock) {
+      console.log("[ExtensionPage] Electron context detected. Syncing stats...");
+    }
   }, []);
 
   const handleProtectionToggle = () => {
@@ -63,17 +55,24 @@ export default function ExtensionPage() {
     const newState = !protection.adblockEnabled;
     setProtection((prev) => ({ ...prev, adblockEnabled: newState }));
 
-    // Send message to background to toggle ad blocking
+    // 1. FOR ELECTRON: Toggle system-wide adblocking
+    const api = (globalThis.window as any).electron;
+    if (api?.systemAdBlock) {
+      try {
+        if (newState) await api.systemAdBlock.enable();
+        else await api.systemAdBlock.disable();
+      } catch (err) {
+        console.error("[ExtensionPage] System toggle failed:", err);
+      }
+    }
+
+    // 2. FOR CHROME: Send message to background
     try {
       if (typeof chrome !== "undefined" && chrome.runtime) {
         chrome.runtime.sendMessage(
-          { action: "TOGGLE_ADBLOCK", enabled: newState },
-          (response) => {
-            console.log("[ExtensionPage] Adblock toggle response:", response);
-          },
+          { action: "TOGGLE_ADBLOCK", enabled: newState }
         );
 
-        // Also send to content scripts to enable/disable element hiding
         chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
           if (tabs[0]?.id) {
             chrome.tabs.sendMessage(tabs[0].id, {
@@ -83,9 +82,19 @@ export default function ExtensionPage() {
         });
       }
     } catch (error) {
-      console.error("[ExtensionPage] Error toggling adblock:", error);
+       // silence if not in chrome
     }
   };
+
+  useEffect(() => {
+    // Clear existing filters first to avoid duplication/overlapping
+    clearBlurContent();
+
+    if (protection.adblockEnabled && testContentRef.current) {
+      console.log("[ExtensionPage] Applying blurContent with filters:", filters);
+      blurContent(testContentRef.current, filters, "blur");
+    }
+  }, [protection.adblockEnabled, filters]);
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
@@ -96,10 +105,15 @@ export default function ExtensionPage() {
           onProtectionToggle={handleProtectionToggle}
           onVpnToggle={handleVpnToggle}
           onAdblockToggle={handleAdblockToggle}
+          filters={filters}
+          onFiltersChange={setFilters}
         />
 
         {/* Test Content for Scanner - Real Links */}
-        <div className="mt-8 p-4 bg-zinc-900 rounded-lg max-w-2xl">
+        <div
+          ref={testContentRef}
+          className="mt-8 p-4 bg-zinc-900 rounded-lg max-w-2xl"
+        >
           <h3 className="text-white text-sm font-bold mb-3">
             Test Content (for scanning)
           </h3>
@@ -130,8 +144,7 @@ export default function ExtensionPage() {
               article.
             </p>
             <p className="text-zinc-300">
-              Some violence content here for testing filters. Also war topics
-              and nsfw material mentioned.
+              Some violence content here for testing filters. Also war topics and nsfw material mentioned together: violence, nsfw, and war.
             </p>
             <p className="text-zinc-300">
               External links:{" "}

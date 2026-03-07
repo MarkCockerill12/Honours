@@ -1,4 +1,4 @@
-export type Theme = "dark" | "light" | "vaporwave" | "frutiger-aero";
+export type Theme = "dark" | "light" | "vaporwave" | "frutiger-aero" | "cyberpunk";
 export type Platform = "extension" | "mobile" | "desktop";
 export type BlurMethod = "blackbar" | "blur" | "kitten" | "warning";
 export type BlockScope = "word" | "paragraph" | "page-warning";

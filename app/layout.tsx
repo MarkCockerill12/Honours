@@ -4,11 +4,13 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 
+import { StatsProvider } from "@/packages/ui";
+
 const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Blocker -Honours Project",
+  title: "Blocker - Honours Project",
   description: "An Ad Blocker/Vpn etc",
   icons: {
     icon: [
@@ -37,8 +39,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans antialiased`}>
-        {children}
-        <Analytics />
+        <StatsProvider>
+          {children}
+          <Analytics />
+        </StatsProvider>
       </body>
     </html>
   );

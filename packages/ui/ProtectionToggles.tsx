@@ -20,7 +20,7 @@ export function ProtectionToggles({
   onAdblockToggle,
   layout = "horizontal",
 }: ProtectionTogglesProps) {
-  const { colors } = useTheme();
+  const { colors, theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -53,13 +53,23 @@ export function ProtectionToggles({
     callback();
   };
 
+  const getHoverGlow = () => {
+    switch (theme) {
+      case "vaporwave": return "hover:shadow-[0_0_15px_rgba(244,114,182,0.15)]";
+      case "frutiger-aero": return "hover:shadow-[0_0_15px_rgba(56,189,248,0.15)]";
+      case "cyberpunk": return "hover:shadow-[0_0_20px_rgba(254,240,138,0.25)] hover:border-yellow-400/30";
+      case "light": return "hover:shadow-[0_0_15px_rgba(59,130,246,0.1)]";
+      default: return "hover:shadow-[0_0_15px_rgba(52,211,153,0.15)] hover:border-emerald-500/30";
+    }
+  };
+
   return (
     <div ref={containerRef} className={containerClass}>
       <div
         className={`
           toggle-card flex items-center gap-3 p-3 rounded-xl
           ${colors.bgSecondary} ${colors.border} border backdrop-blur-sm
-          transition-all duration-200
+          transition-all duration-300 ${getHoverGlow()}
           ${isVpnLocked ? "opacity-60 cursor-not-allowed" : "hover:scale-105 active:scale-95 cursor-pointer"}
         `}
         onClick={(e) =>
@@ -86,7 +96,7 @@ export function ProtectionToggles({
         className={`
           toggle-card flex items-center gap-3 p-3 rounded-xl
           ${colors.bgSecondary} ${colors.border} border backdrop-blur-sm
-          transition-all duration-200
+          transition-all duration-300 ${getHoverGlow()}
           hover:scale-105 active:scale-95 cursor-pointer
         `}
         onClick={(e) => handleToggle(e.currentTarget, onAdblockToggle)}

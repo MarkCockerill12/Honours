@@ -1,8 +1,8 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { DesktopApp } from "@/apps/desktop/DesktopApp";
-import { ThemeProvider } from "@/packages/ui/ThemeProvider";
-import type { Theme, ProtectionState, TrackerStats } from "@/packages/ui/types";
+import { ThemeProvider, useStats } from "@/packages/ui";
+import type { Theme, ProtectionState } from "@/packages/ui/types";
 
 // Declare electron global
 declare global {
@@ -17,7 +17,14 @@ declare global {
         enable: () => Promise<{ success: boolean; message: string }>;
         disable: () => Promise<{ success: boolean; message: string }>;
         forceReset: () => Promise<{ success: boolean; message: string }>;
-        testDns?: () => Promise<{ isBlocked: boolean; output: string }>;
+        testDns?: () => Promise<{ isBlocked: boolean; output: string; summary?: string }>;
+        getStats: () => Promise<{
+          totalBlocked: number;
+          bandwidthSaved: number;
+          timeSaved: number;
+          moneySaved: number;
+        }>;
+        recordBlock: (data: { size: number; category: string }) => Promise<any>;
       };
       system: {
         getDnsInfo: () => Promise<Record<string, string[]>>;
@@ -41,29 +48,38 @@ export default function DesktopPage() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [currentDns, setCurrentDns] = useState<Record<string, string[]>>({});
+  const [, setInitialDns] = useState<Record<string, string[]>>({});
   const [isToggling, setIsToggling] = useState(false);
   const isTogglingRef = useRef(false);
 
-  // Simulated stats for the dashboard
-  const [stats] = useState<TrackerStats>({
-    bandwidthSaved: 847,
-    timeSaved: 32,
-    dataValueReclaimed: 4.73,
-  });
+  const { stats, updateStats } = useStats();
 
-  const updateDnsInfo = useCallback(async () => {
+  const updateDnsInfo = useCallback(async (isInitial = false) => {
     if (!isElectron()) return;
     try {
       const api = (globalThis.window as any).electron;
       const info = await api.system.getDnsInfo();
       setCurrentDns(info);
+      if (isInitial) setInitialDns(info);
     } catch {
       // ignore
     }
   }, []);
 
   const handleTest = useCallback(async () => {
-    if (!isElectron()) return null;
+    if (!isElectron()) {
+      console.log("Dev mode: Simulating DNS test...");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      return {
+        isBlocked: protection.isActive,
+        output: protection.isActive
+          ? "Non-authoritative answer:\nName:    doubleclick.net\nAddress:  0.0.0.0"
+          : "Non-authoritative answer:\nName:    doubleclick.net\nAddress:  142.250.74.206",
+        summary: protection.isActive
+          ? "SUCCESS: Traffic to doubleclick.net was correctly intercepted by the shield."
+          : "WARNING: Traffic to doubleclick.net bypasses the shield and resolved to a public IP."
+      };
+    }
     try {
       const api = (globalThis.window as any).electron;
       // Using direct channel if exposed or specific method
@@ -76,7 +92,7 @@ export default function DesktopPage() {
       console.error("Test invocation failed:", err);
       return null;
     }
-  }, []);
+  }, [protection.isActive]);
 
   // VPN is currently in Beta and not supported
   const isVpnSupported = false;
@@ -85,6 +101,7 @@ export default function DesktopPage() {
   useEffect(() => {
     if (!isElectron()) {
       console.warn("Dev mode: System functions are simulated.");
+      updateDnsInfo(true);
       return;
     }
     const sync = async () => {
@@ -103,7 +120,8 @@ export default function DesktopPage() {
             adblockEnabled: true,
           }));
         }
-        await updateDnsInfo();
+        await updateDnsInfo(true);
+        await updateStats();
       } catch (err) {
         console.error("Initial sync failure:", err);
       }
@@ -121,6 +139,7 @@ export default function DesktopPage() {
           globalThis.window as any
         ).electron.systemAdBlock.checkStatus();
         await updateDnsInfo();
+        await updateStats();
 
         setProtection((prev) => {
           if (prev.isActive && prev.adblockEnabled && !status.active) {
@@ -136,7 +155,7 @@ export default function DesktopPage() {
       }
     }, 5000);
     return () => clearInterval(interval);
-  }, [updateDnsInfo]);
+  }, [updateDnsInfo, updateStats]);
 
   const handleProtectionToggle = useCallback(async () => {
     if (isTogglingRef.current) return;
@@ -308,6 +327,7 @@ export default function DesktopPage() {
           stats={stats}
           loading={isToggling}
           dnsInfo={currentDns}
+          setTheme={setTheme}
         />
       </div>
     </ThemeProvider>

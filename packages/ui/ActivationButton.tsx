@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Shield, ShieldOff } from "lucide-react";
+import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
 import type { ProtectionState } from "./types";
 
@@ -53,12 +54,41 @@ export function ActivationButton({
     setIsPressed(true);
     setTimeout(() => setIsPressed(false), 150);
 
-    // Only trigger lightning when turning ON
-    if (!protection.isActive) {
-      triggerLightning();
-    }
-    // TODO: Implement haptic feedback for mobile touch devices
+    if (!protection.isActive) triggerLightning();
     onToggle();
+  };
+
+  // Magnetic 3D Cursor Hover Effect
+  const handleMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (!buttonRef.current) return;
+    const rect = buttonRef.current.getBoundingClientRect();
+    
+    // Calculate distance from center (-1 to 1)
+    const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = ((e.clientY - rect.top) / rect.height) * 2 - 1;
+    
+    // Max tilt is 15 degrees
+    anime({
+      targets: buttonRef.current,
+      rotateX: -y * 15, // tilt up/down depending on mouse Y
+      rotateY: x * 15,  // tilt left/right depending on mouse X
+      scale: 1.15,      // slight pop on hover
+      duration: 300,
+      easing: "easeOutExpo"
+    });
+  };
+
+  const handleMouseLeave = () => {
+    if (!buttonRef.current) return;
+    // Snap back to 0
+    anime({
+      targets: buttonRef.current,
+      rotateX: 0,
+      rotateY: 0,
+      scale: protection.isActive ? 1.05 : 1, // Stay slightly popped if active
+      duration: 600,
+      easing: "easeOutElastic(1, .5)"
+    });
   };
 
   const getButtonGradient = () => {
@@ -75,6 +105,8 @@ export function ActivationButton({
         return "bg-gradient-to-br from-pink-500 via-purple-500 to-cyan-500";
       case "frutiger-aero":
         return "bg-gradient-to-br from-sky-400 via-emerald-400 to-teal-400";
+      case "cyberpunk":
+        return "bg-gradient-to-br from-cyan-400 via-yellow-400 to-red-500";
       case "light":
         return "bg-gradient-to-br from-blue-400 to-blue-600";
       default:
@@ -90,7 +122,7 @@ export function ActivationButton({
       {/* Outer spinning ring for loading state */}
       {loading && (
         <div
-          className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-400 border-r-emerald-400/30 animate-spin z-[10]"
+          className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-400 border-r-emerald-400/30 animate-spin z-10"
           style={{ width: "110%", height: "110%", left: "-5%", top: "-5%" }}
         />
       )}
@@ -131,7 +163,9 @@ export function ActivationButton({
                     ? "#f472b6"
                     : theme === "frutiger-aero"
                       ? "#38bdf8"
-                      : "#34d399"
+                      : theme === "cyberpunk"
+                        ? "#fef08a"
+                        : "#34d399"
                 }
                 strokeWidth="3"
                 strokeLinecap="round"
@@ -161,44 +195,51 @@ export function ActivationButton({
                 ? "radial-gradient(circle, #f472b6 0%, transparent 70%)"
                 : theme === "frutiger-aero"
                   ? "radial-gradient(circle, #38bdf8 0%, transparent 70%)"
-                  : "radial-gradient(circle, #34d399 0%, transparent 70%)",
+                  : theme === "cyberpunk"
+                    ? "radial-gradient(circle, #22d3ee 0%, transparent 70%)"
+                    : "radial-gradient(circle, #34d399 0%, transparent 70%)",
           }}
         />
       )}
 
       {/* Main button */}
-      <button
-        ref={buttonRef}
-        onClick={handleClick}
-        className={`
-          relative ${sizeClasses[size]} rounded-full
-          ${getButtonGradient()}
-          flex items-center justify-center
-          transition-all duration-200 ease-out
-          hover:scale-110 active:scale-95
-          ${isPressed ? "scale-95" : ""}
-          ${protection.isActive ? "shadow-2xl" : "shadow-lg"}
-          ${theme === "frutiger-aero" ? "backdrop-blur-sm border-2 border-white/50" : ""}
-        `}
-        style={{
-          boxShadow: protection.isActive
-            ? theme === "vaporwave"
-              ? "0 0 40px rgba(244, 114, 182, 0.5), 0 0 80px rgba(34, 211, 238, 0.3)"
-              : theme === "frutiger-aero"
-                ? "0 0 40px rgba(56, 189, 248, 0.4), 0 0 80px rgba(52, 211, 153, 0.2)"
-                : "0 0 40px rgba(52, 211, 153, 0.5)"
-            : "0 4px 20px rgba(0, 0, 0, 0.3)",
-        }}
-      >
-        {protection.isActive ? (
-          <Shield
-            className="text-white drop-shadow-lg"
-            size={iconSizes[size]}
-          />
-        ) : (
-          <ShieldOff className="text-zinc-400" size={iconSizes[size]} />
-        )}
-      </button>
+      <div style={{ perspective: "1000px" }} className={`relative w-full h-full flex items-center justify-center`}>
+        <button
+          ref={buttonRef}
+          onClick={handleClick}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          className={`
+            relative ${sizeClasses[size]} rounded-full
+            ${getButtonGradient()}
+            flex items-center justify-center
+            transition-colors duration-200 ease-out
+            ${isPressed ? "scale-95" : protection.isActive ? "scale-[1.05]" : "scale-100"}
+            ${protection.isActive ? "shadow-2xl" : "shadow-lg"}
+            ${theme === "frutiger-aero" ? "backdrop-blur-sm border-2 border-white/50" : ""}
+          `}
+          style={{
+            transformStyle: "preserve-3d",
+            boxShadow: protection.isActive
+              ? theme === "vaporwave"
+                ? "0 0 40px rgba(244, 114, 182, 0.5), 0 0 80px rgba(34, 211, 238, 0.3)"
+                : theme === "frutiger-aero"
+                  ? "0 0 40px rgba(56, 189, 248, 0.4), 0 0 80px rgba(52, 211, 153, 0.2)"
+                  : "0 0 40px rgba(52, 211, 153, 0.5)"
+              : "0 4px 20px rgba(0, 0, 0, 0.3)",
+          }}
+        >
+          {protection.isActive ? (
+            <Shield
+              className="text-white drop-shadow-lg"
+              size={iconSizes[size]}
+              style={{ transform: "translateZ(30px)" }}
+            />
+          ) : (
+            <ShieldOff className="text-zinc-400" size={iconSizes[size]} style={{ transform: "translateZ(30px)" }} />
+          )}
+        </button>
+      </div>
 
       {/* Status indicator */}
       <div

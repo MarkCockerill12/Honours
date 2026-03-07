@@ -4,12 +4,11 @@ import React, { useState, useRef, useEffect } from "react";
 import { Monitor, Smartphone, Globe } from "lucide-react";
 import anime from "animejs";
 import { Button } from "@/components/ui/button";
-import { ThemeProvider, themeConfigs } from "@/packages/ui/ThemeProvider";
+import { ThemeProvider, useStats } from "@/packages/ui";
 import type {
   Theme,
   Platform,
   ProtectionState,
-  TrackerStats,
 } from "@/packages/ui/types";
 import ExtensionApp from "@/apps/extension/ExtensionApp";
 import { MobileApp } from "@/apps/mobile/MobileApp";
@@ -23,11 +22,7 @@ export default function Home() {
     vpnEnabled: false,
     adblockEnabled: true,
   });
-  const [stats] = useState<TrackerStats>({
-    bandwidthSaved: 847,
-    timeSaved: 32,
-    dataValueReclaimed: 4.73,
-  });
+  const { stats } = useStats();
 
   const contentRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);

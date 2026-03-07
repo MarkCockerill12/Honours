@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("electron", {
     flushDns: () => ipcRenderer.invoke("adblock:flush-dns"),
     testDns: () => ipcRenderer.invoke("adblock:test-dns"),
     forceReset: () => ipcRenderer.invoke("adblock:force-reset"),
+    getStats: () => ipcRenderer.invoke("adblock:get-stats"),
+    recordBlock: (data) => ipcRenderer.invoke("adblock:record-block", data),
   },
   system: {
     getDnsInfo: () => ipcRenderer.invoke("system:get-dns-info"),

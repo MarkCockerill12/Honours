@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+"use client";
+
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -11,17 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useTheme } from "@/packages/ui/ThemeProvider";
 import {
   EyeOff,
-  AlertTriangle,
   Shield,
-  Cat,
-  Skull,
   Plus,
   X,
-  Type,
-  AlignLeft,
-  MonitorX,
 } from "lucide-react";
 import { SmartFilter, BlurMethod, BlockScope } from "@/packages/ui/types";
 import { chromeBridge } from "../Utils/chromeBridge";
@@ -41,36 +37,28 @@ export function SmartFilters({
   const [newBlockScope, setNewBlockScope] = useState<BlockScope>("word");
   const [isFilteringActive, setIsFilteringActive] = useState(false);
   const [blurMethod, setBlurMethod] = useState<BlurMethod>("blur");
+  const { theme, colors } = useTheme();
+
+  const glassCardClass = useMemo(() => {
+    switch (theme) {
+      case "dark": return "glass-card";
+      case "vaporwave": return "glass-card-vaporwave";
+      case "frutiger-aero": return "glass-card-frutiger";
+      default: return "glass-card-light";
+    }
+  }, [theme]);
+  
   const cardRef = useRef<HTMLDivElement>(null);
   const filtersListRef = useRef<HTMLDivElement>(null);
 
-  // Entrance animation removed to avoid conflict with CollapsibleSection
+  // Load persistence
   useEffect(() => {
-    // Component is ready
-  }, []);
-
-  // Load initial state from chrome.storage.local or localStorage fallback
-  useEffect(() => {
-    const isStorageAvailable =
-      typeof chrome !== "undefined" && !!chrome?.storage?.local;
-
-    if (isStorageAvailable) {
-      chrome.storage.local.get(
-        ["isFilteringActive", "blurMethod"],
-        (result) => {
-          if (
-            result?.isFilteringActive !== undefined &&
-            typeof result.isFilteringActive === "boolean"
-          ) {
-            setIsFilteringActive(result.isFilteringActive);
-          }
-          if (result?.blurMethod && typeof result.blurMethod === "string") {
-            setBlurMethod(result.blurMethod as BlurMethod);
-          }
-        },
-      );
+    if (chromeBridge.isAvailable() && typeof chrome !== "undefined" && chrome?.storage?.local) {
+      chrome.storage.local.get(["isFilteringActive", "blurMethod"], (result) => {
+        if (typeof result?.isFilteringActive === "boolean") setIsFilteringActive(result.isFilteringActive);
+        if (typeof result?.blurMethod === "string") setBlurMethod(result.blurMethod as BlurMethod);
+      });
     } else {
-      // Fallback for development/non-extension context
       const savedActive = localStorage.getItem("isFilteringActive") === "true";
       const savedMethod = localStorage.getItem("blurMethod") as BlurMethod;
       if (savedActive) setIsFilteringActive(true);
@@ -78,85 +66,32 @@ export function SmartFilters({
     }
   }, []);
 
-  // Effect to apply/clear filters when master toggle or filters change
+  // Application effect
   useEffect(() => {
-    if (isFilteringActive) {
-      applyFiltersToPage(filters, blurMethod);
-    } else {
-      clearFiltersFromPage();
-    }
-  }, [isFilteringActive, filters, blurMethod]);
+    const apply = async () => {
+      if (!chromeBridge.isAvailable()) return;
+      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
+      if (!tabs[0]?.id) return;
 
-  const toggleFilter = (id: string, enabled: boolean) => {
-    const updated = filters.map((f) => (f.id === id ? { ...f, enabled } : f));
-    onFiltersChange(updated);
-  };
-
-  const applyFiltersToPage = async (
-    currentFilters: SmartFilter[],
-    currentBlurMethod: BlurMethod,
-  ) => {
-    if (!chromeBridge.isAvailable()) return;
-    try {
-      const tabs = await chromeBridge.queryTabs({
-        active: true,
-        currentWindow: true,
-      });
-      if (tabs[0]?.id) {
+      if (isFilteringActive) {
         await chromeBridge.sendMessage(tabs[0].id, {
           action: "APPLY_FILTERS",
-          filters: currentFilters,
-          blurMethod: currentBlurMethod,
+          filters,
+          blurMethod,
         });
-      }
-    } catch (error) {
-      console.error("[SmartFilters] Error applying filters:", error);
-    }
-  };
-
-  const clearFiltersFromPage = async () => {
-    if (!chromeBridge.isAvailable()) return;
-    try {
-      const tabs = await chromeBridge.queryTabs({
-        active: true,
-        currentWindow: true,
-      });
-      if (tabs[0]?.id) {
+      } else {
         await chromeBridge.sendMessage(tabs[0].id, { action: "CLEAR_FILTERS" });
       }
-    } catch (error) {
-      console.error("[SmartFilters] Error clearing filters:", error);
-    }
-  };
+    };
+    apply();
+  }, [isFilteringActive, filters, blurMethod]);
 
-  const handleMasterToggle = async (active: boolean) => {
+  const handleMasterToggle = (active: boolean) => {
     setIsFilteringActive(active);
     if (typeof chrome !== "undefined" && chrome?.storage?.local) {
       chrome.storage.local.set({ isFilteringActive: active });
     } else {
       localStorage.setItem("isFilteringActive", String(active));
-    }
-
-    // Toggle animation on the card
-    if (cardRef.current) {
-      const borderColor = active
-        ? "rgba(52, 211, 153, 0.5)"
-        : "rgba(63, 63, 70, 1)";
-      anime({
-        targets: cardRef.current,
-        borderColor: borderColor,
-        duration: 400,
-        easing: "easeOutQuad",
-      });
-    }
-  };
-
-  const handleBlurMethodChange = (method: BlurMethod) => {
-    setBlurMethod(method);
-    if (typeof chrome !== "undefined" && chrome?.storage?.local) {
-      chrome.storage.local.set({ blurMethod: method });
-    } else {
-      localStorage.setItem("blurMethod", method);
     }
   };
 
@@ -164,7 +99,6 @@ export function SmartFilters({
     if (!newBlockTerm.trim()) return;
     const newFilter: SmartFilter = {
       id: Math.random().toString(36).substring(2, 11),
-      name: newBlockTerm,
       blockTerm: newBlockTerm,
       exceptWhen: newExceptWhen,
       enabled: true,
@@ -174,228 +108,104 @@ export function SmartFilters({
     setNewBlockTerm("");
     setNewExceptWhen("");
 
-    // Animate the new filter in
     requestAnimationFrame(() => {
       if (filtersListRef.current) {
-        const items = filtersListRef.current.querySelectorAll(".filter-item");
-        const last = items[items.length - 1];
-        if (last) {
-          anime({
-            targets: last,
-            translateX: [-20, 0],
-            opacity: [0, 1],
-            scale: [0.9, 1],
-            duration: 500,
-            easing: "easeOutBack",
-          });
-        }
+        const last = filtersListRef.current.querySelector(".filter-item:last-child");
+        if (last) anime({ targets: last, translateX: [-20, 0], opacity: [0, 1], scale: [0.9, 1], duration: 500, easing: "easeOutBack" });
       }
     });
   };
 
   const removeFilter = (id: string) => {
-    // Animate out, then remove
     const el = document.querySelector(`[data-filter-id="${id}"]`);
     if (el) {
       anime({
-        targets: el,
-        translateX: [0, 30],
-        opacity: [1, 0],
-        scale: [1, 0.8],
-        duration: 300,
-        easing: "easeInQuad",
-        complete: () => {
-          onFiltersChange(filters.filter((f) => f.id !== id));
-        },
+        targets: el, translateX: [0, 30], opacity: [1, 0], scale: [1, 0.8], duration: 300, easing: "easeInQuad",
+        complete: () => onFiltersChange(filters.filter((f) => f.id !== id))
       });
     } else {
       onFiltersChange(filters.filter((f) => f.id !== id));
     }
   };
 
-  const getFilterIcon = (term: string) => {
-    if (term === "violence") return <Skull className="h-3 w-3 text-red-500" />;
-    if (term === "nsfw")
-      return <AlertTriangle className="h-3 w-3 text-orange-500" />;
-    return <Shield className="h-3 w-3 text-blue-500" />;
-  };
-
-  const getScopeIcon = (scope?: BlockScope) => {
-    switch (scope) {
-      case "paragraph":
-        return <AlignLeft className="h-3 w-3 text-amber-400" />;
-      case "page-warning":
-        return <MonitorX className="h-3 w-3 text-red-400" />;
-      default:
-        return <Type className="h-3 w-3 text-blue-400" />;
-    }
-  };
-
-  const getScopeLabel = (scope?: BlockScope) => {
-    switch (scope) {
-      case "paragraph":
-        return "Paragraph";
-      case "page-warning":
-        return "Page Warning";
-      default:
-        return "Word";
-    }
-  };
-
   return (
-    <Card
-      ref={cardRef}
-      className="w-full border-zinc-800 bg-zinc-950 text-zinc-100"
-    >
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-medium">
-            Content Sanitizer
-          </CardTitle>
-          {blurMethod === "kitten" ? (
-            <Cat className="h-4 w-4 text-pink-400" />
-          ) : (
-            <EyeOff className="h-4 w-4 text-zinc-500" />
-          )}
+    <div ref={cardRef} className="w-full text-zinc-100 space-y-5">
+      <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-500 ${isFilteringActive ? "bg-emerald-500/10 border-emerald-500/30" : "bg-zinc-950 border-zinc-800"}`}>
+        <div className="flex flex-col">
+          <span className="text-sm font-black tracking-tight uppercase">Content Sanitizer</span>
+          <span className={`text-[10px] font-bold uppercase tracking-widest ${isFilteringActive ? "text-emerald-400" : "text-zinc-500"}`}>
+            {isFilteringActive ? "Filtering Active" : "Filters Paused"}
+          </span>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Master Toggle */}
-        <div
-          className={`flex items-center justify-between p-3 rounded-md border transition-colors duration-300 ${isFilteringActive ? "bg-emerald-950/30 border-emerald-800/50" : "bg-zinc-900 border-zinc-800"}`}
-        >
-          <span className="text-sm font-medium">Content Filtering</span>
-          <Switch
-            checked={isFilteringActive}
-            onCheckedChange={handleMasterToggle}
-          />
-        </div>
+        <Switch checked={isFilteringActive} onCheckedChange={handleMasterToggle} />
+      </div>
 
-        {/* Blur Method Selector */}
+      <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label className="text-xs text-zinc-400">Censorship Method</Label>
-          <Select value={blurMethod} onValueChange={handleBlurMethodChange}>
-            <SelectTrigger className="w-full h-8 text-xs bg-zinc-900 border-zinc-700">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Method</Label>
+          <Select value={blurMethod} onValueChange={(m) => setBlurMethod(m as BlurMethod)}>
+            <SelectTrigger className={`h-9 border-none text-[10px] font-black tracking-widest uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="blur">Blur Text</SelectItem>
-              <SelectItem value="blackbar">Redact (Black Bar) ███</SelectItem>
-              <SelectItem value="warning">Warning Label ⚠️</SelectItem>
-              <SelectItem value="kitten">Replace with Kittens 🐱</SelectItem>
+            <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
+              <SelectItem value="blur" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Blur Text</SelectItem>
+              <SelectItem value="blackbar" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Redact ███</SelectItem>
+              <SelectItem value="warning" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Warning ⚠️</SelectItem>
+              <SelectItem value="kitten" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Kittens 🐱</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
-        {/* Block Scope Selector */}
         <div className="space-y-2">
-          <Label className="text-xs text-zinc-400">
-            Block Scope (for new filters)
-          </Label>
-          <Select
-            value={newBlockScope}
-            onValueChange={(v) => setNewBlockScope(v as BlockScope)}
-          >
-            <SelectTrigger className="w-full h-8 text-xs bg-zinc-900 border-zinc-700">
+          <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Scope</Label>
+          <Select value={newBlockScope} onValueChange={(v) => setNewBlockScope(v as BlockScope)}>
+            <SelectTrigger className={`h-9 border-none text-[10px] font-black tracking-widest uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="word">
-                <div className="flex items-center gap-2">
-                  <Type className="h-3 w-3" /> Word Only
-                </div>
-              </SelectItem>
-              <SelectItem value="paragraph">
-                <div className="flex items-center gap-2">
-                  <AlignLeft className="h-3 w-3" /> Entire Paragraph
-                </div>
-              </SelectItem>
-              <SelectItem value="page-warning">
-                <div className="flex items-center gap-2">
-                  <MonitorX className="h-3 w-3" /> Page Warning
-                </div>
-              </SelectItem>
+            <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
+              <SelectItem value="word" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Word</SelectItem>
+              <SelectItem value="paragraph" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Paragraph</SelectItem>
+              <SelectItem value="page-warning" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Page Wide</SelectItem>
             </SelectContent>
           </Select>
         </div>
+      </div>
 
-        {/* Filter List */}
-        <div className="space-y-3" ref={filtersListRef}>
-          <Label className="text-xs text-zinc-400">Active Filters</Label>
-          {filters.length === 0 && (
-            <div className="text-xs text-zinc-500 italic">
-              No filters configured.
-            </div>
-          )}
-
+      <div className="space-y-3" ref={filtersListRef}>
+        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 px-1">Active Rules</Label>
+        <div className="space-y-2 max-h-48 overflow-y-auto pr-1 flex flex-col">
           {filters.map((filter) => (
-            <div
-              key={filter.id}
-              data-filter-id={filter.id}
-              className="filter-item flex items-center justify-between group"
-            >
-              <div className="flex items-center gap-2">
-                {getFilterIcon(filter.blockTerm)}
+            <div key={filter.id} data-filter-id={filter.id} className="filter-item flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5 group hover:border-white/10 transition-all">
+              <div className="flex items-center gap-3">
+                <div className="p-1.5 rounded-lg bg-black/20 text-blue-400">
+                  {filter.blockTerm === "nsfw" ? <EyeOff size={14} /> : <Shield size={14} />}
+                </div>
                 <div className="flex flex-col">
-                  <span className="text-sm capitalize">{filter.blockTerm}</span>
-                  <div className="flex items-center gap-1.5">
-                    {filter.exceptWhen && (
-                      <span className="text-[10px] text-zinc-500">
-                        Unless: {filter.exceptWhen}
-                      </span>
-                    )}
-                    <span className="flex items-center gap-0.5 text-[10px] text-zinc-600">
-                      {getScopeIcon(filter.blockScope)}
-                      {getScopeLabel(filter.blockScope)}
-                    </span>
-                  </div>
+                  <span className="text-xs font-black uppercase tracking-tight">{filter.blockTerm}</span>
+                  {filter.exceptWhen && <span className="text-[9px] font-bold text-zinc-600 uppercase">Unless: {filter.exceptWhen}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={() => removeFilter(filter.id)}
-                >
-                  <X className="h-3 w-3 text-zinc-500 hover:text-red-500" />
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-500" onClick={() => removeFilter(filter.id)}>
+                  <X size={14} />
                 </Button>
-                <Switch
-                  checked={filter.enabled}
-                  onCheckedChange={(val) => toggleFilter(filter.id, val)}
-                />
+                <Switch checked={filter.enabled} onCheckedChange={(val) => onFiltersChange(filters.map(f => f.id === filter.id ? {...f, enabled: val} : f))} />
               </div>
             </div>
           ))}
+          {filters.length === 0 && <div className="text-[10px] text-zinc-600 font-bold uppercase text-center py-4 border border-dashed border-zinc-800 rounded-xl">No active rules</div>}
         </div>
+      </div>
 
-        {/* Add New Filter */}
-        <div className="pt-2 border-t border-zinc-900 space-y-2">
-          <Label className="text-xs text-zinc-400">Add Custom Filter</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <Input
-              placeholder="Block word..."
-              value={newBlockTerm}
-              onChange={(e) => setNewBlockTerm(e.target.value)}
-              className="h-8 text-xs bg-zinc-900 border-zinc-700"
-              onKeyDown={(e) => e.key === "Enter" && addFilter()}
-            />
-            <Input
-              placeholder="Unless..."
-              value={newExceptWhen}
-              onChange={(e) => setNewExceptWhen(e.target.value)}
-              className="h-8 text-xs bg-zinc-900 border-zinc-700"
-              onKeyDown={(e) => e.key === "Enter" && addFilter()}
-            />
-          </div>
-          <Button
-            onClick={addFilter}
-            className="w-full h-8 text-xs bg-zinc-800 hover:bg-zinc-700 text-zinc-200 flex items-center gap-1"
-          >
-            <Plus className="h-3 w-3" /> Add Filter
-          </Button>
+      <div className="pt-4 border-t border-zinc-900 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Input placeholder="BLOCK TERM" value={newBlockTerm} onChange={(e) => setNewBlockTerm(e.target.value.toLowerCase())} className="h-9 text-[10px] font-black tracking-widest uppercase bg-zinc-950 border-zinc-900" />
+          <Input placeholder="EXCEPTION" value={newExceptWhen} onChange={(e) => setNewExceptWhen(e.target.value.toLowerCase())} className="h-9 text-[10px] font-black tracking-widest uppercase bg-zinc-950 border-zinc-900" />
         </div>
-      </CardContent>
-    </Card>
+        <Button onClick={addFilter} className="w-full h-10 bg-zinc-100 hover:bg-white text-black font-black uppercase tracking-[0.2em] text-[10px]">
+          <Plus size={14} className="mr-2" /> CREATE NEW RULE
+        </Button>
+      </div>
+    </div>
   );
 }

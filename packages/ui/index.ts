@@ -4,3 +4,4 @@ export * from "./ActivationButton";
 export * from "./ProtectionToggles";
 export * from "./TrackerCard";
 export * from "./ScalableContainer";
+export * from "./StatsProvider";

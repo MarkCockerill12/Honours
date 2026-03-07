@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+"use client";
+
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldAlert, ShieldCheck, Scan, FileText, Globe } from "lucide-react";
 import anime from "animejs";
 import { scanUrl, ScanResult } from "../Utils/security";
@@ -11,7 +12,6 @@ export function CyberScanner() {
   const [currentUrl, setCurrentUrl] = useState("");
   const [urlStatus, setUrlStatus] = useState<ScanResult | null>(null);
   const [autoScan, setAutoScan] = useState(false);
-
   const [isScanning, setIsScanning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [scanReport, setScanReport] = useState<{
@@ -22,23 +22,21 @@ export function CyberScanner() {
     safeLinks: ScanResult[];
   } | null>(null);
 
-  const [showDetails, setShowDetails] = useState<"safe" | "threats" | null>(
-    null,
-  );
+  const [showDetails, setShowDetails] = useState<"safe" | "threats" | null>(null);
 
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const scanningRef = useRef<boolean>(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const scanBtnRef = useRef<HTMLButtonElement>(null);
-  const reportRef = useRef<HTMLDivElement>(null);
   const radarRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const reportRef = useRef<HTMLDivElement>(null);
 
-  // Entrance animation removed to avoid conflict with CollapsibleSection
-  useEffect(() => {
-    // Component is ready
-  }, []);
+  // Status computation
+  const isSafe = useMemo(() => urlStatus?.isSafe ?? true, [urlStatus]);
+  const statusText = useMemo(() => {
+    if (!urlStatus) return "INITIALIZING...";
+    return isSafe ? "SAFE CONNECTION" : "THREAT DETECTED";
+  }, [urlStatus, isSafe]);
 
   // Radar sweep animation during scan
   useEffect(() => {
@@ -66,7 +64,7 @@ export function CyberScanner() {
     }
   }, [isScanning]);
 
-  // Status bar animation on URL status change
+  // Status bar animation
   useEffect(() => {
     if (!statusRef.current || !urlStatus) return;
     anime({
@@ -88,7 +86,6 @@ export function CyberScanner() {
       duration: 500,
       easing: "easeOutExpo",
     });
-    // Animate the stat numbers
     const statEls = reportRef.current.querySelectorAll(".stat-number");
     anime({
       targets: statEls,
@@ -110,121 +107,75 @@ export function CyberScanner() {
     });
   }, [errorMessage]);
 
-  const getTabUrl = async (callback: (url: string, tabId?: number) => void) => {
+  const loadUrl = async () => {
+    const savedAuto = localStorage.getItem("autoscan_enabled") === "true";
+    setAutoScan(savedAuto);
+
     if (!chromeBridge.isAvailable()) {
       const devUrl = "http://localhost:3000";
       setCurrentUrl(devUrl);
-      callback(devUrl, undefined);
+      setUrlStatus(scanUrl(devUrl));
       return;
     }
 
     try {
-      const tabs = await chromeBridge.queryTabs({
-        active: true,
-        currentWindow: true,
-      });
+      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
       if (tabs[0]?.url) {
-        callback(tabs[0].url, tabs[0].id);
+        setCurrentUrl(tabs[0].url);
+        setUrlStatus(scanUrl(tabs[0].url));
+        if (savedAuto && tabs[0].id) triggerPageScan(tabs[0].id);
       }
-    } catch (error) {
-      console.error("[CyberScanner] Error querying tabs:", error);
-      const devUrl = "http://localhost:3000";
-      setCurrentUrl(devUrl);
-      callback(devUrl, undefined);
+    } catch (e) {
+      console.error(e);
     }
   };
 
   useEffect(() => {
-    const savedAuto = localStorage.getItem("autoscan_enabled") === "true";
-    setAutoScan(savedAuto);
-
-    getTabUrl((url, id) => {
-      setCurrentUrl(url);
-      const result = scanUrl(url);
-      setUrlStatus(result);
-
-      if (savedAuto && id) {
-        triggerPageScan(id);
-      }
-    });
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
+    loadUrl();
+    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
   }, []);
-
-  const toggleAutoScan = (enabled: boolean) => {
-    setAutoScan(enabled);
-    localStorage.setItem("autoscan_enabled", String(enabled));
-  };
-
-  const stopScanning = () => {
-    setIsScanning(false);
-    scanningRef.current = false;
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-  };
 
   const triggerPageScan = async (tabId?: number) => {
     if (scanningRef.current) return;
-
-    // Button press animation
-    if (scanBtnRef.current) {
-      anime({
-        targets: scanBtnRef.current,
-        scale: [1, 0.95, 1],
-        duration: 200,
-        easing: "easeOutQuad",
-      });
-    }
-
     setErrorMessage(null);
     setIsScanning(true);
     scanningRef.current = true;
     setScanReport(null);
 
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    const cleanup = () => {
+      setIsScanning(false);
+      scanningRef.current = false;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+
     timeoutRef.current = setTimeout(() => {
       if (scanningRef.current) {
-        setErrorMessage(
-          "Scan timed out. Page may not be responsive or content script not loaded.",
-        );
-        stopScanning();
+        setErrorMessage("Scan timed out. Reload and try again.");
+        cleanup();
       }
     }, 10000);
 
     if (!chromeBridge.isAvailable()) {
-      stopScanning();
-      setErrorMessage(
-        "Chrome APIs not available. Make sure you are running this as a Chrome extension.",
-      );
+      cleanup();
+      setErrorMessage("Chrome extension environment required.");
       return;
     }
 
-    if (!tabId) {
-      try {
-        const tabs = await chromeBridge.queryTabs({
-          active: true,
-          currentWindow: true,
-        });
-        if (tabs[0]?.id) {
-          triggerPageScan(tabs[0].id);
-        } else {
-          stopScanning();
-          setErrorMessage("No active tab found.");
-        }
-      } catch (error) {
-        stopScanning();
-        setErrorMessage("Failed to query tabs.");
-      }
+    let targetId = tabId;
+    if (!targetId) {
+      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
+      targetId = tabs[0]?.id;
+    }
+
+    if (!targetId) {
+      cleanup();
+      setErrorMessage("No active tab found.");
       return;
     }
 
     try {
-      const response = await chromeBridge.sendMessage(tabId, {
-        action: "SCAN_PAGE_LINKS",
-      });
-      stopScanning();
-
+      const response = await chromeBridge.sendMessage(targetId, { action: "SCAN_PAGE_LINKS" });
+      cleanup();
       if (response) {
         setScanReport({
           total: response.linkCount,
@@ -234,74 +185,38 @@ export function CyberScanner() {
           safeLinks: response.safeLinks || [],
         });
       } else {
-        setErrorMessage("No response from page. Reload and try again.");
+        setErrorMessage("No response from page.");
       }
-    } catch (error: any) {
-      stopScanning();
-      setErrorMessage(
-        `Connection failed: ${error.message}. Try refreshing the web page.`,
-      );
+    } catch (err: any) {
+      cleanup();
+      setErrorMessage(`Scan failed: ${err.message}`);
     }
   };
 
-  const isSafe = urlStatus ? urlStatus.isSafe : true;
-  const isLoading = urlStatus === null;
-
-  let statusText = "INITIALIZING...";
-  if (!isLoading) {
-    statusText = isSafe ? "SAFE CONNECTION" : "THREAT DETECTED";
-  }
-
   return (
-    <div ref={cardRef} className="w-full text-zinc-100 space-y-4">
-      {/* Status Banner */}
-      <div
-        ref={statusRef}
-        className={`relative flex flex-col gap-1 rounded-xl p-3 border overflow-hidden ${
-          isSafe
-            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
-            : "bg-red-500/10 border-red-500/20 text-red-500"
-        }`}
-      >
-        {/* Radar sweep overlay (visible during scan) */}
-        <div
-          ref={radarRef}
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            display: "none",
-            background: `conic-gradient(from 0deg, transparent 0deg, ${isSafe ? "rgba(52,211,153,0.15)" : "rgba(239,68,68,0.15)"} 60deg, transparent 120deg)`,
-            borderRadius: "inherit",
-          }}
-        />
+    <div className="w-full text-zinc-100 space-y-4">
+      <StatusBanner
+        statusRef={statusRef}
+        radarRef={radarRef}
+        isSafe={isSafe}
+        statusText={statusText}
+        currentUrl={currentUrl}
+        urlStatus={urlStatus}
+      />
 
-        <div className="flex items-center gap-2 text-sm font-bold relative z-10">
-          {isSafe ? (
-            <ShieldCheck className="h-4 w-4" />
-          ) : (
-            <ShieldAlert className="h-4 w-4" />
-          )}
-          {statusText}
-        </div>
-        <div className="text-xs opacity-80 break-all line-clamp-1 relative z-10">
-          {currentUrl || "Scanning..."}
-        </div>
-        {!isSafe && !isLoading && (
-          <div className="mt-1 text-xs font-bold bg-red-500 text-white px-2 py-1 rounded w-fit relative z-10">
-            {urlStatus?.details}
-          </div>
-        )}
-      </div>
-
-      {/* Auto-scan toggle */}
       <div className="flex items-center justify-between">
         <span className="text-sm text-zinc-400">Auto-Scan Pages</span>
-        <Switch checked={autoScan} onCheckedChange={toggleAutoScan} />
+        <Switch
+          checked={autoScan}
+          onCheckedChange={(enabled) => {
+            setAutoScan(enabled);
+            localStorage.setItem("autoscan_enabled", String(enabled));
+          }}
+        />
       </div>
 
-      {/* Scan Button */}
       <Button
-        ref={scanBtnRef}
-        className="w-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-2 transition-all duration-200"
+        className="w-full bg-zinc-800 hover:bg-zinc-700 text-white flex items-center gap-2"
         onClick={() => triggerPageScan()}
         disabled={isScanning}
       >
@@ -309,148 +224,110 @@ export function CyberScanner() {
         {isScanning ? "Scanning Page..." : "Scan Page Content"}
       </Button>
 
-      {/* Error */}
       {errorMessage && (
-        <div
-          ref={errorRef}
-          className="p-3 text-xs bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl space-y-2"
-        >
+        <div ref={errorRef} className="p-3 text-xs bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl space-y-2">
           <div className="font-bold">⚠️ {errorMessage}</div>
-          {errorMessage.includes("Chrome APIs") && (
-            <div className="text-[10px] text-red-300 space-y-1 mt-2">
-              <p className="font-semibold">Steps to fix:</p>
-              <ol className="list-decimal list-inside space-y-1 ml-2">
-                <li>
-                  Make sure{" "}
-                  <code className="bg-black/30 px-1 rounded">
-                    npm run dev:extension
-                  </code>{" "}
-                  is running
-                </li>
-                <li>Reload the extension in Chrome (chrome://extensions/)</li>
-                <li>Close and reopen the extension popup</li>
-                <li>If still not working, try visiting a real website first</li>
-              </ol>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Scan Report */}
       {scanReport && (
-        <div
-          ref={reportRef}
-          className="text-xs bg-zinc-900/50 p-3 rounded-xl border border-zinc-800 backdrop-blur-sm"
-          style={{ opacity: 0 }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-zinc-400 flex items-center gap-1">
-              {scanReport.type === "PDF" ? (
-                <FileText className="h-3 w-3" />
-              ) : (
-                <Globe className="h-3 w-3" />
-              )}
-              Target:
-            </span>
-            <span className="font-mono text-zinc-200">{scanReport.type}</span>
-          </div>
+        <ScanReport
+          reportRef={reportRef}
+          scanReport={scanReport}
+          showDetails={showDetails}
+          setShowDetails={setShowDetails}
+        />
+      )}
+    </div>
+  );
+}
 
-          {scanReport.type === "PDF" ? (
-            <p className="text-zinc-500 italic mt-1">
-              PDF Source Verified. Links inside PDF cannot be scanned.
-            </p>
-          ) : (
-            <div className="grid grid-cols-2 gap-2 mt-2">
-              <button
-                type="button"
-                className="w-full bg-zinc-950 p-3 rounded-xl text-center cursor-pointer hover:bg-zinc-800 transition-all duration-200"
-                onClick={() =>
-                  setShowDetails(showDetails === "safe" ? null : "safe")
-                }
-              >
-                <div className="text-zinc-400 text-[10px] uppercase tracking-wider">
-                  Links Found
-                </div>
-                <div className="stat-number text-lg font-bold text-zinc-100">
-                  {scanReport.total}
-                </div>
-              </button>
-              <button
-                type="button"
-                className={`w-full bg-zinc-950 p-3 rounded-xl text-center border cursor-pointer hover:bg-zinc-800 transition-all duration-200 ${scanReport.bad > 0 ? "border-red-900" : "border-transparent"}`}
-                onClick={() =>
-                  setShowDetails(showDetails === "threats" ? null : "threats")
-                }
-              >
-                <div
-                  className={`text-[10px] uppercase tracking-wider ${scanReport.bad > 0 ? "text-red-400" : "text-zinc-400"}`}
-                >
-                  Threats
-                </div>
-                <div
-                  className={`stat-number text-lg font-bold ${scanReport.bad > 0 ? "text-red-500" : "text-emerald-500"}`}
-                >
-                  {scanReport.bad}
-                </div>
-              </button>
-
-              {/* Detail Lists */}
-              {showDetails === "safe" && scanReport.safeLinks && (
-                <div className="col-span-2 mt-2 max-h-40 overflow-y-auto space-y-1 bg-zinc-950 p-2 rounded-xl text-xs border border-zinc-800">
-                  <div className="font-bold text-zinc-400 mb-1">
-                    Safe Links ({scanReport.safeLinks.length})
-                  </div>
-                  {scanReport.safeLinks.map((link, i) => (
-                    <div
-                      key={`${link.url}-${i}`}
-                      className="truncate text-zinc-500 hover:text-zinc-300 transition-colors"
-                      title={typeof link.url === "string" ? link.url : ""}
-                    >
-                      {typeof link.url === "string" ? link.url : "Unknown Link"}
-                    </div>
-                  ))}
-                  {scanReport.safeLinks.length === 0 && (
-                    <div className="text-zinc-600 italic">
-                      No safe links found.
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {showDetails === "threats" && scanReport.maliciousLinks && (
-                <div className="col-span-2 mt-2 max-h-40 overflow-y-auto space-y-1 bg-red-950/20 p-2 rounded-xl text-xs border border-red-900/50">
-                  <div className="font-bold text-red-400 mb-1">
-                    Threats Detected ({scanReport.maliciousLinks.length})
-                  </div>
-                  {scanReport.maliciousLinks.map((link, i) => (
-                    <div
-                      key={`${link.url}-${i}`}
-                      className="flex flex-col mb-2 border-b border-red-500/10 pb-1 last:border-0"
-                    >
-                      <span
-                        className="truncate text-red-300 font-mono"
-                        title={typeof link.url === "string" ? link.url : ""}
-                      >
-                        {typeof link.url === "string"
-                          ? link.url
-                          : "Unknown Link"}
-                      </span>
-                      <span className="text-red-500 font-bold uppercase text-[10px]">
-                        {link.threatType} - {link.details}
-                      </span>
-                    </div>
-                  ))}
-                  {scanReport.maliciousLinks.length === 0 && (
-                    <div className="text-zinc-600 italic">
-                      No threats found.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+function StatusBanner({ statusRef, radarRef, isSafe, statusText, currentUrl, urlStatus }: Readonly<any>) {
+  return (
+    <div
+      ref={statusRef}
+      className={`relative flex flex-col gap-1 rounded-xl p-3 border overflow-hidden ${
+        isSafe ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500" : "bg-red-500/10 border-red-500/20 text-red-500"
+      }`}
+    >
+      <div
+        ref={radarRef}
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          display: "none",
+          background: `conic-gradient(from 0deg, transparent 0deg, ${isSafe ? "rgba(52,211,153,0.15)" : "rgba(239,68,68,0.15)"} 60deg, transparent 120deg)`,
+          borderRadius: "inherit",
+        }}
+      />
+      <div className="flex items-center gap-2 text-sm font-bold relative z-10">
+        {isSafe ? <ShieldCheck className="h-4 w-4" /> : <ShieldAlert className="h-4 w-4" />}
+        {statusText}
+      </div>
+      <div className="text-xs opacity-80 break-all line-clamp-1 relative z-10">{currentUrl || "Scanning..."}</div>
+      {!isSafe && urlStatus?.details && (
+        <div className="mt-1 text-xs font-bold bg-red-500 text-white px-2 py-1 rounded w-fit relative z-10">
+          {urlStatus.details}
         </div>
       )}
+    </div>
+  );
+}
+
+function ScanReport({ reportRef, scanReport, showDetails, setShowDetails }: Readonly<any>) {
+  return (
+    <div ref={reportRef} className="text-xs bg-zinc-900/50 p-3 rounded-xl border border-zinc-800 backdrop-blur-sm" style={{ opacity: 0 }}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-zinc-400 flex items-center gap-1">
+          {scanReport.type === "PDF" ? <FileText className="h-3 w-3" /> : <Globe className="h-3 w-3" />}
+          Target Source:
+        </span>
+        <span className="font-mono text-zinc-200">{scanReport.type}</span>
+      </div>
+
+      {scanReport.type === "PDF" ? (
+        <p className="text-zinc-500 italic mt-1 font-medium">PDF content verified. Individual links unscannable.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 mt-2">
+          <StatButton label="Links Found" value={scanReport.total} active={showDetails === "safe"} onClick={() => setShowDetails(showDetails === "safe" ? null : "safe")} />
+          <StatButton label="Threats" value={scanReport.bad} active={showDetails === "threats"} onClick={() => setShowDetails(showDetails === "threats" ? null : "threats")} critical={scanReport.bad > 0} />
+          
+          <ReportDetails type={showDetails} report={scanReport} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatButton({ label, value, active, onClick, critical }: Readonly<any>) {
+  return (
+    <button
+      type="button"
+      className={`w-full bg-zinc-950 p-3 rounded-xl text-center border transition-all duration-200 hover:bg-zinc-800 ${active ? (critical ? "border-red-500" : "border-emerald-500") : (critical ? "border-red-900" : "border-transparent")}`}
+      onClick={onClick}
+    >
+      <div className={`text-[10px] uppercase tracking-wider font-black ${critical ? "text-red-400" : "text-zinc-500"}`}>{label}</div>
+      <div className={`stat-number text-lg font-black ${critical ? "text-red-500" : "text-emerald-500"}`}>{value}</div>
+    </button>
+  );
+}
+
+function ReportDetails({ type, report }: Readonly<any>) {
+  if (!type) return null;
+  const isThreats = type === "threats";
+  const items = isThreats ? report.maliciousLinks : report.safeLinks;
+  
+  return (
+    <div className={`col-span-2 mt-2 max-h-40 overflow-y-auto space-y-1 p-2 rounded-xl text-[10px] border ${isThreats ? "bg-red-950/20 border-red-900/50" : "bg-black/40 border-zinc-800"}`}>
+      <div className={`font-black uppercase tracking-widest mb-2 ${isThreats ? "text-red-400" : "text-zinc-500"}`}>
+        {isThreats ? `Security Threats (${items.length})` : `Validated Links (${items.length})`}
+      </div>
+      {items.map((link: ScanResult, i: number) => (
+        <div key={`${link.url}-${i}`} className="flex flex-col mb-2 last:mb-0 pb-2 border-b border-white/5 last:border-0">
+          <span className="truncate text-zinc-300 font-mono" title={String(link.url)}>{String(link.url)}</span>
+          {isThreats && <span className="text-red-500 font-black uppercase text-[8px] mt-0.5">{link.threatType} - {link.details}</span>}
+        </div>
+      ))}
+      {items.length === 0 && <div className="text-zinc-600 italic py-2">No items discovered.</div>}
     </div>
   );
 }

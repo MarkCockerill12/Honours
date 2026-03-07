@@ -8,21 +8,25 @@ let appliedElements: HTMLElement[] = [];
 let adBlockingActive = false;
 let pageWarningOverlay: HTMLElement | null = null;
 
-console.log("[Content] Content script loaded on:", window.location.href);
+if (typeof window !== "undefined" && window.location) {
+  console.log("[Content] Content script loaded on:", window.location.href);
 
-// Discovery for dev mode
-if (window.location.hostname === "localhost") {
-  console.log("[Content] Broadcasting extension ID for dev bridge...");
-  window.postMessage({ type: "SET_EXTENSION_ID", id: chrome.runtime.id }, "*");
-}
+  // Discovery for dev mode
+  if (window.location.hostname === "localhost") {
+    console.log("[Content] Broadcasting extension ID for dev bridge...");
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      window.postMessage({ type: "SET_EXTENSION_ID", id: chrome.runtime.id }, "*");
+    }
+  }
 
-// Initialize YouTube ad blocker if on YouTube
-if (window.location.hostname.includes("youtube.com")) {
-  console.log("[Content] YouTube detected, initializing ad blocker...");
-  // Delay to let page load
-  setTimeout(() => {
-    initYouTubeAdBlocker();
-  }, 1000);
+  // Initialize YouTube ad blocker if on YouTube
+  if (window.location.hostname.includes("youtube.com")) {
+    console.log("[Content] YouTube detected, initializing ad blocker...");
+    // Delay to let page load
+    setTimeout(() => {
+      initYouTubeAdBlocker();
+    }, 1000);
+  }
 }
 
 // Clear all applied filters
@@ -31,7 +35,7 @@ export const clearBlurContent = () => {
   appliedElements.forEach((el) => {
     if (el.parentNode) {
       const textNode = document.createTextNode(
-        el.getAttribute("data-original-text") || el.textContent || "",
+        el.dataset.originalText || el.textContent || "",
       );
       el.parentNode.replaceChild(textNode, el);
     }
@@ -40,8 +44,8 @@ export const clearBlurContent = () => {
   filtersActive = false;
 
   // Remove page warning overlay if present
-  if (pageWarningOverlay && pageWarningOverlay.parentNode) {
-    pageWarningOverlay.parentNode.removeChild(pageWarningOverlay);
+  if (pageWarningOverlay) {
+    pageWarningOverlay.remove();
     pageWarningOverlay = null;
   }
 
@@ -54,8 +58,9 @@ const applyBlurMethodToSpan = (
   originalText: string,
   blurMethod: string,
 ) => {
-  span.setAttribute("data-original-text", originalText);
-  span.setAttribute("data-content-filtered", "true");
+  span.dataset.originalText = originalText;
+  span.dataset.contentFiltered = "true";
+  span.dataset.filterMethod = blurMethod;
 
   switch (blurMethod) {
     case "blackbar": {
@@ -132,9 +137,8 @@ const applyBlurMethodToSpan = (
 const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
   console.log("[Content] Showing page warning for terms:", matchedTerms);
 
-  // Remove existing overlay if present
-  if (pageWarningOverlay && pageWarningOverlay.parentNode) {
-    pageWarningOverlay.parentNode.removeChild(pageWarningOverlay);
+  if (pageWarningOverlay) {
+    pageWarningOverlay.remove();
   }
 
   pageWarningOverlay = document.createElement("div");
@@ -188,8 +192,8 @@ const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
 
   if (proceedBtn) {
     proceedBtn.addEventListener("click", () => {
-      if (pageWarningOverlay && pageWarningOverlay.parentNode) {
-        pageWarningOverlay.parentNode.removeChild(pageWarningOverlay);
+      if (pageWarningOverlay) {
+        pageWarningOverlay.remove();
         pageWarningOverlay = null;
       }
     });
@@ -202,7 +206,7 @@ const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
   }
   if (goBackBtn) {
     goBackBtn.addEventListener("click", () => {
-      window.history.back();
+      globalThis.history.back();
     });
     goBackBtn.addEventListener("mouseenter", () => {
       goBackBtn.style.transform = "scale(1.05)";
@@ -244,14 +248,15 @@ const blockParagraph = (
     blockParent = textNode.parentElement;
   }
 
-  if (!blockParent || blockParent.hasAttribute("data-content-filtered"))
+  if (!blockParent || blockParent.dataset.contentFiltered)
     return null;
 
   const originalHTML = blockParent.innerHTML;
   const originalText = blockParent.innerText || blockParent.textContent || "";
-  blockParent.setAttribute("data-content-filtered", "true");
-  blockParent.setAttribute("data-original-html", originalHTML);
-  blockParent.setAttribute("data-original-text", originalText);
+  blockParent.dataset.contentFiltered = "true";
+  blockParent.dataset.originalHtml = originalHTML;
+  blockParent.dataset.originalText = originalText;
+  blockParent.dataset.filterMethod = blurMethod;
 
   switch (blurMethod) {
     case "blackbar":
@@ -263,7 +268,7 @@ const blockParagraph = (
       blockParent.onclick = () => {
         blockParent!.style.backgroundColor = "";
         blockParent!.style.color = "";
-        blockParent!.removeAttribute("data-content-filtered");
+        delete blockParent!.dataset.contentFiltered;
       };
       break;
     case "warning":
@@ -291,7 +296,7 @@ const blockParagraph = (
       blockParent.onclick = () => {
         blockParent!.style.filter = "none";
         blockParent!.style.userSelect = "";
-        blockParent!.removeAttribute("data-content-filtered");
+        delete blockParent!.dataset.contentFiltered;
       };
       break;
   }
@@ -299,40 +304,51 @@ const blockParagraph = (
   return blockParent;
 };
 
-// Replace just the matched word within a text node (keeping surrounding text intact)
+// Replace just the matched words within a text node (keeping surrounding text intact)
 const blockWord = (
   textNode: Text,
-  filter: SmartFilter,
+  matchingFilters: SmartFilter[],
   blurMethod: string,
 ): HTMLElement[] => {
   const text = textNode.textContent || "";
-  const regex = new RegExp(
-    `(${filter.blockTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-    "gi",
+  
+  // Sort filters by length descending to ensure longest matches are prioritized in the regex
+  // and handle substrings correctly (e.g., "warfare" before "war")
+  const sortedFilters = [...matchingFilters].sort(
+    (a, b) => b.blockTerm.length - a.blockTerm.length,
   );
+  
+  const terms = sortedFilters
+    .map(f => f.blockTerm.trim())
+    .filter(t => t.length > 0)
+    .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    
+  if (terms.length === 0) return [];
+  
+  const regex = new RegExp(`(${terms.join('|')})`, "gi");
   const parts = text.split(regex);
 
-  if (parts.length <= 1) return []; // No match
+  if (parts.length <= 1) return [];
 
   const fragment = document.createDocumentFragment();
-  const createdSpans: HTMLElement[] = [];
+  const createdElements: HTMLElement[] = [];
 
   parts.forEach((part) => {
-    if (
-      regex.test(part) ||
-      part.toLowerCase() === filter.blockTerm.toLowerCase()
-    ) {
+    // Check if this part is one of the matched terms
+    const filter = sortedFilters.find(f => f.blockTerm.toLowerCase() === part.toLowerCase());
+    
+    if (filter) {
       const span = document.createElement("span");
       applyBlurMethodToSpan(span, part, blurMethod);
       fragment.appendChild(span);
-      createdSpans.push(span);
-    } else {
+      createdElements.push(span);
+    } else if (part) {
       fragment.appendChild(document.createTextNode(part));
     }
   });
 
   textNode.replaceWith(fragment);
-  return createdSpans;
+  return createdElements;
 };
 
 // content script to handle blurring and scanning
@@ -423,7 +439,7 @@ const processInlineFilters = (
     null,
   );
 
-  const nodesToProcess: { textNode: Text; filter: SmartFilter }[] = [];
+  const nodesToProcess: { textNode: Text; matchingFilters: SmartFilter[] }[] = [];
   let node;
 
   // 1. Scan phase (Performance: Don't modify DOM while walking)
@@ -432,35 +448,28 @@ const processInlineFilters = (
     const textContent = textNode.textContent?.toLowerCase() || "";
 
     // Skip script/style tags
-    const parentTag = textNode.parentElement?.tagName;
-    if (parentTag && ["SCRIPT", "STYLE", "NOSCRIPT"].includes(parentTag))
+    const parent = textNode.parentElement;
+    if (parent && ["SCRIPT", "STYLE", "NOSCRIPT"].includes(parent.tagName))
       continue;
 
-    // Skip already-filtered elements
-    if (textNode.parentElement?.hasAttribute("data-content-filtered")) continue;
+    // Skip if already inside a filtered element
+    if (parent?.closest('[data-content-filtered]')) continue;
 
+    const matches: SmartFilter[] = [];
     for (const filter of filters) {
+      if (!filter.enabled) continue;
+
       if (textContent.includes(filter.blockTerm.toLowerCase())) {
-        let shouldBlock = true;
-
-        if (filter.exceptWhen) {
-          // Check paragraph context (up to 2 levels up to find a container)
-          const contextElement = textNode.parentElement;
-          const contextText =
-            contextElement?.innerText?.toLowerCase() ||
-            contextElement?.textContent?.toLowerCase() ||
-            "";
-
-          if (contextText.includes(filter.exceptWhen.toLowerCase())) {
-            shouldBlock = false;
-          }
-        }
-
-        if (shouldBlock) {
-          nodesToProcess.push({ textNode, filter });
-          break;
+        // Check for exceptions in context
+        const contextText = parent?.innerText?.toLowerCase() || parent?.textContent?.toLowerCase() || "";
+        if (!filter.exceptWhen || !contextText.includes(filter.exceptWhen.toLowerCase())) {
+          matches.push(filter);
         }
       }
+    }
+
+    if (matches.length > 0) {
+      nodesToProcess.push({ textNode, matchingFilters: matches });
     }
   }
 
@@ -472,35 +481,22 @@ const processInlineFilters = (
   let affectedCount = 0;
   const processedParagraphs = new Set<HTMLElement>();
 
-  nodesToProcess.forEach(({ textNode, filter }) => {
-    const scope: string = filter.blockScope || "word"; // Default to 'word' as the finest grain
+  nodesToProcess.forEach(({ textNode, matchingFilters }) => {
+    // Final safety check to ensure node/parent wasn't already processed in the loop
+    if (textNode.parentElement?.closest('[data-content-filtered]')) return;
 
-    switch (scope) {
-      case "paragraph": {
-        const paragraphEl = blockParagraph(textNode, blurMethod);
-        if (paragraphEl && !processedParagraphs.has(paragraphEl)) {
-          processedParagraphs.add(paragraphEl);
-          appliedElements.push(paragraphEl);
-          affectedCount++;
-        }
-        break;
-      }
-      case "word": {
-        const wordSpans = blockWord(textNode, filter, blurMethod);
-        wordSpans.forEach((span) => appliedElements.push(span));
-        affectedCount += wordSpans.length;
-        break;
-      }
-      default: {
-        // Legacy behavior: replace entire text node
-        const span = document.createElement("span");
-        const originalText = textNode.textContent || "";
-        applyBlurMethodToSpan(span, originalText, blurMethod);
-        textNode.replaceWith(span);
-        appliedElements.push(span);
+    const hasParagraphScope = matchingFilters.some(f => f.blockScope === "paragraph");
+    if (hasParagraphScope) {
+      const paragraphEl = blockParagraph(textNode, blurMethod);
+      if (paragraphEl && !processedParagraphs.has(paragraphEl)) {
+        processedParagraphs.add(paragraphEl);
+        appliedElements.push(paragraphEl);
         affectedCount++;
-        break;
       }
+    } else {
+      const elements = blockWord(textNode, matchingFilters, blurMethod);
+      elements.forEach(el => appliedElements.push(el));
+      affectedCount += elements.length;
     }
   });
 
@@ -660,7 +656,8 @@ export const translatePage = async (
   return successCount;
 };
 
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+if (typeof chrome !== "undefined" && chrome.runtime) {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log("[Content] Received message:", request.action);
 
   if (request.action === "TRANSLATE_PAGE") {
@@ -845,6 +842,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 });
+}
 
 // Ad blocking functions
 const enableAdBlocking = () => {
