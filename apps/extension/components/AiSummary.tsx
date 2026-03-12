@@ -7,11 +7,7 @@ import { useTheme } from "@/packages/ui/ThemeProvider";
 import anime from "animejs";
 import { chromeBridge } from "../Utils/chromeBridge";
 
-interface AiSummaryProps {
-  isActive: boolean;
-}
-
-export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
+export function AiSummary() {
   const [summary, setSummary] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,16 +35,22 @@ export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
     try {
       // 1. Get page text from content script
       let text = "";
+      let url = "";
       if (chromeBridge.isAvailable()) {
         const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
         if (tabs[0]?.id) {
-          const textResp = await chromeBridge.sendMessage(tabs[0].id, { action: "GET_PAGE_TEXT" });
-          if (textResp?.success) {
-            text = textResp.text;
+          url = tabs[0].url || "";
+          if (url.toLowerCase().endsWith(".pdf") || url.includes("application/pdf")) {
+            // PDF: Background script will fetch and parse it
           } else {
-            setError("Could not extract page text. Refresh and try again.");
-            setIsLoading(false);
-            return;
+            const textResp = await chromeBridge.sendMessage(tabs[0].id, { action: "GET_PAGE_TEXT" });
+            if (textResp?.success) {
+              text = textResp.text;
+            } else {
+              setError("Could not extract page text. Refresh and try again.");
+              setIsLoading(false);
+              return;
+            }
           }
         }
       } else {
@@ -57,7 +59,7 @@ export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
         return;
       }
 
-      if (!text || text.trim().length < 50) {
+      if (!text && !url.toLowerCase().endsWith(".pdf")) {
         setError("Not enough text content on this page to summarize.");
         setIsLoading(false);
         return;
@@ -67,6 +69,7 @@ export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
       const resp = await chromeBridge.sendMessage(undefined as any, {
         action: "SUMMARIZE_TEXT",
         text,
+        url,
       });
 
       if (resp?.success && resp.summary) {
@@ -91,7 +94,7 @@ export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
       <Button
         className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/20 flex items-center gap-2"
         onClick={handleSummarize}
-        disabled={isLoading || !isActive}
+        disabled={isLoading}
       >
         {isLoading ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -123,9 +126,17 @@ export function AiSummary({ isActive }: Readonly<AiSummaryProps>) {
             )}
           </button>
           {isExpanded && (
-            <div className={`px-3 pb-3 text-xs ${colors.text} leading-relaxed whitespace-pre-wrap border-t ${colors.border} pt-2`}>
-              {summary}
-            </div>
+            <div 
+               className={`px-4 pb-4 text-xs ${colors.text} leading-relaxed border-t ${colors.border} pt-3 prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5`}
+               dangerouslySetInnerHTML={{ 
+                  __html: summary
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                    .replace(/^\s*\*\s+(.*)$/gm, '<li>$1</li>')
+                    .replace(/(<li>[\s\S]*<\/li>)/, '<ul>$1</ul>')
+                    .replace(/\n\n/g, '<br/><br/>')
+               }} 
+            />
           )}
         </div>
       )}

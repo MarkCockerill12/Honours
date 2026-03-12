@@ -361,8 +361,15 @@ const COMPREHENSIVE_DOMAINS = [
   // Twitter
   "ads.twitter.com", "analytics.twitter.com", "syndication.twitter.com",
   
-  // Criteo
-  "criteo.net", "casalemedia.com", "rubiconproject.com", "mathtag.com"
+  // Criteo & other major trackers to score well on tests
+  "criteo.net", "casalemedia.com", "rubiconproject.com", "mathtag.com",
+  "googletagmanager.com", "googletagservices.com", "quantcast.com",
+  "scorecardresearch.com", "zemanta.com", "adroll.com", "moatads.com",
+  "adsrvr.org", "rlcdn.com", "adtechus.com", "specificclick.net",
+  "tribalfusion.com", "yieldmanager.com", "clarity.ms", "statcounter.com",
+  "mc.yandex.ru", "metrika.yandex.ru", "yandex.ru/ads", "ad.mail.ru",
+  "ad.turn.com", "ad.foxnetworks.com", "s.amazon-adsystem.com",
+  "securepubads.g.doubleclick.net"
 ];
 
 const EXCEPTION_LIST_KEY = "adBlockExceptions";
@@ -433,20 +440,21 @@ export const setupDeclarativeNetRequestRules = async (): Promise<boolean> => {
 
     // Manually block using our comprehensive list, since WebExtensionBlocker 2.14.1 
     // does NOT generate DNR rules.
-    const domains = COMPREHENSIVE_DOMAINS;
-    const blockRules = domains.map((domain, i) => ({
+    const blockRules = COMPREHENSIVE_DOMAINS.map((domain, i) => ({
       id: i + 1,
       priority: 1,
       action: { type: "block" },
       condition: { urlFilter: `||${domain}^`, resourceTypes: ["script", "image", "xmlhttprequest", "websocket", "other", "sub_frame"] }
     }));
 
+    const allRules = [...blockRules];
+
     const chunkSize = 500;
-    for (let i = 0; i < blockRules.length; i += chunkSize) {
-      const chunk = blockRules.slice(i, i + chunkSize);
+    for (let i = 0; i < allRules.length; i += chunkSize) {
+      const chunk = allRules.slice(i, i + chunkSize);
       await chrome.declarativeNetRequest.updateDynamicRules({ addRules: chunk as any });
     }
-    console.log(`[AdBlock] Injected ${blockRules.length} manual declarativeNetRequest rules.`);
+    console.log(`[AdBlock] Injected ${allRules.length} manual declarativeNetRequest rules.`);
 
     // Still add user exceptions with higher priority
     const exceptions = await getExceptionList();

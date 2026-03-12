@@ -209,10 +209,10 @@ export default function ExtensionApp({
               <TabsContent value="security" className="mt-0 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <CyberScanner />
                 <div className={`border-t ${colors.border} pt-3`}>
-                  <AiSummary isActive={protection.isActive} />
+                  <AiSummary />
                 </div>
                 <div className={`border-t ${colors.border} pt-3`}>
-                  <Translator isActive={protection.isActive} />
+                  <Translator />
                 </div>
               </TabsContent>
             </div>
