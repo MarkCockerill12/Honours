@@ -1,20 +1,20 @@
-export const APP_NAME = " Blocker"
-export const APP_VERSION = "1.0.0-prototype"
+export const APP_NAME = " Blocker";
+export const APP_VERSION = "1.0.0-prototype";
 
 // API Endpoints (to be configured for production)
 export const API_ENDPOINTS = {
   // AdGuard integration
   ADGUARD_API: process.env.NEXT_PUBLIC_ADGUARD_API || "https://api.adguard.com",
-  
+
   // VPN server list
   VPN_SERVERS: process.env.NEXT_PUBLIC_VPN_API || "/api/vpn/servers",
-  
+
   // NLP processing
   NLP_ANALYZE: process.env.NEXT_PUBLIC_NLP_API || "/api/nlp/analyze",
-  
+
   // Stats tracking
   STATS_API: process.env.NEXT_PUBLIC_STATS_API || "/api/stats",
-}
+};
 
 // VPN server regions
 export const VPN_REGIONS = [
@@ -26,7 +26,7 @@ export const VPN_REGIONS = [
   { id: "sg", name: "Singapore", emoji: "🇸🇬" },
   { id: "nl", name: "Netherlands", emoji: "🇳🇱" },
   { id: "ca", name: "Canada", emoji: "🇨🇦" },
-]
+];
 
 // DNS providers
 export const DNS_PROVIDERS = {
@@ -45,4 +45,4 @@ export const DNS_PROVIDERS = {
     doh: "https://dns.quad9.net/dns-query",
     ipv4: "9.9.9.9",
   },
-}
+};

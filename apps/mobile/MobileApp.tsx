@@ -1,148 +1,341 @@
-"use client"
+"use client";
 
-import React, { useState } from "react"
-import { Palette } from "lucide-react"
-import { useTheme } from "@/packages/ui/ThemeProvider"
-import { ActivationButton } from "@/packages/ui/ActivationButton"
-import { ProtectionToggles } from "@/packages/ui/ProtectionToggles"
-import { TrackerCard } from "@/packages/ui/TrackerCard"
-import { ScalableContainer } from "@/packages/ui/ScalableContainer"
-import type { ProtectionState, TrackerStats, ServerLocation, Theme } from "@/packages/ui/types"
-import { ServerMap } from "./components/ServerMap"
-import { ServerList } from "./components/ServerList"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { Palette } from "lucide-react";
+import anime from "animejs";
+import { useTheme } from "@/packages/ui/ThemeProvider";
+import { ActivationButton } from "@/packages/ui/ActivationButton";
+import { ProtectionToggles } from "@/packages/ui/ProtectionToggles";
+import { ScalableContainer } from "@/packages/ui/ScalableContainer";
+import { TrackerCard } from "@/packages/ui/TrackerCard";
+import type {
+  ProtectionState,
+  Theme,
+  TrackerStats,
+  ServerLocation,
+} from "@/packages/ui/types";
+import { ServerMap } from "./components/ServerMap";
+
+// VPN Server locations
+const VPN_SERVERS: ServerLocation[] = [
+  { id: "uk-1", name: "London", country: "United Kingdom", flag: "🇬🇧", ping: 12, load: 32, x: 48, y: 28 },
+  { id: "us-1", name: "New York", country: "United States", flag: "🇺🇸", ping: 78, load: 45, x: 25, y: 30 },
+  { id: "de-1", name: "Frankfurt", country: "Germany", flag: "🇩🇪", ping: 24, load: 55, x: 52, y: 27 },
+  { id: "jp-1", name: "Tokyo", country: "Japan", flag: "🇯🇵", ping: 180, load: 28, x: 82, y: 30 },
+  { id: "au-1", name: "Sydney", country: "Australia", flag: "🇦🇺", ping: 220, load: 18, x: 85, y: 70 },
+  { id: "ca-1", name: "Toronto", country: "Canada", flag: "🇨🇦", ping: 92, load: 38, x: 22, y: 25 },
+  { id: "sg-1", name: "Singapore", country: "Singapore", flag: "🇸🇬", ping: 160, load: 22, x: 76, y: 52 },
+  { id: "br-1", name: "São Paulo", country: "Brazil", flag: "🇧🇷", ping: 180, load: 15, x: 32, y: 62 },
+];
 
 interface MobileAppProps {
-  protection: ProtectionState
-  onProtectionToggle: () => void
-  onVpnToggle: () => void
-  onAdblockToggle: () => void
-  stats: TrackerStats
+  protection: ProtectionState;
+  onProtectionToggle: () => void;
+  onVpnToggle: () => void;
+  onAdblockToggle: () => void;
+  stats?: TrackerStats;
 }
 
-const defaultServers: ServerLocation[] = [
-  { id: "uk", name: "London", country: "United Kingdom", flag: "GB", ping: 12, load: 35, x: 48, y: 30 },
-  { id: "us-east", name: "New York", country: "United States", flag: "US", ping: 78, load: 62, x: 25, y: 35 },
-  { id: "us-west", name: "Los Angeles", country: "United States", flag: "US", ping: 145, load: 45, x: 12, y: 38 },
-  { id: "de", name: "Frankfurt", country: "Germany", flag: "DE", ping: 28, load: 55, x: 52, y: 28 },
-  { id: "jp", name: "Tokyo", country: "Japan", flag: "JP", ping: 180, load: 30, x: 85, y: 35 },
-  { id: "au", name: "Sydney", country: "Australia", flag: "AU", ping: 220, load: 25, x: 88, y: 75 },
-  { id: "sg", name: "Singapore", country: "Singapore", flag: "SG", ping: 165, load: 40, x: 78, y: 52 },
-]
+type MobileTab = "shield" | "vpn" | "stats";
 
 export function MobileApp({
   protection,
   onProtectionToggle,
   onVpnToggle,
   onAdblockToggle,
-  stats,
-}: MobileAppProps) {
-  const { colors, theme, setTheme } = useTheme()
-  const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(defaultServers[0])
+  stats = { bandwidthSaved: 0, timeSaved: 0, dataValueReclaimed: 0 },
+}: Readonly<MobileAppProps>) {
+  const { theme, setTheme, colors } = useTheme();
+  const [activeTab, setActiveTab] = useState<MobileTab>("shield");
+  const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(VPN_SERVERS[0]);
+  const [isVpnConnected, setIsVpnConnected] = useState(false);
+  const [userLocation] = useState({ x: 48, y: 28 }); // Default to London for demo
+  const contentRef = useRef<HTMLDivElement>(null);
+  const tabIndicatorRef = useRef<HTMLDivElement>(null);
 
-  const userLocation = { x: 48, y: 32 } // UK by default
+  const glassCardClass = useMemo(() => {
+    switch (theme) {
+      case "dark": return "glass-card";
+      case "vaporwave": return "glass-card-vaporwave";
+      case "frutiger-aero": return "glass-card-frutiger";
+      default: return "glass-card-light";
+    }
+  }, [theme]);
+
+  const scrollbarClass = useMemo(() => {
+    switch (theme) {
+      case "dark": return "scrollbar-dark text-zinc-100";
+      case "vaporwave": return "scrollbar-vaporwave text-zinc-100";
+      case "frutiger-aero": return "scrollbar-frutiger text-zinc-900";
+      default: return "scrollbar-light text-zinc-900";
+    }
+  }, [theme]);
+
+  const premiumHeaderStyle = useMemo(() => {
+    if (!protection.isActive) return { background: "transparent" };
+    
+    let gradient = "linear-gradient(90deg, #10b981, #3b82f6, #0ea5e9, #10b981)";
+    if (theme === "vaporwave") gradient = "linear-gradient(90deg, #ec4899, #8b5cf6, #06b6d4, #ec4899)";
+    else if (theme === "frutiger-aero") gradient = "linear-gradient(90deg, #38bdf8, #34d399, #2dd4bf, #38bdf8)";
+    
+    return {
+      background: gradient,
+      backgroundSize: "200% 100%",
+    };
+  }, [protection.isActive, theme]);
+
+  // Tab content switching animation
+  useEffect(() => {
+    if (!contentRef.current) return;
+    anime({
+      targets: contentRef.current,
+      opacity: [0, 1],
+      translateY: [10, 0],
+      duration: 400,
+      easing: "easeOutExpo",
+    });
+  }, [activeTab]);
+
+  // Tab indicator slide animation
+  useEffect(() => {
+    if (!tabIndicatorRef.current) return;
+    const tabIndex = activeTab === "shield" ? 0 : activeTab === "vpn" ? 1 : 2;
+    anime({
+      targets: tabIndicatorRef.current,
+      translateX: `${tabIndex * 100}%`,
+      duration: 350,
+      easing: "easeOutExpo",
+    });
+  }, [activeTab]);
+
+  const cycleTheme = () => {
+    const themes: Theme[] = ["dark", "light", "vaporwave", "frutiger-aero"];
+    const idx = themes.indexOf(theme);
+    setTheme(themes[(idx + 1) % themes.length]);
+  };
 
   return (
-    <ScalableContainer className="w-full max-w-[390px] min-h-[844px] mx-auto">
-      <div className="flex flex-col h-full">
-        {/* Status Bar Mockup */}
-        {/* TODO: Connect to native bridge for real-time battery and signal strength data */}
-        <div className={`flex items-center justify-between px-6 py-2 ${colors.bgSecondary}`}>
-          <span className={`text-xs font-semibold ${colors.text}`}>9:41</span>
-          <div className="flex items-center gap-1">
-            <div className={`w-4 h-2 ${colors.textSecondary}`}>
-              <svg viewBox="0 0 24 12" fill="currentColor">
-                <rect x="0" y="4" width="4" height="8" rx="1" />
-                <rect x="6" y="2" width="4" height="10" rx="1" />
-                <rect x="12" y="0" width="4" height="12" rx="1" />
-                <rect x="18" y="0" width="4" height="12" rx="1" />
-              </svg>
-            </div>
-            <div className={`w-6 h-3 border rounded-sm ${colors.border}`}>
-              <div className="w-4 h-full bg-emerald-400 rounded-sm" />
-            </div>
-          </div>
+    <ScalableContainer maxWidth="420px" className="h-full flex flex-col relative overflow-hidden">
+      {/* Premium Header Strip */}
+      <div
+        className={`absolute top-0 left-0 right-0 h-1.5 ${protection.isActive ? "animate-gradient-shift" : ""}`}
+        style={premiumHeaderStyle}
+      />
+
+      {/* Header */}
+      <div className="flex items-center justify-between mt-4 mb-4 shrink-0 px-4">
+        <div>
+          <h1 className={`text-xl font-bold ${colors.text}`}>Privacy Shield</h1>
+          <p className={`text-xs uppercase tracking-widest font-bold mt-1 ${colors.textSecondary}`}>
+            Mobile Protection
+          </p>
         </div>
+        <button
+          onClick={cycleTheme}
+          className={`p-2 rounded-xl transition-all duration-300 hover-lift hover:rotate-180 ${glassCardClass}`}
+        >
+          <Palette className={colors.textSecondary} size={18} />
+        </button>
+      </div>
 
-        {/* Main Content */}
-        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
-          {/* Header with Theme Selector */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 
-                className={`text-xl font-bold ${colors.text}`}
-                style={{
-                  fontFamily: theme === "vaporwave" ? "'Comic Sans MS', cursive" : undefined,
-                  textShadow: theme === "vaporwave" ? "0 0 10px #f472b6, 0 0 20px #22d3ee" : undefined,
-                }}
-              >
-                 Blocker
-              </h1>
-              <p className={`text-xs ${colors.textSecondary}`}>Mobile Protection</p>
-            </div>
-            
-            {/* Theme Selector */}
-            <div className="flex items-center gap-2">
-              <Palette size={14} className={colors.textSecondary} />
-              <Select value={theme} onValueChange={(val) => setTheme(val as Theme)}>
-                <SelectTrigger className={`w-28 h-8 text-xs ${colors.bg} ${colors.text} ${colors.border}`}>
-                  <SelectValue placeholder="Theme" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="dark">Dark</SelectItem>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="vaporwave">Vaporwave</SelectItem>
-                  <SelectItem value="frutiger-aero">Frutiger Aero</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Activation Button */}
-          <div className="flex justify-center py-6">
-            <ActivationButton 
-              protection={protection}
-              onToggle={onProtectionToggle}
-              size="lg"
-            />
-          </div>
-
-          {/* Protection Toggles */}
-          <div className="flex justify-center">
-            <ProtectionToggles
-              protection={protection}
-              onVpnToggle={onVpnToggle}
-              onAdblockToggle={onAdblockToggle}
-              layout="horizontal"
-            />
-          </div>
-
-          {/* Server Map */}
-          <ServerMap
-            servers={defaultServers}
+      {/* Content */}
+      <div ref={contentRef} className={`flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto pb-4 px-4 ${scrollbarClass}`}>
+        {activeTab === "shield" && (
+          <ShieldTab
+            protection={protection}
+            onProtectionToggle={onProtectionToggle}
+            onVpnToggle={onVpnToggle}
+            onAdblockToggle={onAdblockToggle}
+            stats={stats}
+            colors={colors}
+          />
+        )}
+        {activeTab === "vpn" && (
+          <VpnTab
+            colors={colors}
+            glassCardClass={glassCardClass}
             selectedServer={selectedServer}
+            isVpnConnected={isVpnConnected}
+            onVpnConnectToggle={() => setIsVpnConnected(!isVpnConnected)}
             onServerSelect={setSelectedServer}
-            isConnected={protection.isActive && protection.vpnEnabled}
             userLocation={userLocation}
           />
-
-          {/* Server List */}
-          <ServerList
-            servers={defaultServers}
-            selectedServer={selectedServer}
-            onServerSelect={setSelectedServer}
+        )}
+        {activeTab === "stats" && (
+          <StatsTab
+            colors={colors}
+            glassCardClass={glassCardClass}
+            stats={stats}
+            protection={protection}
           />
+        )}
+      </div>
 
-          {/* Stats */}
-          <TrackerCard stats={stats} />
+      {/* Bottom Navigation */}
+      <div className={`mt-auto px-4 py-6 shrink-0 border-t ${colors.border} bg-black/5 backdrop-blur-lg`}>
+        <div className={`p-1 flex items-center justify-around relative rounded-2xl ${glassCardClass}`}>
+          <div
+            ref={tabIndicatorRef}
+            className={`absolute left-0 top-1 bottom-1 w-1/3 p-1 z-0 transition-opacity duration-300 pointer-events-none`}
+          >
+            <div className={`w-full h-full rounded-xl opacity-20 ${colors.accent}`} />
+          </div>
+          {(["shield", "vpn", "stats"] as MobileTab[]).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-3 text-[10px] font-black uppercase tracking-widest z-10 transition-all duration-300
+                ${activeTab === tab ? "text-white" : `${colors.textSecondary} opacity-60 hover:opacity-100`}`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
       </div>
     </ScalableContainer>
-  )
+  );
+}
+
+// Sub-components for cleaner structure
+
+interface ShieldTabProps {
+  protection: ProtectionState;
+  onProtectionToggle: () => void;
+  onVpnToggle: () => void;
+  onAdblockToggle: () => void;
+  stats: TrackerStats;
+  colors: any;
+}
+
+function ShieldTab({
+  protection,
+  onProtectionToggle,
+  onVpnToggle,
+  onAdblockToggle,
+  stats,
+  colors,
+}: Readonly<ShieldTabProps>) {
+  return (
+    <div className="flex-1 flex flex-col justify-center space-y-10 py-6">
+      <div className="flex flex-col items-center">
+        <div className={`relative ${protection.isActive ? "animate-shield-pulse scale-110" : "scale-100 grayscale-[0.2]"} transition-all duration-700`}>
+          <ActivationButton protection={protection} onToggle={onProtectionToggle} size="xl" />
+        </div>
+        <p className={`mt-10 text-center text-sm font-black tracking-widest ${protection.isActive ? colors.success : colors.textSecondary}`}>
+          {protection.isActive ? "SYSTEM SECURED" : "PROTECTION OFFLINE"}
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        <ProtectionToggles
+          protection={protection}
+          onVpnToggle={onVpnToggle}
+          onAdblockToggle={onAdblockToggle}
+          layout="vertical"
+        />
+        <div className="pt-4">
+          <TrackerCard stats={stats} compact />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface VpnTabProps {
+  colors: any;
+  glassCardClass: string;
+  selectedServer: ServerLocation | null;
+  isVpnConnected: boolean;
+  onVpnConnectToggle: () => void;
+  onServerSelect: (server: ServerLocation) => void;
+  userLocation: { x: number; y: number };
+}
+
+function VpnTab({
+  colors,
+  glassCardClass,
+  selectedServer,
+  isVpnConnected,
+  onVpnConnectToggle,
+  onServerSelect,
+  userLocation,
+}: Readonly<VpnTabProps>) {
+  return (
+    <div className="flex-1 flex flex-col gap-5 pt-2">
+      <div className={`p-5 rounded-2xl transition-all duration-500 ${glassCardClass} ${isVpnConnected ? "border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_30px_rgba(16,185,129,0.1)]" : "border-zinc-800/50"}`}>
+        <div className="flex items-center justify-between mb-4">
+          <span className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary}`}>VPN Status</span>
+          <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${isVpnConnected ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-zinc-800 text-zinc-500 border-zinc-700"}`}>
+            {isVpnConnected ? "CONNECTED" : "DISCONNECTED"}
+          </span>
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="text-4xl">{selectedServer?.flag || "🌍"}</div>
+          <div className="flex flex-col">
+            <span className={`text-xl font-black tracking-tight ${colors.text}`}>{selectedServer?.name || "Select Server"}</span>
+            <span className={`text-[10px] font-bold uppercase tracking-widest ${colors.textSecondary}`}>
+              {selectedServer ? `${selectedServer.country} • ${selectedServer.ping}ms` : "Location Services Active"}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className={`flex-1 rounded-2xl overflow-hidden border border-zinc-800/30 relative min-h-62.5 ${glassCardClass}`}>
+        <ServerMap
+          servers={VPN_SERVERS}
+          selectedServer={selectedServer}
+          onServerSelect={onServerSelect}
+          isConnected={isVpnConnected}
+          userLocation={userLocation}
+        />
+      </div>
+
+      <button
+        onClick={onVpnConnectToggle}
+        className={`w-full py-5 rounded-2xl font-black tracking-[0.2em] transition-all duration-500 shadow-xl
+          ${isVpnConnected ? "bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20" : "bg-emerald-500 text-emerald-950 hover:bg-emerald-400 hover:scale-[1.02] active:scale-[0.98]"}`}
+      >
+        {isVpnConnected ? "DISCONNECT VPN" : "CONNECT NOW"}
+      </button>
+    </div>
+  );
+}
+
+interface StatsTabProps {
+  colors: any;
+  glassCardClass: string;
+  stats: TrackerStats;
+  protection: ProtectionState;
+}
+
+function StatsTab({ colors, glassCardClass, stats, protection }: Readonly<StatsTabProps>) {
+  const securityItems = useMemo(() => [
+    { label: "Ad Guard Service", active: protection.adblockEnabled, desc: "DNS-level filtering" },
+    { label: "VPN Tunnel", active: protection.vpnEnabled, desc: "AES-256 Encryption" },
+    { label: "Trackers Blocked", active: protection.isActive, desc: "Privacy Shield Active" },
+  ], [protection]);
+
+  return (
+    <div className="flex-1 flex flex-col gap-8 pt-2">
+      <div className="space-y-4">
+        <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] px-2 ${colors.textSecondary}`}>Network Metrics</h3>
+        <TrackerCard stats={stats} />
+      </div>
+
+      <div className="space-y-4">
+        <h3 className={`text-[10px] font-black uppercase tracking-[0.2em] px-2 ${colors.textSecondary}`}>Shield Integrity</h3>
+        <div className="grid grid-cols-1 gap-3">
+          {securityItems.map((item) => (
+            <div key={item.label} className={`p-4 rounded-xl flex items-center justify-between border border-white/5 bg-black/10 ${glassCardClass}`}>
+              <div className="flex flex-col">
+                <span className={`text-[10px] font-bold uppercase tracking-widest ${colors.textSecondary}`}>{item.label}</span>
+                <span className={`text-xs font-bold ${colors.text}`}>{item.desc}</span>
+              </div>
+              <div className={`w-2 h-2 rounded-full ${item.active ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,1)]" : "bg-zinc-700"}`} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }

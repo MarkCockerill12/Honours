@@ -3,10 +3,19 @@
   "name": "Privacy Protector (Dev)",
   "version": "1.0",
   "description": "Honours Project Dev Build",
-  "permissions": ["storage", "activeTab", "scripting", "declarativeNetRequest"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
+    "webRequest",
+    "alarms"
+  ],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "extension-loader.html",
+    "default_popup": "extension.html",
     "default_title": "Open Blocker"
   },
   "background": {
@@ -15,7 +24,18 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content-script.js"]
+      "js": ["content-script.js"],
+      "run_at": "document_idle",
+      "all_frames": false
     }
-  ]
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content-script.js", "blocked.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "externally_connectable": {
+    "matches": ["http://localhost:3000/*"]
+  }
 }
