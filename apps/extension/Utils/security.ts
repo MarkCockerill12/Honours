@@ -105,8 +105,9 @@ const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
   let score = 0;
   const factors: string[] = [];
 
-  // 1. Excessive subdomains (>3 levels = suspicious)
-  const subdomainCount = hostname.split(".").length;
+  // 1. Excessive subdomains (>4 levels = suspicious, ignore www)
+  const baseHostname = hostname.replace(/^www\./, "");
+  const subdomainCount = baseHostname.split(".").length;
   if (subdomainCount > 4) {
     score += 2;
     factors.push(`Excessive subdomains (${subdomainCount} levels)`);
@@ -192,8 +193,9 @@ const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
     factors.push("Insecure HTTP connection");
   }
 
-  // 9. Very long URL (>200 chars)
-  if (fullUrl.length > 200) {
+  // 9. Very long URL (>200 chars), ignoring hash fragments
+  const urlWithoutHash = fullUrl.split("#")[0];
+  if (urlWithoutHash.length > 250) {
     score += 1;
     factors.push("Extremely long URL");
   }
@@ -205,9 +207,9 @@ const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
     factors.push(`Excessive URL parameters (${paramCount})`);
   }
 
-  // 11. Contains encoded/obfuscated characters
-  const encodedChars = (fullUrl.match(/%[0-9a-fA-F]{2}/g) || []).length;
-  if (encodedChars > 5) {
+  // 11. Contains encoded/obfuscated characters (ignore hash fragment)
+  const encodedChars = (urlWithoutHash.match(/%[0-9a-fA-F]{2}/g) || []).length;
+  if (encodedChars > 8) {
     score += 2;
     factors.push(`Heavily encoded URL (${encodedChars} encoded chars)`);
   }

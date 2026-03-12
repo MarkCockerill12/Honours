@@ -28,11 +28,7 @@ const SUPPORTED_LANGUAGES = [
   { code: "ko", name: "Korean", flag: "🇰🇷" },
 ];
 
-interface TranslatorProps {
-  isActive: boolean;
-}
-
-export function Translator({ isActive }: TranslatorProps) {
+export function Translator() {
   const [targetLang, setTargetLang] = useState("es");
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationActive, setIsTranslationActive] = useState(false);
@@ -224,7 +220,7 @@ export function Translator({ isActive }: TranslatorProps) {
           ref={translateBtnRef}
           className="bg-blue-600 hover:bg-blue-500 text-white shrink-0 w-10 h-10 p-0 shadow-lg"
           onClick={handleTranslate}
-          disabled={isTranslating || !isActive}
+          disabled={isTranslating}
         >
           <RefreshCw className={`h-4 w-4 ${isTranslating ? "animate-spin" : ""}`} />
         </Button>

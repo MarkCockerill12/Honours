@@ -79,13 +79,6 @@ const enableAdBlocking = () => {
   if (adBlockingActive) return;
   adBlockingActive = true;
   
-  // Inject global aggressive CSS rules to ensure ad scripts cannot override visibility
-  const styleStr = AD_SELECTORS.map(sel => `${sel} { display: none !important; }`).join('\n');
-  const styleEl = document.createElement("style");
-  styleEl.id = "privacy-protector-adblock-styles";
-  styleEl.textContent = styleStr;
-  globalThis.document.head.appendChild(styleEl);
-
   hideAdElements();
   setupAdBlockObserver();
 };
@@ -169,6 +162,14 @@ const applyBlurMethodToSpan = (span: HTMLElement, originalText: string, blurMeth
       span.style.borderRadius = "4px";
       span.onclick = () => { span.textContent = originalText; span.style.backgroundColor = "transparent"; span.style.padding = "0"; revealSpan(); };
       break;
+    case "kitten":
+      span.textContent = "🐱 kitten";
+      span.style.backgroundColor = "yellow";
+      span.style.color = "black";
+      span.style.fontWeight = "bold";
+      span.style.cursor = "pointer";
+      span.onclick = () => { span.textContent = originalText; span.style.backgroundColor = "transparent"; span.style.color = "inherit"; span.style.padding = "0"; revealSpan(); };
+      break;
     default:
       span.textContent = originalText;
       span.style.filter = "blur(6px)";
@@ -251,6 +252,15 @@ const blockParagraph = (textNode: Text, blurMethod: string): HTMLElement | null 
       break;
     case "warning":
       blockParent.innerHTML = '<div style="background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:12px;color:#ca8a04;font-weight:bold;cursor:pointer;">⚠️ Content Filtered</div>';
+      blockParent.onclick = (e) => { 
+        e.stopPropagation();
+        blockParent!.innerHTML = originalHTML; 
+        blockParent!.dataset.userRevealed = "true";
+        delete blockParent!.dataset.contentFiltered; 
+      };
+      break;
+    case "kitten":
+      blockParent.innerHTML = '<div style="background:yellow;color:black;border:2px solid orange;border-radius:8px;padding:12px;text-align:center;font-size:24px;font-weight:bold;cursor:pointer;">🐱 meow 🐱</div>';
       blockParent.onclick = (e) => { 
         e.stopPropagation();
         blockParent!.innerHTML = originalHTML; 
@@ -435,8 +445,12 @@ const syncState = (protection: any, filters: SmartFilter[], method: string, isFi
 // --- INITIALIZATION (at the bottom) ---
 
 if (globalThis.window !== undefined) {
-  if (globalThis.location.hostname.includes("youtube.com")) setTimeout(() => initYouTubeAdBlocker(), 1000);
-  if (globalThis.chrome !== undefined && globalThis.chrome.storage) {
+  // Prevent content script from running on PDF documents and lagging the browser
+  if (globalThis.document.contentType === "application/pdf" || globalThis.location.pathname.toLowerCase().split("?")[0].endsWith(".pdf")) {
+    console.log("[Content] Aborting execution on PDF to prevent native viewer lag.");
+  } else {
+    if (globalThis.location.hostname.includes("youtube.com")) setTimeout(() => initYouTubeAdBlocker(), 1000);
+    if (globalThis.chrome !== undefined && globalThis.chrome.storage) {
     chrome.storage.local.get(["protectionState", "filters", "blurMethod", "isFilteringActive"], (res) => 
       syncState(res.protectionState, (res.filters as SmartFilter[]) || [], (res.blurMethod as string) || "blur", !!res.isFilteringActive)
     );
@@ -509,4 +523,5 @@ if (globalThis.window !== undefined) {
       });
     }
   }
+}
 }

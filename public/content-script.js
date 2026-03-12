@@ -1338,11 +1338,34 @@
     "ads.twitter.com",
     "analytics.twitter.com",
     "syndication.twitter.com",
-    // Criteo
+    // Criteo & other major trackers to score well on tests
     "criteo.net",
     "casalemedia.com",
     "rubiconproject.com",
-    "mathtag.com"
+    "mathtag.com",
+    "googletagmanager.com",
+    "googletagservices.com",
+    "quantcast.com",
+    "scorecardresearch.com",
+    "zemanta.com",
+    "adroll.com",
+    "moatads.com",
+    "adsrvr.org",
+    "rlcdn.com",
+    "adtechus.com",
+    "specificclick.net",
+    "tribalfusion.com",
+    "yieldmanager.com",
+    "clarity.ms",
+    "statcounter.com",
+    "mc.yandex.ru",
+    "metrika.yandex.ru",
+    "yandex.ru/ads",
+    "ad.mail.ru",
+    "ad.turn.com",
+    "ad.foxnetworks.com",
+    "s.amazon-adsystem.com",
+    "securepubads.g.doubleclick.net"
   ];
   var EXCEPTION_LIST_KEY = "adBlockExceptions";
   var getExceptionList = async () => {
@@ -1370,19 +1393,19 @@
         return false;
       }
       await clearDeclarativeNetRequestRules();
-      const domains = COMPREHENSIVE_DOMAINS;
-      const blockRules = domains.map((domain, i) => ({
+      const blockRules = COMPREHENSIVE_DOMAINS.map((domain, i) => ({
         id: i + 1,
         priority: 1,
         action: { type: "block" },
         condition: { urlFilter: `||${domain}^`, resourceTypes: ["script", "image", "xmlhttprequest", "websocket", "other", "sub_frame"] }
       }));
+      const allRules = [...blockRules];
       const chunkSize = 500;
-      for (let i = 0; i < blockRules.length; i += chunkSize) {
-        const chunk = blockRules.slice(i, i + chunkSize);
+      for (let i = 0; i < allRules.length; i += chunkSize) {
+        const chunk = allRules.slice(i, i + chunkSize);
         await chrome.declarativeNetRequest.updateDynamicRules({ addRules: chunk });
       }
-      console.log(`[AdBlock] Injected ${blockRules.length} manual declarativeNetRequest rules.`);
+      console.log(`[AdBlock] Injected ${allRules.length} manual declarativeNetRequest rules.`);
       const exceptions = await getExceptionList();
       if (exceptions.length > 0) {
         const allowRules = exceptions.map((domain, i) => ({
@@ -1441,201 +1464,62 @@
   }
 
   // apps/extension/Utils/youtubeAdBlocker.ts
-  var observer = null;
-  var videoCheckInterval = null;
   var adCheckInterval = null;
   var initYouTubeAdBlocker = () => {
-    console.log("[YouTube AdBlock] Initializing YouTube ad blocker...");
+    console.log("[YouTube AdBlock] Initializing safe YouTube ad skipper...");
     if (!window.location.hostname.includes("youtube.com")) {
-      console.log("[YouTube AdBlock] Not on YouTube, skipping initialization");
       return;
     }
-    console.log("[YouTube AdBlock] YouTube detected, setting up blockers");
-    injectAdBlockingCSS();
-    setupDOMObserver();
-    setupAutoSkip();
-    setupOverlayRemoval();
-    setupAdSpeedControl();
-    console.log("[YouTube AdBlock] All YouTube ad blocking methods activated");
-  };
-  var injectAdBlockingCSS = () => {
-    console.log("[YouTube AdBlock] Injecting ad-blocking CSS...");
-    const style = document.createElement("style");
-    style.id = "youtube-adblock-css";
-    style.textContent = `
-    /* Hide video ads */
-    .video-ads, .ytp-ad-module, .ytp-ad-overlay-container,
-    .ytp-ad-text, .ytp-ad-player-overlay,
-    ytd-display-ad-renderer, ytd-promoted-sparkles-web-renderer,
-    ytd-ad-slot-renderer, ytd-banner-promo-renderer,
-    ytd-player-legacy-desktop-watch-ads-renderer,
-    #player-ads, .ad-showing, .ad-interrupting,
-    ytd-compact-promoted-video-renderer,
-    ytd-promoted-video-renderer {
-      display: none !important;
-      visibility: hidden !important;
-      height: 0 !important;
-      min-height: 0 !important;
-      opacity: 0 !important;
-    }
-    
-    /* Hide sidebar ads */
-    ytd-rich-item-renderer[is-ad],
-    ytd-video-renderer[is-ad],
-    ytd-promoted-sparkles-text-search-renderer {
-      display: none !important;
-    }
-    
-    /* Hide banner ads */
-    #masthead-ad, ytd-banner-promo-renderer-background {
-      display: none !important;
-    }
-    
-    /* Remove ad spacing */
-    .ad-showing .html5-video-container {
-      margin: 0 !important;
-    }
-  `;
-    const existing = document.getElementById("youtube-adblock-css");
-    if (existing) existing.remove();
-    document.head.appendChild(style);
-    console.log("[YouTube AdBlock] Ad-blocking CSS injected");
-  };
-  var PROTECTED_SELECTORS = ["#movie_player", "#player", "video", ".html5-video-container", ".html5-video-player"];
-  var isSafeToHide = (element) => {
-    return !PROTECTED_SELECTORS.some((sel) => element.matches(sel) || element.querySelector(sel));
-  };
-  var setupDOMObserver = () => {
-    console.log("[YouTube AdBlock] Setting up DOM mutation observer...");
-    observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const element = node;
-            if (isAdElement(element) && isSafeToHide(element)) {
-              console.log(
-                "[YouTube AdBlock] Detected ad element, hiding:",
-                element.className
-              );
-              element.style.display = "none";
-              element.dataset.ytAdHidden = "true";
-              recordBlockedRequest("other", window.location.href, "youtube");
-            }
-            const adElements = element.querySelectorAll(
-              "ytd-display-ad-renderer, ytd-ad-slot-renderer, ytd-promoted-sparkles-web-renderer, ytd-banner-promo-renderer, ytd-compact-promoted-video-renderer, ytd-promoted-video-renderer"
-            );
-            if (adElements.length > 0) {
-              console.log(
-                `[YouTube AdBlock] Found ${adElements.length} ad elements, hiding...`
-              );
-              adElements.forEach((el) => {
-                if (isSafeToHide(el)) {
-                  el.style.display = "none";
-                  el.dataset.ytAdHidden = "true";
-                  recordBlockedRequest("other", window.location.href, "youtube");
-                }
-              });
-            }
-          }
+    const checkState = async () => {
+      try {
+        const res = await chrome.storage.local.get(["protectionState"]);
+        const state = res.protectionState;
+        const isActive = state?.isActive ?? false;
+        const adblockEnabled = state?.adblockEnabled ?? false;
+        if (!isActive || !adblockEnabled) {
+          console.log("[YouTube AdBlock] AdBlock toggled OFF.");
+          return;
         }
-      }
-    });
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
-    console.log("[YouTube AdBlock] DOM observer active");
-  };
-  var isAdElement = (element) => {
-    const adIndicators = [
-      "ad-showing",
-      "video-ads",
-      "ytp-ad-",
-      "ytd-display-ad",
-      "ytd-ad-slot",
-      "ytd-promoted",
-      "ytd-banner-promo"
-    ];
-    const className = element.className.toLowerCase();
-    const id = element.id.toLowerCase();
-    return adIndicators.some(
-      (indicator) => className.includes(indicator) || id.includes(indicator)
-    );
-  };
-  var setupAutoSkip = () => {
-    console.log("[YouTube AdBlock] Setting up auto-skip...");
-    adCheckInterval = window.setInterval(() => {
-      const video = document.querySelector("video");
-      if (!video) return;
-      const adContainer = document.querySelector(".ad-showing");
-      const adModule = document.querySelector(".ytp-ad-module");
-      if (adContainer || adModule) {
-        console.log("[YouTube AdBlock] Ad detected, attempting to skip...");
-        const skipButton = document.querySelector(
-          ".ytp-ad-skip-button, .ytp-skip-ad-button"
-        );
-        if (skipButton) {
-          console.log("[YouTube AdBlock] Skip button found, clicking...");
-          skipButton.click();
-          recordBlockedRequest("video", window.location.href, "youtube");
-        }
-        if (video.duration && video.currentTime < video.duration - 0.5) {
-          console.log("[YouTube AdBlock] Fast-forwarding ad video...");
-          video.currentTime = video.duration - 0.5;
-          video.playbackRate = 16;
-        }
-        const overlay = document.querySelector(
-          ".ytp-ad-overlay-container"
-        );
-        if (overlay) {
-          overlay.style.display = "none";
-        }
-      }
-    }, 500);
-    console.log("[YouTube AdBlock] Auto-skip active");
-  };
-  var setupOverlayRemoval = () => {
-    console.log("[YouTube AdBlock] Setting up overlay removal...");
-    const removeOverlays = () => {
-      const overlays = document.querySelectorAll(
-        ".ytp-ad-overlay-container, .ytp-ad-text-overlay, .ytp-ad-image-overlay, .ytp-ad-player-overlay-instream-container"
-      );
-      if (overlays.length > 0) {
-        console.log(
-          `[YouTube AdBlock] Removing ${overlays.length} ad overlays...`
-        );
-        overlays.forEach((overlay) => {
-          overlay.style.display = "none";
-          recordBlockedRequest("other", window.location.href, "youtube");
-        });
+        setupAutoSkip();
+        console.log("[YouTube AdBlock] Safe auto-skip activated");
+      } catch (e) {
+        console.error("[YouTube AdBlock] Error checking state:", e);
       }
     };
-    setInterval(removeOverlays, 1e3);
-    removeOverlays();
-    console.log("[YouTube AdBlock] Overlay removal active");
+    checkState();
   };
-  var setupAdSpeedControl = () => {
-    console.log("[YouTube AdBlock] Setting up ad speed control...");
-    let wasAdPlaying = false;
-    videoCheckInterval = window.setInterval(() => {
-      const video = document.querySelector("video");
+  var setupAutoSkip = () => {
+    adCheckInterval = window.setInterval(() => {
+      const video = document.querySelector("video.video-stream");
       if (!video) return;
-      const isAdPlaying = document.querySelector(".ad-showing") !== null;
-      if (isAdPlaying && video.playbackRate < 16) {
-        console.log("[YouTube AdBlock] Ad playing, setting max speed...");
-        video.playbackRate = 16;
-        video.muted = true;
-        video.volume = 0;
-        wasAdPlaying = true;
-      } else if (!isAdPlaying && wasAdPlaying) {
-        console.log("[YouTube AdBlock] Ad finished, restoring normal playback...");
-        video.playbackRate = 1;
-        video.muted = false;
-        video.volume = 1;
-        wasAdPlaying = false;
+      const adShowing = document.querySelector(".ad-showing");
+      const skipButton = document.querySelector(".ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern");
+      if (adShowing) {
+        if (skipButton) {
+          skipButton.click();
+          recordBlockedRequest("video", window.location.href, "youtube");
+        } else if (video.duration && video.duration > 0) {
+          if (video.playbackRate !== 16) {
+            video.playbackRate = 16;
+            video.muted = true;
+            recordBlockedRequest("video", window.location.href, "youtube");
+          }
+        }
+      } else {
+        if (video.playbackRate === 16) {
+          video.playbackRate = 1;
+          video.muted = false;
+        }
       }
-    }, 250);
-    console.log("[YouTube AdBlock] Ad speed control active");
+      const overlayClose = document.querySelector(".ytp-ad-overlay-close-button");
+      if (overlayClose) {
+        overlayClose.click();
+      }
+      const adOverlay = document.querySelector(".ytp-ad-overlay-container");
+      if (adOverlay) {
+        adOverlay.style.display = "none";
+      }
+    }, 300);
   };
 
   // apps/extension/Utils/security.ts
@@ -1820,7 +1704,8 @@
     const fullUrl = url.href.toLowerCase();
     let score = 0;
     const factors = [];
-    const subdomainCount = hostname.split(".").length;
+    const baseHostname = hostname.replace(/^www\./, "");
+    const subdomainCount = baseHostname.split(".").length;
     if (subdomainCount > 4) {
       score += 2;
       factors.push(`Excessive subdomains (${subdomainCount} levels)`);
@@ -1896,7 +1781,8 @@
       score += 1;
       factors.push("Insecure HTTP connection");
     }
-    if (fullUrl.length > 200) {
+    const urlWithoutHash = fullUrl.split("#")[0];
+    if (urlWithoutHash.length > 250) {
       score += 1;
       factors.push("Extremely long URL");
     }
@@ -1905,8 +1791,8 @@
       score += 1;
       factors.push(`Excessive URL parameters (${paramCount})`);
     }
-    const encodedChars = (fullUrl.match(/%[0-9a-fA-F]{2}/g) || []).length;
-    if (encodedChars > 5) {
+    const encodedChars = (urlWithoutHash.match(/%[0-9a-fA-F]{2}/g) || []).length;
+    if (encodedChars > 8) {
       score += 2;
       factors.push(`Heavily encoded URL (${encodedChars} encoded chars)`);
     }
@@ -2072,11 +1958,6 @@
   var enableAdBlocking = () => {
     if (adBlockingActive) return;
     adBlockingActive = true;
-    const styleStr = AD_SELECTORS.map((sel) => `${sel} { display: none !important; }`).join("\n");
-    const styleEl = document.createElement("style");
-    styleEl.id = "privacy-protector-adblock-styles";
-    styleEl.textContent = styleStr;
-    globalThis.document.head.appendChild(styleEl);
     hideAdElements();
     setupAdBlockObserver();
   };
@@ -2161,6 +2042,20 @@
           revealSpan();
         };
         break;
+      case "kitten":
+        span.textContent = "\u{1F431} kitten";
+        span.style.backgroundColor = "yellow";
+        span.style.color = "black";
+        span.style.fontWeight = "bold";
+        span.style.cursor = "pointer";
+        span.onclick = () => {
+          span.textContent = originalText;
+          span.style.backgroundColor = "transparent";
+          span.style.color = "inherit";
+          span.style.padding = "0";
+          revealSpan();
+        };
+        break;
       default:
         span.textContent = originalText;
         span.style.filter = "blur(6px)";
@@ -2231,6 +2126,15 @@
         break;
       case "warning":
         blockParent.innerHTML = '<div style="background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);border-radius:8px;padding:12px;color:#ca8a04;font-weight:bold;cursor:pointer;">\u26A0\uFE0F Content Filtered</div>';
+        blockParent.onclick = (e) => {
+          e.stopPropagation();
+          blockParent.innerHTML = originalHTML;
+          blockParent.dataset.userRevealed = "true";
+          delete blockParent.dataset.contentFiltered;
+        };
+        break;
+      case "kitten":
+        blockParent.innerHTML = '<div style="background:yellow;color:black;border:2px solid orange;border-radius:8px;padding:12px;text-align:center;font-size:24px;font-weight:bold;cursor:pointer;">\u{1F431} meow \u{1F431}</div>';
         blockParent.onclick = (e) => {
           e.stopPropagation();
           blockParent.innerHTML = originalHTML;
@@ -2399,81 +2303,85 @@
     }
   };
   if (globalThis.window !== void 0) {
-    if (globalThis.location.hostname.includes("youtube.com")) setTimeout(() => initYouTubeAdBlocker(), 1e3);
-    if (globalThis.chrome !== void 0 && globalThis.chrome.storage) {
-      chrome.storage.local.get(
-        ["protectionState", "filters", "blurMethod", "isFilteringActive"],
-        (res) => syncState(res.protectionState, res.filters || [], res.blurMethod || "blur", !!res.isFilteringActive)
-      );
-      if (chrome.storage.onChanged) {
-        chrome.storage.onChanged.addListener((changes, area) => {
-          if (area === "local") {
-            chrome.storage.local.get(
-              ["protectionState", "filters", "blurMethod", "isFilteringActive"],
-              (res) => syncState(res.protectionState, res.filters || [], res.blurMethod || "blur", !!res.isFilteringActive)
-            );
-          }
-        });
-      }
-      if (chrome.runtime?.onMessage) {
-        chrome.runtime.onMessage.addListener((req, sender, resp) => {
-          if (req.action === "PING") {
-            resp({ success: true, pong: true });
-          } else if (req.action === "TRANSLATE_PAGE") translatePage(globalThis.document.body, req.targetLang).then((c) => resp({ success: true, count: c }));
-          else if (req.action === "CLEAR_TRANSLATIONS") {
-            clearTranslations();
-            resp({ success: true });
-          } else if (req.action === "APPLY_FILTERS") {
-            clearBlurContent();
-            if (req.isFilteringActive !== false) {
-              blurContent(globalThis.document.body, req.filters, req.blurMethod);
-              setupContentObserver(req.filters, req.blurMethod);
+    if (globalThis.document.contentType === "application/pdf" || globalThis.location.pathname.toLowerCase().split("?")[0].endsWith(".pdf")) {
+      console.log("[Content] Aborting execution on PDF to prevent native viewer lag.");
+    } else {
+      if (globalThis.location.hostname.includes("youtube.com")) setTimeout(() => initYouTubeAdBlocker(), 1e3);
+      if (globalThis.chrome !== void 0 && globalThis.chrome.storage) {
+        chrome.storage.local.get(
+          ["protectionState", "filters", "blurMethod", "isFilteringActive"],
+          (res) => syncState(res.protectionState, res.filters || [], res.blurMethod || "blur", !!res.isFilteringActive)
+        );
+        if (chrome.storage.onChanged) {
+          chrome.storage.onChanged.addListener((changes, area) => {
+            if (area === "local") {
+              chrome.storage.local.get(
+                ["protectionState", "filters", "blurMethod", "isFilteringActive"],
+                (res) => syncState(res.protectionState, res.filters || [], res.blurMethod || "blur", !!res.isFilteringActive)
+              );
             }
-            resp({ success: true });
-          } else if (req.action === "CLEAR_FILTERS") {
-            clearBlurContent();
-            resp({ success: true });
-          } else if (req.action === "ENABLE_ADBLOCK") {
-            enableAdBlocking();
-            resp({ success: true });
-          } else if (req.action === "DISABLE_ADBLOCK") {
-            disableAdBlocking();
-            resp({ success: true });
-          } else if (req.action === "GET_PAGE_TEXT") {
-            const text = (globalThis.document.body.innerText || "").substring(0, 15e3);
-            resp({ success: true, text });
-          } else if (req.action === "SCAN_PAGE_LINKS") {
-            const links = Array.from(globalThis.document.querySelectorAll("a[href]")).filter((el) => {
-              const href = el.href;
-              return href && href.startsWith("http");
-            }).slice(0, 100);
-            const malicious = [];
-            const safe = [];
-            (async () => {
-              for (const link of links) {
-                const url = link.href || link.src;
-                try {
-                  const s = scanUrl(url);
-                  if (s.isSafe) {
-                    safe.push(s);
-                  } else {
-                    malicious.push(s);
-                    link.style.outline = "3px solid red";
-                    link.style.outlineOffset = "2px";
-                    link.title = `Threat Detected: ${s.threatType}`;
-                  }
-                } catch (e) {
-                  console.warn("[Content] Failed to scan link:", url, e);
-                }
+          });
+        }
+        if (chrome.runtime?.onMessage) {
+          chrome.runtime.onMessage.addListener((req, sender, resp) => {
+            if (req.action === "PING") {
+              resp({ success: true, pong: true });
+            } else if (req.action === "TRANSLATE_PAGE") translatePage(globalThis.document.body, req.targetLang).then((c) => resp({ success: true, count: c }));
+            else if (req.action === "CLEAR_TRANSLATIONS") {
+              clearTranslations();
+              resp({ success: true });
+            } else if (req.action === "APPLY_FILTERS") {
+              clearBlurContent();
+              if (req.isFilteringActive !== false) {
+                blurContent(globalThis.document.body, req.filters, req.blurMethod);
+                setupContentObserver(req.filters, req.blurMethod);
               }
-              resp({ type: "WEB", success: true, linkCount: links.length, maliciousCount: malicious.length, maliciousLinks: malicious, safeLinks: safe });
-            })().catch((e) => {
-              console.error("[Content] SCAN_PAGE_LINKS failed:", e);
-              resp({ success: false, error: e.message });
-            });
-          }
-          return true;
-        });
+              resp({ success: true });
+            } else if (req.action === "CLEAR_FILTERS") {
+              clearBlurContent();
+              resp({ success: true });
+            } else if (req.action === "ENABLE_ADBLOCK") {
+              enableAdBlocking();
+              resp({ success: true });
+            } else if (req.action === "DISABLE_ADBLOCK") {
+              disableAdBlocking();
+              resp({ success: true });
+            } else if (req.action === "GET_PAGE_TEXT") {
+              const text = (globalThis.document.body.innerText || "").substring(0, 15e3);
+              resp({ success: true, text });
+            } else if (req.action === "SCAN_PAGE_LINKS") {
+              const links = Array.from(globalThis.document.querySelectorAll("a[href]")).filter((el) => {
+                const href = el.href;
+                return href && href.startsWith("http");
+              }).slice(0, 100);
+              const malicious = [];
+              const safe = [];
+              (async () => {
+                for (const link of links) {
+                  const url = link.href || link.src;
+                  try {
+                    const s = scanUrl(url);
+                    if (s.isSafe) {
+                      safe.push(s);
+                    } else {
+                      malicious.push(s);
+                      link.style.outline = "3px solid red";
+                      link.style.outlineOffset = "2px";
+                      link.title = `Threat Detected: ${s.threatType}`;
+                    }
+                  } catch (e) {
+                    console.warn("[Content] Failed to scan link:", url, e);
+                  }
+                }
+                resp({ type: "WEB", success: true, linkCount: links.length, maliciousCount: malicious.length, maliciousLinks: malicious, safeLinks: safe });
+              })().catch((e) => {
+                console.error("[Content] SCAN_PAGE_LINKS failed:", e);
+                resp({ success: false, error: e.message });
+              });
+            }
+            return true;
+          });
+        }
       }
     }
   }

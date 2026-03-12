@@ -12,6 +12,7 @@ import {
 } from "./adBlockEngine";
 
 let adBlockEnabled = false;
+let protectionEnabled = false;
 let isSyncing = false;
 let lastError: { message: string; timestamp: number } | null = null;
 let adBlockSetupStatus: "pending" | "success" | "error" = "pending";
@@ -24,10 +25,13 @@ const syncAdBlockState = async () => {
     const res = await chrome.storage.local.get(["protectionState"]);
     const state = res.protectionState as ProtectionState | undefined;
     
-    // Master logic: Both global active state AND adblock toggle must be on
-    const shouldBeEnabled = (state?.isActive ?? false) && (state?.adblockEnabled ?? false);
+    // Master logic: Global active state
+    protectionEnabled = state?.isActive ?? false;
+    const shouldBeEnabled = protectionEnabled && (state?.adblockEnabled ?? false);
     
-    console.log(`[Background] Sync check: shouldBeEnabled=${shouldBeEnabled}, currentAdBlockEnabled=${adBlockEnabled}`);
+    console.log(`[Background] Sync check: protectionEnabled=${protectionEnabled}, shouldBeEnabled=${shouldBeEnabled}, currentAdBlockEnabled=${adBlockEnabled}`);
+
+    await setupPdfRule(protectionEnabled);
 
     if (shouldBeEnabled !== adBlockEnabled || !adBlockSetupStatus || adBlockSetupStatus === "pending") {
       adBlockEnabled = shouldBeEnabled;
@@ -99,6 +103,46 @@ const setupDeclarativeNetRequest = async (): Promise<{
   }
 };
 
+// Extremely Fast native PDF Blocker via Background Redirect
+// We cannot rely purely on DNR because some PDFs are loaded as links, and we want a visual block overlay.
+// MV3 allows chrome.webNavigation or chrome.tabs for this, but tabs.onUpdated is the most reliable for main frame PDFs.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (!protectionEnabled) return;
+  
+  if (changeInfo.status === "loading" && tab.url) {
+    const isPdf = tab.url.toLowerCase().split("?")[0].endsWith(".pdf");
+    const isLocal = tab.url.startsWith("file://");
+    const bypass = tab.url.includes("bypass=true");
+
+    if (isPdf && !bypass) {
+      // Firefox's open-source pdf.js viewer DOES support content scripts inline, 
+      // unlike Chrome/Edge's closed-source PDFium!
+      if (self.navigator?.userAgent?.toLowerCase().includes("firefox")) {
+         console.log("[Background] Firefox platform detected. Allowing native inline PDF shielding.");
+         return; 
+      }
+
+      if (isLocal) {
+        console.warn("[Background] Cannot scan local file:// PDFs safely.");
+      }
+      console.log(`[Background] PDF intercepted via tabs.onUpdated. Routing to Shield: ${tab.url}`);
+      const warningUrl = chrome.runtime.getURL(`pdf-warning.html?url=${encodeURIComponent(tab.url)}`);
+      chrome.tabs.update(tabId, { url: warningUrl });
+      recordBlockedRequest("document", tab.url, "pdf" as any);
+    }
+  }
+});
+
+const setupPdfRule = async (enabled: boolean) => {
+  // DNR rule removed in favor of reliable tabs.onUpdated redirect which guarantees the warning page loads.
+  try {
+    const PDF_RULE_ID = 90000;
+    if (chrome.declarativeNetRequest) {
+      await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds: [PDF_RULE_ID] });
+    }
+  } catch (err) {}
+};
+
 // MV3-compatible: Use webRequest ONLY for observational stats tracking (non-blocking).
 // Actual ad blocking is handled by declarativeNetRequest rules set up in setupDeclarativeNetRequest().
 // In MV3, webRequest does NOT support the "blocking" option.
@@ -130,70 +174,7 @@ if (chrome.webRequest?.onBeforeRequest) {
   );
 }
 
-// PDF SCANNING LOGIC
-// Since content scripts can't run in the native PDF viewer, we intercept PDF loads
-// and scan them in the background.
-if (chrome.webRequest?.onHeadersReceived) {
-  chrome.webRequest.onHeadersReceived.addListener(
-    (details) => {
-      // Only check if either AdBlock or Content Filters are active
-      if (!adBlockEnabled) {
-        // Can't use await here (webRequest callback is sync), so just return
-        // PDF scan for content filters is handled below asynchronously
-        return;
-      }
-      if (details.type !== "main_frame" && details.type !== "sub_frame") return;
 
-      const contentType = details.responseHeaders?.find(h => h.name.toLowerCase() === "content-type")?.value || "";
-      if (contentType.toLowerCase().includes("application/pdf") || details.url.toLowerCase().endsWith(".pdf")) {
-        // Skip scanning if bypass is present
-        if (details.url.includes("bypass=true")) return undefined;
-        
-        console.log("[Background] PDF detected, starting content scan:", details.url);
-        scanPdfAndHandle(details.url, details.tabId);
-      }
-      return undefined;
-    },
-    { urls: ["<all_urls>"] },
-    ["responseHeaders"]
-  );
-}
-
-async function scanPdfAndHandle(url: string, tabId: number) {
-  try {
-    const res = await chrome.storage.local.get(["filters"]);
-    const filters = (res.filters as SmartFilter[]) || [];
-    const activeFilters = filters.filter(f => f.enabled);
-    if (activeFilters.length === 0) return;
-
-    const response = await fetch(url, { method: "GET" }).catch(() => null);
-    if (!response) return;
-    
-    const buffer = await response.arrayBuffer();
-    // PDFs are binary, but many text strings remain literal in many encoders
-    const text = new TextDecoder().decode(new Uint8Array(buffer.slice(0, 1024 * 1024))); 
-    const lowerText = text.toLowerCase();
-
-    const matched = activeFilters.filter(f => {
-      const term = f.blockTerm.toLowerCase();
-      if (lowerText.includes(term)) {
-        if (f.exceptWhen && lowerText.includes(f.exceptWhen.toLowerCase())) return false;
-        return true;
-      }
-      return false;
-    });
-
-    if (matched.length > 0) {
-      console.warn(`[Background] PDF contains blocked terms: ${matched.map(m => m.blockTerm).join(", ")}`);
-      
-      const warningUrl = chrome.runtime.getURL(`blocked.html?url=${encodeURIComponent(url)}&terms=${encodeURIComponent(matched.map(m => m.blockTerm).join(", "))}`);
-      chrome.tabs.update(tabId, { url: warningUrl });
-      recordBlockedRequest("document", url, "pdf" as any);
-    }
-  } catch (err) {
-    console.error("[Background] PDF Scan failed:", err);
-  }
-}
 
 
 
@@ -307,16 +288,41 @@ async function handleOtherActions(request: any) {
         if (!apiKey) {
           return { success: false, error: "No Gemini API key configured. Add one in the extension settings." };
         }
-        const text = (request.text || "").substring(0, 12000);
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+        let contents: any[] = [];
+        if (request.url && (request.url.toLowerCase().split("?")[0].endsWith(".pdf") || request.url.includes("application/pdf"))) {
+          // Strip bypass params from URL before fetching
+          const cleanUrl = request.url.split("?bypass=true")[0].split("&bypass=true")[0];
+          const respPdf = await fetch(cleanUrl);
+          const buffer = await respPdf.arrayBuffer();
+          const bytes = new Uint8Array(buffer);
+          const limit = Math.min(bytes.byteLength, 4 * 1024 * 1024); // Cap at 4MB
+          let binary = "";
+          const chunkSize = 8192;
+          for (let i = 0; i < limit; i += chunkSize) {
+            const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
+          }
+          const base64Pdf = btoa(binary);
+          contents = [{
+            parts: [
+              { text: "Summarize this PDF document in 3-5 concise bullet points. Be direct and informative:" },
+              { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
+            ]
+          }];
+        } else {
+          const text = (request.text || "").substring(0, 12000);
+          contents = [{
+            parts: [{ text: `Summarize this webpage content in 3-5 concise bullet points. Be direct and informative. Keep the text under 3000 characters for analysis:\n\n${text.substring(0, 3000)}` }]
+          }];
+        }
+
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
         const resp = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{
-              parts: [{ text: `Summarize this webpage content in 3-5 concise bullet points. Be direct and informative:\n\n${text}` }]
-            }],
-            generationConfig: { maxOutputTokens: 512, temperature: 0.3 }
+            contents,
+            generationConfig: { maxOutputTokens: 800, temperature: 0.1 }
           }),
         });
         if (!resp.ok) {

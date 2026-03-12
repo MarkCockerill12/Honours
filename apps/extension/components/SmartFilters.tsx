@@ -201,10 +201,10 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
                       <SelectTrigger className="h-5 w-24 p-0 px-2 bg-zinc-800 hover:bg-zinc-700 border-none text-[8px] font-black uppercase tracking-widest rounded transition-colors shadow-none">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className={`${glassCardClass} border-zinc-800/50`}>
-                        <SelectItem value="word" className="text-[9px] font-black uppercase">Word</SelectItem>
-                        <SelectItem value="paragraph" className="text-[9px] font-black uppercase">Para</SelectItem>
-                        <SelectItem value="page-warning" className="text-[9px] font-black uppercase">Page</SelectItem>
+                      <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
+                        <SelectItem value="word" className={`text-[9px] font-black uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Word</SelectItem>
+                        <SelectItem value="paragraph" className={`text-[9px] font-black uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Para</SelectItem>
+                        <SelectItem value="page-warning" className={`text-[9px] font-black uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Page</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
