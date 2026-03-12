@@ -176,7 +176,7 @@ export function CyberScanner() {
     try {
       const response = await chromeBridge.sendMessage(targetId, { action: "SCAN_PAGE_LINKS" });
       cleanup();
-      if (response) {
+      if (response && response.type) {
         setScanReport({
           total: response.linkCount,
           bad: response.maliciousCount,
@@ -185,7 +185,7 @@ export function CyberScanner() {
           safeLinks: response.safeLinks || [],
         });
       } else {
-        setErrorMessage("No response from page.");
+        setErrorMessage(response?.error || response?.message || "No response from page or unsupported URL.");
       }
     } catch (err: any) {
       cleanup();

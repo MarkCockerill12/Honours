@@ -125,24 +125,31 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
 
 export const chromeBridge = {
   isAvailable(): boolean {
+    // 1. Native extension environment (popup/options)
+    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id) return true;
+    // 2. Iframe Dev environment
     if (env.isInExtensionIframe || _extensionId) return true;
-    if (typeof chrome !== "undefined" && chrome?.tabs) return true;
     return false;
   },
 
   async queryTabs(query: chrome.tabs.QueryInfo): Promise<chrome.tabs.Tab[]> {
     console.log("[Chrome Bridge] queryTabs called");
 
-    // 1. Direct Extension Context
-    if (
-      typeof chrome !== "undefined" &&
-      chrome?.tabs?.query &&
-      !env.isInExtensionIframe
-    ) {
-      return new Promise((r) => chrome.tabs.query(query, r));
+    // 1. Native Extension Context
+    if (typeof chrome !== "undefined" && chrome?.tabs?.query && !env.isInExtensionIframe) {
+      return new Promise((r) => {
+        chrome.tabs.query(query, (tabs) => {
+          if (chrome.runtime.lastError) {
+            console.warn("[Chrome Bridge] queryTabs error:", chrome.runtime.lastError.message);
+            r([]);
+          } else {
+            r(tabs || []);
+          }
+        });
+      });
     }
 
-    // 2. Bridge/External Mode
+    // 2. Dev Bridge/External Mode
     await waitForBridge();
     const result = await callBackground("QUERY_TABS", { query });
     return (
@@ -154,18 +161,55 @@ export const chromeBridge = {
   },
 
   async sendMessage(tabId: number, message: any): Promise<any> {
-    console.log("[Chrome Bridge] sendMessage to tab:", tabId);
+    console.log("[Chrome Bridge] sendMessage:", message.action);
 
-    // 1. Direct Extension Context
-    if (
-      typeof chrome !== "undefined" &&
-      chrome?.tabs?.sendMessage &&
-      !env.isInExtensionIframe
-    ) {
-      return new Promise((r) => chrome.tabs.sendMessage(tabId, message, r));
+    // 1. Native Extension Context (Send to background script from popup)
+    if (typeof chrome !== "undefined" && chrome.runtime?.id && !env.isInExtensionIframe) {
+      const isContentAction = [
+        "TRANSLATE_PAGE",
+        "CLEAR_TRANSLATIONS",
+        "SCAN_PAGE_LINKS",
+        "APPLY_FILTERS",
+        "CLEAR_FILTERS",
+        "GET_PAGE_TEXT"
+      ].includes(message.action);
+
+      if (isContentAction) {
+        return new Promise((r) => {
+          try {
+            chrome.tabs.sendMessage(tabId, message, (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn(`[Chrome Bridge] sendMessage(${message.action}) error:`, chrome.runtime.lastError.message);
+                r({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                r(response);
+              }
+            });
+          } catch (e) {
+            console.warn(`[Chrome Bridge] sendMessage(${message.action}) failed:`, e);
+            r({ success: false, error: "context_invalidated" });
+          }
+        });
+      } else {
+        return new Promise((r) => {
+          try {
+            chrome.runtime.sendMessage(message, (response) => {
+              if (chrome.runtime.lastError) {
+                console.warn("[Chrome Bridge] runtime.sendMessage error:", chrome.runtime.lastError.message);
+                r({ success: false, error: chrome.runtime.lastError.message });
+              } else {
+                r(response);
+              }
+            });
+          } catch (e) {
+            console.warn("[Chrome Bridge] runtime.sendMessage failed:", e);
+            r({ success: false, error: "context_invalidated" });
+          }
+        });
+      }
     }
 
-    // 2. Bridge/External Mode
+    // 2. Dev Bridge/External Mode
     await waitForBridge();
     const result = await callBackground("SEND_MESSAGE", { tabId, message });
     return result?.response || result;

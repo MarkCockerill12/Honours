@@ -39,8 +39,8 @@ describe("chromeBridge", () => {
 
   it("detects API availability correctly", () => {
     // Clear global chrome manually if it exists to avoid mock interference
-    const oldChrome = (global as any).chrome;
-    delete (global as any).chrome;
+    const oldChrome = (globalThis as any).chrome;
+    delete (globalThis as any).chrome;
 
     setIsInExtensionIframe(false);
     expect(chromeBridge.isAvailable()).toBe(false);
@@ -49,7 +49,7 @@ describe("chromeBridge", () => {
     expect(chromeBridge.isAvailable()).toBe(true);
 
     // Restore
-    (global as any).chrome = oldChrome;
+    (globalThis as any).chrome = oldChrome;
   });
 
   describe("queryTabs", () => {
@@ -65,7 +65,7 @@ describe("chromeBridge", () => {
       setIsInExtensionIframe(false);
 
       const mockTabs = [{ id: 123, url: "https://test.com" }];
-      global.chrome = {
+      (globalThis as any).chrome = {
         tabs: {
           query: vi.fn((q, cb) => cb(mockTabs)),
           sendMessage: vi.fn(),
@@ -77,7 +77,7 @@ describe("chromeBridge", () => {
       expect(chrome.tabs.query).toHaveBeenCalled();
       expect(result).toEqual(mockTabs);
 
-      delete (global as any).chrome;
+      delete (globalThis as any).chrome;
     });
   });
 
@@ -93,19 +93,38 @@ describe("chromeBridge", () => {
       setIsInExtensionIframe(false);
 
       const mockResponse = { success: true };
-      global.chrome = {
+      (globalThis as any).chrome = {
         tabs: {
           query: vi.fn(),
           sendMessage: vi.fn((id, msg, cb) => cb(mockResponse)),
         },
-        runtime: { lastError: null },
+        runtime: { id: "mock-id", lastError: null, sendMessage: vi.fn() },
       } as any;
 
-      const result = await chromeBridge.sendMessage(1, { action: "HELLO" });
+      const result = await chromeBridge.sendMessage(1, { action: "TRANSLATE_PAGE" });
       expect(chrome.tabs.sendMessage).toHaveBeenCalled();
       expect(result).toEqual(mockResponse);
 
-      delete (global as any).chrome;
+      delete (globalThis as any).chrome;
+    });
+
+    it("uses direct chrome.runtime.sendMessage for non-page actions", async () => {
+      setIsInExtensionIframe(false);
+
+      const mockResponse = { success: true };
+      (globalThis as any).chrome = {
+        tabs: {
+          query: vi.fn(),
+          sendMessage: vi.fn(),
+        },
+        runtime: { id: "mock-id", lastError: null, sendMessage: vi.fn((msg, cb) => cb(mockResponse)) },
+      } as any;
+
+      const result = await chromeBridge.sendMessage(1, { action: "HELLO" });
+      expect(chrome.runtime.sendMessage).toHaveBeenCalled();
+      expect(result).toEqual(mockResponse);
+
+      delete (globalThis as any).chrome;
     });
   });
 });

@@ -20,9 +20,28 @@ export default function Home() {
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: false,
-    adblockEnabled: true,
+    adblockEnabled: false,
   });
   const { stats } = useStats();
+
+  // Load initial state from Chrome storage if available
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.get(["protectionState"], (result) => {
+        if (result.protectionState) {
+          setProtection(result.protectionState as ProtectionState);
+        }
+      });
+    }
+  }, []);
+
+  // Persist helper
+  const persistProtection = (newState: ProtectionState) => {
+    setProtection(newState);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ protectionState: newState });
+    }
+  };
 
   const contentRef = useRef<HTMLDivElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -54,18 +73,18 @@ export default function Home() {
   }, []);
 
   const handleProtectionToggle = () => {
-    setProtection((prev) => ({ ...prev, isActive: !prev.isActive }));
+    persistProtection({ ...protection, isActive: !protection.isActive });
   };
 
   const handleVpnToggle = () => {
-    setProtection((prev) => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
+    persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
   };
 
   const handleAdblockToggle = () => {
-    setProtection((prev) => ({
-      ...prev,
-      adblockEnabled: !prev.adblockEnabled,
-    }));
+    persistProtection({
+      ...protection,
+      adblockEnabled: !protection.adblockEnabled,
+    });
   };
 
   const platforms: {

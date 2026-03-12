@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Content Filtered | AD-BLOCK SHIELD</title>
+    <style>
+      body {
+        background-color: #09090b;
+        color: #fafafa;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+        overflow: hidden;
+      }
+      .container {
+        max-width: 500px;
+        padding: 40px;
+        text-align: center;
+        background: rgba(24, 24, 27, 0.4);
+        backdrop-filter: blur(20px);
+        border: 1px solid rgba(161, 161, 170, 0.1);
+        border-radius: 24px;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        animation: fadeIn 0.8s ease-out;
+      }
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      .icon {
+        font-size: 64px;
+        margin-bottom: 24px;
+        display: inline-block;
+        filter: drop-shadow(0 0 10px rgba(234, 179, 8, 0.5));
+      }
+      h1 {
+        font-size: 28px;
+        font-weight: 900;
+        letter-spacing: -0.05em;
+        margin: 0 0 12px 0;
+        text-transform: uppercase;
+        color: #eab308;
+      }
+      p {
+        font-size: 16px;
+        color: #d1d1d6;
+        line-height: 1.6;
+        margin-bottom: 24px;
+      }
+      .reason {
+        background: rgba(234, 179, 8, 0.15);
+        border: 1px solid rgba(234, 179, 8, 0.3);
+        padding: 12px;
+        border-radius: 12px;
+        margin-bottom: 24px;
+        font-size: 14px;
+        color: #fde047;
+      }
+      .buttons {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+      }
+      button {
+        padding: 12px 24px;
+        border-radius: 12px;
+        border: none;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .btn-primary {
+        background: #eab308;
+        color: #000;
+      }
+      .btn-primary:hover {
+        background: #facc15;
+        transform: scale(1.05);
+      }
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.05);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="icon">⚠️</div>
+      <h1>Content Filtered</h1>
+      <p>
+        This document has been blocked because it contains sensitive or
+        restricted content matching your active filters.
+      </p>
+      <div id="reason-box" class="reason">
+        Detected: <span id="detected-terms">Unknown</span>
+      </div>
+      <div class="buttons">
+        <button class="btn-primary" onclick="globalThis.history.back()">
+          Go Back
+        </button>
+        <button class="btn-secondary" id="proceed-anyway">
+          Proceed Anyway
+        </button>
+      </div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(globalThis.location.search);
+      const terms = params.get("terms");
+      const url = params.get("url");
+
+      if (terms) {
+        globalThis.document.getElementById("detected-terms").textContent = terms;
+      }
+      if (url) {
+        globalThis.document.getElementById("proceed-anyway").onclick = () => {
+          if (
+            confirm(
+              "Warning: Proceeding may expose you to sensitive content. Are you sure?",
+            )
+          ) {
+            // Temporarily bypass by adding a bypass param or similar?
+            // For now just try to load the URL again
+            // In a real app we'd add an exception
+            globalThis.location.href =
+              url + (url.includes("?") ? "&" : "?") + "bypass=true";
+          }
+        };
+      }
+    </script>
+  </body>
+</html>

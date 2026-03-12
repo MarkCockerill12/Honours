@@ -26,17 +26,16 @@ import anime from "animejs";
 interface SmartFiltersProps {
   filters: SmartFilter[];
   onFiltersChange: (filters: SmartFilter[]) => void;
+  isActive: boolean;
 }
 
-export function SmartFilters({
-  filters = [],
-  onFiltersChange,
-}: Readonly<SmartFiltersProps>) {
+export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFiltersProps) {
   const [newBlockTerm, setNewBlockTerm] = useState("");
   const [newExceptWhen, setNewExceptWhen] = useState("");
   const [newBlockScope, setNewBlockScope] = useState<BlockScope>("word");
   const [isFilteringActive, setIsFilteringActive] = useState(false);
   const [blurMethod, setBlurMethod] = useState<BlurMethod>("blur");
+  const [isTabReady, setIsTabReady] = useState<boolean | null>(null);
   const { theme, colors } = useTheme();
 
   const glassCardClass = useMemo(() => {
@@ -53,18 +52,33 @@ export function SmartFilters({
 
   // Load persistence
   useEffect(() => {
-    if (chromeBridge.isAvailable() && typeof chrome !== "undefined" && chrome?.storage?.local) {
-      chrome.storage.local.get(["isFilteringActive", "blurMethod"], (result) => {
-        if (typeof result?.isFilteringActive === "boolean") setIsFilteringActive(result.isFilteringActive);
-        if (typeof result?.blurMethod === "string") setBlurMethod(result.blurMethod as BlurMethod);
-      });
-    } else {
-      const savedActive = localStorage.getItem("isFilteringActive") === "true";
-      const savedMethod = localStorage.getItem("blurMethod") as BlurMethod;
-      if (savedActive) setIsFilteringActive(true);
-      if (savedMethod) setBlurMethod(savedMethod);
-    }
+    const loadSettings = async () => {
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        const res = await chrome.storage.local.get(["isFilteringActive", "blurMethod", "newBlockScope"]);
+        if (typeof res.isFilteringActive === "boolean") setIsFilteringActive(res.isFilteringActive);
+        if (typeof res.blurMethod === "string") setBlurMethod(res.blurMethod as BlurMethod);
+        if (typeof res.newBlockScope === "string") setNewBlockScope(res.newBlockScope as BlockScope);
+      } else {
+        // Fallback for non-Chrome environments (e.g., development in browser)
+        const savedActive = localStorage.getItem("isFilteringActive");
+        const savedMethod = localStorage.getItem("blurMethod") as BlurMethod | null;
+        const savedBlockScope = localStorage.getItem("newBlockScope") as BlockScope | null;
+        
+        if (savedActive !== null) setIsFilteringActive(savedActive === "true");
+        if (savedMethod) setBlurMethod(savedMethod);
+        if (savedBlockScope) setNewBlockScope(savedBlockScope);
+      }
+    };
+    loadSettings();
   }, []);
+
+  const updatePersistence = (key: string, value: any) => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ [key]: value });
+    } else {
+      localStorage.setItem(key, String(value));
+    }
+  };
 
   // Application effect
   useEffect(() => {
@@ -73,26 +87,31 @@ export function SmartFilters({
       const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
       if (!tabs[0]?.id) return;
 
-      if (isFilteringActive) {
-        await chromeBridge.sendMessage(tabs[0].id, {
-          action: "APPLY_FILTERS",
-          filters,
-          blurMethod,
-        });
-      } else {
-        await chromeBridge.sendMessage(tabs[0].id, { action: "CLEAR_FILTERS" });
+      try {
+        // Content filters also only run if master activation is on AND the content sanitizer is active
+        if (isActive && isFilteringActive && filters?.length > 0) {
+          await chromeBridge.sendMessage(tabs[0].id, {
+            action: "APPLY_FILTERS",
+            filters,
+            blurMethod,
+            isFilteringActive: isActive && isFilteringActive,
+          });
+        } else {
+          await chromeBridge.sendMessage(tabs[0].id, { action: "CLEAR_FILTERS" });
+        }
+        setIsTabReady(true);
+      } catch (e: any) {
+        if (e.message?.includes("Receiving end does not exist")) {
+          setIsTabReady(false);
+        }
       }
     };
     apply();
-  }, [isFilteringActive, filters, blurMethod]);
+  }, [isFilteringActive, filters, blurMethod, isActive]);
 
   const handleMasterToggle = (active: boolean) => {
     setIsFilteringActive(active);
-    if (typeof chrome !== "undefined" && chrome?.storage?.local) {
-      chrome.storage.local.set({ isFilteringActive: active });
-    } else {
-      localStorage.setItem("isFilteringActive", String(active));
-    }
+    updatePersistence("isFilteringActive", active);
   };
 
   const addFilter = () => {
@@ -130,6 +149,11 @@ export function SmartFilters({
 
   return (
     <div ref={cardRef} className="w-full text-zinc-100 space-y-5">
+      {isTabReady === false && (
+        <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] font-bold text-amber-500 uppercase tracking-widest text-center">
+          ⚠️ Content script not detected. Refresh the page to enable filters.
+        </div>
+      )}
       <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all duration-500 ${isFilteringActive ? "bg-emerald-500/10 border-emerald-500/30" : "bg-zinc-950 border-zinc-800"}`}>
         <div className="flex flex-col">
           <span className="text-sm font-black tracking-tight uppercase">Content Sanitizer</span>
@@ -140,35 +164,22 @@ export function SmartFilters({
         <Switch checked={isFilteringActive} onCheckedChange={handleMasterToggle} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Method</Label>
-          <Select value={blurMethod} onValueChange={(m) => setBlurMethod(m as BlurMethod)}>
-            <SelectTrigger className={`h-9 border-none text-[10px] font-black tracking-widest uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
-              <SelectItem value="blur" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Blur Text</SelectItem>
-              <SelectItem value="blackbar" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Redact ███</SelectItem>
-              <SelectItem value="warning" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Warning ⚠️</SelectItem>
-              <SelectItem value="kitten" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Kittens 🐱</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Scope</Label>
-          <Select value={newBlockScope} onValueChange={(v) => setNewBlockScope(v as BlockScope)}>
-            <SelectTrigger className={`h-9 border-none text-[10px] font-black tracking-widest uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
-              <SelectItem value="word" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Word</SelectItem>
-              <SelectItem value="paragraph" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Paragraph</SelectItem>
-              <SelectItem value="page-warning" className={`text-[10px] font-bold uppercase tracking-widest ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Page Wide</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+      <div className="space-y-2">
+        <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Filter Method</Label>
+        <Select value={blurMethod} onValueChange={(val) => {
+          setBlurMethod(val as BlurMethod);
+          updatePersistence("blurMethod", val);
+        }}>
+          <SelectTrigger className={`h-9 border-none text-[10px] font-black tracking-widest uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
+            <SelectItem value="blur" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Blur Text</SelectItem>
+            <SelectItem value="blackbar" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Redact ███</SelectItem>
+            <SelectItem value="warning" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Warning ⚠️</SelectItem>
+            <SelectItem value="kitten" className={`text-[10px] font-bold uppercase ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>Kittens 🐱</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-3" ref={filtersListRef}>
@@ -181,7 +192,22 @@ export function SmartFilters({
                   {filter.blockTerm === "nsfw" ? <EyeOff size={14} /> : <Shield size={14} />}
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-xs font-black uppercase tracking-tight">{filter.blockTerm}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-black uppercase tracking-tight">{filter.blockTerm}</span>
+                    <Select
+                      value={filter.blockScope || "word"}
+                      onValueChange={(val) => onFiltersChange(filters.map(f => f.id === filter.id ? {...f, blockScope: val as BlockScope} : f))}
+                    >
+                      <SelectTrigger className="h-5 w-24 p-0 px-2 bg-zinc-800 hover:bg-zinc-700 border-none text-[8px] font-black uppercase tracking-widest rounded transition-colors shadow-none">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={`${glassCardClass} border-zinc-800/50`}>
+                        <SelectItem value="word" className="text-[9px] font-black uppercase">Word</SelectItem>
+                        <SelectItem value="paragraph" className="text-[9px] font-black uppercase">Para</SelectItem>
+                        <SelectItem value="page-warning" className="text-[9px] font-black uppercase">Page</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                   {filter.exceptWhen && <span className="text-[9px] font-bold text-zinc-600 uppercase">Unless: {filter.exceptWhen}</span>}
                 </div>
               </div>

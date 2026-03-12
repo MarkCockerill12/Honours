@@ -15,7 +15,7 @@
   ],
   "host_permissions": ["<all_urls>"],
   "action": {
-    "default_popup": "extension-loader.html",
+    "default_popup": "extension.html",
     "default_title": "Open Blocker"
   },
   "background": {
@@ -31,7 +31,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content-script.js"],
+      "resources": ["content-script.js", "blocked.html"],
       "matches": ["<all_urls>"]
     }
   ],

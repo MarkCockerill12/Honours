@@ -1,5 +1,26 @@
 // Comprehensive Ad Blocking Engine for Chrome Extension
 // Multi-layer approach: declarativeNetRequest + Element Hiding + YouTube Specific
+import { WebExtensionBlocker } from "@ghostery/adblocker-webextension";
+import { Request } from "@ghostery/adblocker";
+import type { ProtectionState } from "../../../packages/ui/types";
+
+let blocker: WebExtensionBlocker | null = null;
+let engineReady = false;
+
+export const initAdBlocker = async () => {
+  if (blocker) return blocker;
+  try {
+    console.log("[AdBlock] Initializing Ghostery engine...");
+    // Corrected method name
+    blocker = await WebExtensionBlocker.fromPrebuiltAdsAndTracking(fetch);
+    engineReady = true;
+    console.log("[AdBlock] Ghostery engine initialized!");
+    return blocker;
+  } catch (e) {
+    console.warn("[AdBlock] Failed to initialize Ghostery engine, using fallback:", e);
+    return null;
+  }
+};
 
 export interface BlockStats {
   totalBlocked: number;
@@ -12,6 +33,7 @@ export interface BlockStats {
     analytics: number;
     social: number;
     youtube: number;
+    pdf: number; // Added PDF category
   };
   lastUpdated: number;
 }
@@ -25,6 +47,7 @@ const AVG_SIZES = {
   xmlhttprequest: 10000, // 10KB
   media: 500000, // 500KB
   other: 20000, // 20KB
+  document: 100000, // 100KB for PDF/document
 };
 
 // UK mobile data cost: ~£5 per GB = £0.0048828125 per MB
@@ -53,6 +76,7 @@ const createEmptyStats = (): BlockStats => ({
     analytics: 0,
     social: 0,
     youtube: 0,
+    pdf: 0, // Added PDF category
   },
   lastUpdated: Date.now(),
 });
@@ -61,7 +85,14 @@ const getStatsFromLocalStorage = (): BlockStats => {
   try {
     if (typeof localStorage === "undefined") return createEmptyStats();
     const raw = localStorage.getItem(STATS_STORAGE_KEY);
-    if (raw) return JSON.parse(raw) as BlockStats;
+    if (raw) {
+      const parsed = JSON.parse(raw) as BlockStats;
+      // Ensure new categories are present if loading old stats
+      if (!parsed.blockedByType.pdf) {
+        parsed.blockedByType.pdf = 0;
+      }
+      return parsed;
+    }
   } catch {
     /* ignore */
   }
@@ -95,7 +126,12 @@ export const initBlockStats = async (): Promise<BlockStats> => {
         return;
       }
       if (result.blockStats) {
-        resolve(result.blockStats as BlockStats);
+        const storedStats = result.blockStats as BlockStats;
+        // Ensure new categories are present if loading old stats
+        if (!storedStats.blockedByType.pdf) {
+          storedStats.blockedByType.pdf = 0;
+        }
+        resolve(storedStats);
       } else {
         const newStats = createEmptyStats();
         chrome.storage.local.set({ blockStats: newStats });
@@ -138,8 +174,7 @@ export const recordBlockedRequest = async (
   );
 
   // 4. Debounce the storage write to batch multiple rapid blocks into one disk I/O
-  if (!saveTimeout) {
-    saveTimeout = setTimeout(async () => {
+  saveTimeout ??= setTimeout(async () => {
       // Flush to exact storage
       if (isChromeStorageAvailable()) {
         await chrome.storage.local.set({ blockStats: memoryStats });
@@ -160,7 +195,6 @@ export const recordBlockedRequest = async (
       
       saveTimeout = null;
     }, 2000); // 2 second batching window
-  }
 
   return memoryStats;
 };
@@ -222,58 +256,263 @@ export const AD_SELECTORS = [
   // Common patterns
   'iframe[src*="ad"]',
   'iframe[src*="doubleclick"]',
+  'iframe[src*="googlesyndication"]',
+  'iframe[src*="amazon-adsystem"]',
   "ins.adsbygoogle",
+  ".ad-slot",
+  ".ad-unit",
+  ".ad-box",
+  ".ad-label",
+  ".ad-text",
+  ".ad-wrap",
+  ".ads-container",
+  ".ads-wrapper",
+  ".sponsor-container",
+  ".sponsored-post",
+  'div[class*="truste"]',
+  'div[id*="taboola"]',
+  'div[id*="outbrain"]',
+  'div[class*="outbrain"]',
+  'div[class*="taboola"]'
 ];
 
-// Check if URL is an ad/tracker
+// Check if URL is an ad/tracker using Ghostery engine
 export const isAdOrTracker = (
   url: string,
+  sourceUrl: string = ""
 ): {
   isAd: boolean;
   category: "ads" | "trackers" | "analytics" | "social" | "youtube" | null;
 } => {
-  const urlLower = url.toLowerCase();
+  if (blocker && engineReady) {
+    const request = Request.fromRawDetails({ url, sourceUrl });
+    const match = (blocker as any).match(request);
+    if (match?.match) {
+      // Map ghostery categories to our internal categories
+      let category: "ads" | "trackers" | "analytics" | "social" | "youtube" = "ads";
+      
+      if (url.includes("youtube.com")) category = "youtube";
+      // Simplified category mapping based on common list names
+      const filterSpecs = match.getFilters?.() || [];
+      if (filterSpecs.some((f: any) => f.getSpec().includes("social"))) category = "social";
+      else if (filterSpecs.some((f: any) => f.getSpec().includes("tracker") || f.getSpec().includes("analytics"))) category = "analytics";
+      
+      return { isAd: true, category };
+    }
+  }
 
-  if (urlLower.includes("youtube.com/pagead") || urlLower.includes("youtube.com/api/stats")) {
-    return { isAd: true, category: "youtube" };
-  }
-  if (urlLower.includes("facebook") || urlLower.includes("twitter")) {
-    return { isAd: true, category: "social" };
-  }
-  if (urlLower.includes("doubleclick") || urlLower.includes("googlesyndication") || urlLower.includes("googleads")) {
-    return { isAd: true, category: "ads" };
-  }
-  if (urlLower.includes("google-analytics") || urlLower.includes("tracker")) {
-    return { isAd: true, category: "analytics" };
+  // Minimal fallback while engine is initializing or if it fails
+  const urlLower = url.toLowerCase();
+  const isFallbackMatch = [
+    "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+    "facebook.net", "fbcdn.net", "analytics.google.com", "connect.facebook.net",
+    "youtube.com/pagead", "youtube.com/api/stats/ads"
+  ].some(d => urlLower.includes(d));
+
+  if (isFallbackMatch) {
+    let category: "ads" | "trackers" | "analytics" | "social" | "youtube" = "ads";
+    if (urlLower.includes("facebook") || urlLower.includes("fbcdn")) category = "social";
+    else if (urlLower.includes("analytics")) category = "analytics";
+    else if (urlLower.includes("youtube")) category = "youtube";
+    return { isAd: true, category };
   }
 
   return { isAd: false, category: null };
 };
 
-// Generate declarativeNetRequest rules via ghostery webextension package
+// Comprehensive list of highly active tracking and ad domains to block reliably via DNR
+const COMPREHENSIVE_DOMAINS = [
+  // Google & DoubleClick
+  "doubleclick.net", "googleadservices.com", "googlesyndication.com",
+  "adservice.google.com", "google-analytics.com", "analytics.google.com",
+  "tpc.googlesyndication.com", "pagead2.googlesyndication.com",
+
+  // Facebook / Meta
+  "connect.facebook.net", "pixel.facebook.com", "graph.facebook.com",
+  "facebook.net", "fbcdn.net", "facebook.com/tr", "instagram.com/logging",
+
+  // Amazon Ads
+  "amazon-adsystem.com", "aax-eu.amazon-adsystem.com", "aax-us-east.amazon-adsystem.com",
+
+  // Programmatic & Native Ads
+  "taboola.com", "outbrain.com", "criteo.com",
+  "rubiconproject.com", "pubmatic.com", "advertising.com", "adnxs.com",
+  "scorecardresearch.com", "quantserve.com", "adform.net", "casalemedia.com",
+  "openx.net", "bidswitch.net", "smartadserver.com", "teads.tv",
+  "exponential.com", "sharethis.com", "addthis.com", "zedo.com",
+
+  // Analytics & Trackers
+  "hotjar.com", "mixpanel.com", "segment.com", "fullstory.com",
+  "mouseflow.com", "crazyegg.com", "optimizely.com", "clicktale.net",
+  "newrelic.com", "sentry.io", "bugsnag.com", "appsflyer.com",
+  "branch.io", "kochava.com", "adjust.com", "singular.net",
+  
+  // Video & Other Ads
+  "vungle.com", "unity3d.com/ads", "chartboost.com", "applovin.com",
+  "inmobi.com", "supersonicads.com", "adcolony.com", "flurry.com",
+  "moatads.com", "iasds01.com", "doubleverify.com", "integralads.com",
+
+  // Yahoo & Microsoft
+  "ads.yahoo.com", "bingads.microsoft.com", "bat.bing.com",
+
+  // TikTok & ByteDance
+  "ads.tiktok.com", "analytics.tiktok.com",
+
+  // Twitter
+  "ads.twitter.com", "analytics.twitter.com", "syndication.twitter.com",
+  
+  // Criteo
+  "criteo.net", "casalemedia.com", "rubiconproject.com", "mathtag.com"
+];
+
+const EXCEPTION_LIST_KEY = "adBlockExceptions";
+
+export const getExceptionList = async (): Promise<string[]> => {
+  if (isChromeStorageAvailable()) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([EXCEPTION_LIST_KEY], (res) => {
+        resolve((res[EXCEPTION_LIST_KEY] as string[]) || []);
+      });
+    });
+  } else {
+    try {
+      if (typeof localStorage === "undefined") return [];
+      const saved = localStorage.getItem(EXCEPTION_LIST_KEY);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  }
+};
+
+export const saveExceptionList = async (list: string[]) => {
+  if (isChromeStorageAvailable()) {
+    await chrome.storage.local.set({ [EXCEPTION_LIST_KEY]: list });
+  } else {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem(EXCEPTION_LIST_KEY, JSON.stringify(list));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+};
+
+export const addException = async (domain: string) => {
+  const current = await getExceptionList();
+  if (!current.includes(domain)) {
+    const updated = [...current, domain];
+    await saveExceptionList(updated);
+    await setupDeclarativeNetRequestRules();
+    return updated;
+  }
+  return current;
+};
+
+export const removeException = async (domain: string) => {
+  const current = await getExceptionList();
+  const updated = current.filter((d) => d !== domain);
+  await saveExceptionList(updated);
+  await setupDeclarativeNetRequestRules();
+  return updated;
+};
+
+// Generate declarativeNetRequest rules via custom list builder for MV3 compatibility
 export const setupDeclarativeNetRequestRules = async (): Promise<boolean> => {
   try {
-    const { FiltersEngine } = require("@ghostery/adblocker-webextension");
+    console.log("[AdBlock] Setting up specific adblocker DNR rules for extension...");
     
-    // Fetch and compile standard lists:
-    console.log("[AdBlock] Fetching EasyList & EasyPrivacy rulesets...");
-    const engine = await FiltersEngine.fromLists(fetch as any, [
-      "https://easylist.to/easylist/easylist.txt",
-      "https://easylist.to/easylist/easyprivacy.txt",
-    ]);
-
-    // Push the compiled declarativeNetRequest structure dynamically onto the extension
-    if (typeof chrome !== "undefined" && chrome.declarativeNetRequest) {
-      await engine.updateDeclarativeNetRequestRules(chrome.declarativeNetRequest);
-      console.log("[AdBlock] Successfully injected DNR rules natively via @ghostery/adblocker-webextension");
-      return true;
-    } else {
-      console.warn("[AdBlock] Chrome DNR API is unavailable. Are we running inside an extension manifest v3?");
+    if (typeof chrome === "undefined" || !chrome.declarativeNetRequest) {
+      console.warn("[AdBlock] Chrome DNR API is unavailable.");
       return false;
     }
+
+    // Always clear old rules first
+    await clearDeclarativeNetRequestRules();
+
+    // Manually block using our comprehensive list, since WebExtensionBlocker 2.14.1 
+    // does NOT generate DNR rules.
+    const domains = COMPREHENSIVE_DOMAINS;
+    const blockRules = domains.map((domain, i) => ({
+      id: i + 1,
+      priority: 1,
+      action: { type: "block" },
+      condition: { urlFilter: `||${domain}^`, resourceTypes: ["script", "image", "xmlhttprequest", "websocket", "other", "sub_frame"] }
+    }));
+
+    const chunkSize = 500;
+    for (let i = 0; i < blockRules.length; i += chunkSize) {
+      const chunk = blockRules.slice(i, i + chunkSize);
+      await chrome.declarativeNetRequest.updateDynamicRules({ addRules: chunk as any });
+    }
+    console.log(`[AdBlock] Injected ${blockRules.length} manual declarativeNetRequest rules.`);
+
+    // Still add user exceptions with higher priority
+    const exceptions = await getExceptionList();
+    if (exceptions.length > 0) {
+      const allowRules = exceptions.map((domain, i) => ({
+        id: 20000 + i,
+        priority: 2,
+        action: { type: "allowAllRequests" },
+        condition: { urlFilter: `||${domain}^`, resourceTypes: ["main_frame", "sub_frame"] }
+      }));
+      await chrome.declarativeNetRequest.updateDynamicRules({ addRules: allowRules as any });
+    }
+
+    return true;
   } catch (err) {
-    console.error("[AdBlock] Error loading adblock packages dynamically:", err);
+    console.error("[AdBlock] Error setting up custom specific DNR adblocker:", err);
     return false;
   }
 };
 
+
+// Clear all declarativeNetRequest rules
+export const clearDeclarativeNetRequestRules = async (): Promise<boolean> => {
+  try {
+    console.log("[AdBlock] Clearing all native Chrome DNR rules...");
+    if (typeof chrome === "undefined" || !chrome.declarativeNetRequest) {
+      return false;
+    }
+
+    const existingDynamic = await chrome.declarativeNetRequest.getDynamicRules();
+    const dynamicIds = existingDynamic.map((r) => r.id);
+
+    const existingSession = await (chrome.declarativeNetRequest as any).getSessionRules?.() || [];
+    const sessionIds = existingSession.map((r: any) => r.id);
+
+    if (dynamicIds.length > 0) {
+      await chrome.declarativeNetRequest.updateDynamicRules({
+        removeRuleIds: dynamicIds,
+      });
+    }
+    
+    if (sessionIds.length > 0 && (chrome.declarativeNetRequest as any).updateSessionRules) {
+      await (chrome.declarativeNetRequest as any).updateSessionRules({
+        removeRuleIds: sessionIds,
+      });
+    }
+
+    console.log("[AdBlock] Successfully cleared all dynamic and session DNR rules");
+    return true;
+  } catch (err) {
+    console.error("[AdBlock] Error clearing DNR rules:", err);
+    return false;
+  }
+};
+
+// Periodic keep-alive for DNR rules if enabled
+if (typeof chrome !== "undefined" && chrome.alarms) {
+  chrome.alarms.create("adblock-keepalive", { periodInMinutes: 30 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === "adblock-keepalive") {
+       chrome.storage.local.get(["protectionState"], (res) => {
+         const state = res.protectionState as ProtectionState | undefined;
+         if (state?.isActive && state?.adblockEnabled) {
+           setupDeclarativeNetRequestRules();
+         }
+       });
+    }
+  });
+}

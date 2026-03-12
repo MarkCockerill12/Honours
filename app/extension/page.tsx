@@ -10,7 +10,7 @@ export default function ExtensionPage() {
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: true,
-    adblockEnabled: true,
+    adblockEnabled: false,
   });
 
   const testContentRef = useRef<HTMLDivElement>(null);
@@ -25,12 +25,55 @@ export default function ExtensionPage() {
     },
     {
       id: "2",
+      blockTerm: "advertisement",
+      exceptWhen: "",
+      enabled: true,
+      blockScope: "paragraph",
+    },
+    {
+      id: "3",
+      blockTerm: "malware",
+      exceptWhen: "",
+      enabled: true,
+      blockScope: "page-warning",
+    },
+    {
+      id: "4",
       blockTerm: "doubleclick",
       exceptWhen: "",
       enabled: true,
       blockScope: "word",
     },
   ]);
+
+  // Load initial state from Chrome Storage
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.get(["protectionState", "filters"], (result) => {
+        if (result.protectionState) {
+          setProtection(result.protectionState as ProtectionState);
+        }
+        if (result.filters) {
+          setFilters(result.filters as SmartFilter[]);
+        }
+      });
+    }
+  }, []);
+
+  // Sync state changes back to Chrome Storage
+  const persistProtection = (newState: ProtectionState) => {
+    setProtection(newState);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ protectionState: newState });
+    }
+  };
+
+  const persistFilters = (newFilters: SmartFilter[]) => {
+    setFilters(newFilters);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ filters: newFilters });
+    }
+  };
 
   // Sync stats with Electron if available
   useEffect(() => {
@@ -42,18 +85,18 @@ export default function ExtensionPage() {
 
   const handleProtectionToggle = () => {
     console.log("[ExtensionPage] Protection toggled");
-    setProtection((prev) => ({ ...prev, isActive: !prev.isActive }));
+    persistProtection({ ...protection, isActive: !protection.isActive });
   };
 
   const handleVpnToggle = () => {
     console.log("[ExtensionPage] VPN toggled");
-    setProtection((prev) => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
+    persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
   };
 
   const handleAdblockToggle = async () => {
     console.log("[ExtensionPage] Adblock toggled");
     const newState = !protection.adblockEnabled;
-    setProtection((prev) => ({ ...prev, adblockEnabled: newState }));
+    persistProtection({ ...protection, adblockEnabled: newState });
 
     // 1. FOR ELECTRON: Toggle system-wide adblocking
     const api = (globalThis.window as any).electron;
@@ -98,96 +141,15 @@ export default function ExtensionPage() {
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
-      <div className="min-h-screen p-8 bg-zinc-950 flex flex-col items-center">
-        {/* Extension UI */}
+      <div className="w-[400px] h-[600px] bg-zinc-950 overflow-y-auto">
         <ExtensionApp
           protection={protection}
           onProtectionToggle={handleProtectionToggle}
           onVpnToggle={handleVpnToggle}
           onAdblockToggle={handleAdblockToggle}
           filters={filters}
-          onFiltersChange={setFilters}
+          onFiltersChange={persistFilters}
         />
-
-        {/* Test Content for Scanner - Real Links */}
-        <div
-          ref={testContentRef}
-          className="mt-8 p-4 bg-zinc-900 rounded-lg max-w-2xl"
-        >
-          <h3 className="text-white text-sm font-bold mb-3">
-            Test Content (for scanning)
-          </h3>
-          <p className="text-zinc-400 text-xs mb-3">
-            These are real links for testing the scanner. Some contain nsfw and
-            war keywords for filter testing.
-          </p>
-          <div className="space-y-2 text-xs">
-            <p className="text-zinc-300">
-              Check out{" "}
-              <a
-                href="https://www.google.com"
-                className="text-blue-400 underline"
-              >
-                Google
-              </a>{" "}
-              for search. Visit{" "}
-              <a href="https://github.com" className="text-blue-400 underline">
-                GitHub
-              </a>{" "}
-              for code. Read the{" "}
-              <a
-                href="https://www.wikipedia.org"
-                className="text-blue-400 underline"
-              >
-                Wikipedia
-              </a>{" "}
-              article.
-            </p>
-            <p className="text-zinc-300">
-              Some violence content here for testing filters. Also war topics and nsfw material mentioned together: violence, nsfw, and war.
-            </p>
-            <p className="text-zinc-300">
-              External links:{" "}
-              <a
-                href="https://www.reddit.com"
-                className="text-blue-400 underline"
-              >
-                Reddit
-              </a>
-              ,{" "}
-              <a
-                href="https://stackoverflow.com"
-                className="text-blue-400 underline ml-2"
-              >
-                Stack Overflow
-              </a>
-              ,{" "}
-              <a
-                href="https://developer.mozilla.org"
-                className="text-blue-400 underline ml-2"
-              >
-                MDN
-              </a>
-            </p>
-            <p className="text-zinc-300">
-              Test links:{" "}
-              <a
-                href="https://example.com/file.exe"
-                className="text-orange-400 underline"
-              >
-                Download EXE
-              </a>{" "}
-              (should be flagged),{" "}
-              <a
-                href="https://login-apple-id.com"
-                className="text-orange-400 underline ml-2"
-              >
-                Apple Login
-              </a>{" "}
-              (phishing test)
-            </p>
-          </div>
-        </div>
       </div>
     </ThemeProvider>
   );

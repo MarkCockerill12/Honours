@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Shield, Zap, Search } from "lucide-react";
+import { Search, LayoutDashboard, Filter } from "lucide-react";
 import anime from "animejs";
 import {
   Select,
@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTheme } from "@/packages/ui/ThemeProvider";
 import { ActivationButton } from "@/packages/ui/ActivationButton";
 import { ProtectionToggles } from "@/packages/ui/ProtectionToggles";
@@ -18,6 +19,8 @@ import type { ProtectionState, Theme, SmartFilter } from "@/packages/ui/types";
 import { SmartFilters } from "./components/SmartFilters";
 import { CyberScanner } from "./components/CyberScanner";
 import { Translator } from "./components/Translator";
+import { AdBlockExceptions } from "./components/AdBlockExceptions";
+import { AiSummary } from "./components/AiSummary";
 import {
   getBlockStats,
   resetBlockStats,
@@ -42,25 +45,24 @@ export default function ExtensionApp({
   onFiltersChange,
 }: Readonly<ExtensionAppProps>) {
   const { colors, theme, setTheme } = useTheme();
-  const [internalFilters, setInternalFilters] = useState<SmartFilter[]>([
-    {
-      id: "1",
-      blockTerm: "violence",
-      exceptWhen: "peace treaty",
-      enabled: true,
-      blockScope: "word",
-    },
-    {
-      id: "2",
-      blockTerm: "nsfw",
-      exceptWhen: "art",
-      enabled: true,
-      blockScope: "word",
-    },
-  ]);
+  const [internalFilters, setInternalFilters] = useState<SmartFilter[]>([]);
+
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome?.storage?.local) {
+      chrome.storage.local.get(["filters"], (result) => {
+        if (result.filters) setInternalFilters(result.filters as SmartFilter[]);
+      });
+    }
+  }, []);
 
   const filters = propFilters || internalFilters;
-  const setFilters = onFiltersChange || setInternalFilters;
+  const setFilters = onFiltersChange || ((newFilters: SmartFilter[]) => {
+    setInternalFilters(newFilters);
+    if (typeof chrome !== "undefined" && chrome?.storage?.local) {
+      chrome.storage.local.set({ filters: newFilters });
+    }
+  });
+
   const [blockStats, setBlockStats] = useState<BlockStats | null>(null);
 
   const scrollbarClass = useMemo(() => {
@@ -120,7 +122,7 @@ export default function ExtensionApp({
   };
 
   return (
-    <ScalableContainer className={`w-100 h-150 max-h-150 mx-auto overflow-hidden relative ${scrollbarClass}`}>
+    <ScalableContainer className={`w-full h-full mx-auto relative ${scrollbarClass}`}>
       <div className={`flex flex-col h-full bg-cover bg-center ${colors.bg}`}>
         {protection.isActive && (
           <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
@@ -129,109 +131,106 @@ export default function ExtensionApp({
           </div>
         )}
 
-        <div ref={containerRef} className="flex-1 overflow-y-auto px-4 py-4 space-y-6 z-10 custom-scrollbar">
-          <div className="popup-anim-item">
-            <ExtensionHeader theme={theme} setTheme={setTheme} protection={protection} colors={colors} glassCardClass={glassCardClass} />
+        <div ref={containerRef} className="flex-1 flex flex-col h-full z-10">
+          <div className="px-4 pt-3 pb-1 flex items-center justify-end popup-anim-item">
+              <Select value={theme} onValueChange={(val) => setTheme(val as Theme)}>
+                <SelectTrigger className="w-24 h-8 text-[10px] font-black uppercase tracking-widest bg-zinc-800/50 border-none rounded-lg">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="vaporwave">Vapor</SelectItem>
+                  <SelectItem value="frutiger-aero">Aero</SelectItem>
+                </SelectContent>
+              </Select>
           </div>
 
-          <div className="flex flex-col items-center mt-2 space-y-8">
-            <div className={`popup-anim-item flex justify-center py-2 relative transition-all duration-700 ${protection.isActive ? "animate-shield-pulse" : "scale-95 grayscale-[0.2]"}`}>
-              {protection.isActive && (
-                <div className="absolute inset-0 rounded-full animate-glow-ring border border-emerald-500/20 pointer-events-none mix-blend-screen scale-110" />
-              )}
-              <ActivationButton protection={protection} onToggle={onProtectionToggle} size="lg" />
+          <Tabs defaultValue="shield" className="flex-1 flex flex-col mt-2">
+            <div className="px-4 popup-anim-item">
+              <TabsList className="grid grid-cols-3 w-full h-11 bg-zinc-900/50 p-1 rounded-xl border border-zinc-800/50 backdrop-blur-md">
+                <TabsTrigger value="shield" className="text-[10px] font-black uppercase tracking-widest rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                  <LayoutDashboard className="w-3.5 h-3.5 mr-1" />
+                  SHIELD
+                </TabsTrigger>
+                <TabsTrigger value="filters" className="text-[10px] font-black uppercase tracking-widest rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                  <Filter className="w-3.5 h-3.5 mr-1" />
+                  FILTER
+                </TabsTrigger>
+                <TabsTrigger value="security" className="text-[10px] font-black uppercase tracking-widest rounded-lg data-[state=active]:bg-emerald-500 data-[state=active]:text-white">
+                  <Search className="w-3.5 h-3.5 mr-1" />
+                  SCAN
+                </TabsTrigger>
+              </TabsList>
             </div>
 
-            <div className="popup-anim-item text-center w-full max-w-70">
-              <h2 className={`text-2xl font-black tracking-tighter mb-1 transition-all duration-300 ${protection.isActive ? "drop-shadow-[0_0_10px_rgba(16,185,129,0.5)]" : ""}`}>
-                {protection.isActive ? "PROTECTED" : "EXPOSED"}
-              </h2>
-              <p className={`text-xs font-medium opacity-70 tracking-wide ${protection.isActive ? "text-emerald-400" : "text-red-400"}`}>
-                {protection.isActive ? "Network encrypted & filtered" : "Ad-blocking is suspended"}
-              </p>
-            </div>
+            <div className="flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
+              <TabsContent value="shield" className="mt-0 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div className="flex flex-col items-center space-y-6">
+                  <div className={`flex justify-center py-2 relative transition-all duration-700 ${protection.isActive ? "animate-shield-pulse" : "scale-95 grayscale-[0.2]"}`}>
+                    <ActivationButton protection={protection} onToggle={onProtectionToggle} size="lg" />
+                  </div>
+                  <div className="text-center">
+                    <h2 className={`text-xl font-black tracking-tighter uppercase ${colors.text}`}>{protection.isActive ? "Protected" : "System Off"}</h2>
+                    <p className={`text-[10px] font-bold uppercase tracking-wider ${protection.isActive ? colors.success : colors.textSecondary}`}>
+                      {protection.isActive ? "Full filtration active" : "Vulnerable to trackers"}
+                    </p>
+                  </div>
+                </div>
 
-            <div className="popup-anim-item w-full">
-              <div className={`p-1 rounded-2xl hover-lift ${glassCardClass}`}>
-                <ProtectionToggles protection={protection} onVpnToggle={onVpnToggle} onAdblockToggle={onAdblockToggle} layout="horizontal" />
-              </div>
-            </div>
-          </div>
+                <div className={`p-1 rounded-2xl ${glassCardClass} relative overflow-hidden group`}>
+                  {!protection.isActive && (
+                    <div className="absolute inset-0 z-10 bg-black/40 flex items-center justify-center backdrop-blur-[1px] pointer-events-none opacity-100 transition-opacity">
+                      <span className="text-[8px] font-black text-white/50 uppercase tracking-[0.2em]">Modules Standby</span>
+                    </div>
+                  )}
+                   <ProtectionToggles protection={protection} onVpnToggle={onVpnToggle} onAdblockToggle={onAdblockToggle} layout="horizontal" />
+                </div>
 
-          {blockStats && (
-            <div className="popup-anim-item">
-              <StatsCard blockStats={blockStats} onReset={handleResetStats} glassCardClass={glassCardClass} />
-            </div>
-          )}
+                {blockStats && (
+                  <div className={`rounded-xl overflow-hidden ${colors.border} border ${colors.bgSecondary} shadow-lg`}>
+                    <div className={`flex items-center justify-between px-3 py-2 border-b ${colors.border}`}>
+                      <span className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary}`}>Global Stats</span>
+                      <button onClick={handleResetStats} className={`text-[8px] font-black uppercase ${colors.textSecondary} hover:text-red-500`}>Clear</button>
+                    </div>
+                    <div className={`grid grid-cols-2 gap-px ${colors.border}`}>
+                      <StatItem label="Ads Blocked" value={blockStats.totalBlocked} highlight colors={colors} />
+                      <StatItem label="Data Saved" value={(blockStats.bandwidthSaved / (1024 * 1024)).toFixed(1)} unit="MB" colors={colors} />
+                    </div>
+                  </div>
+                )}
+              </TabsContent>
 
-          <div className="space-y-4">
-            <h3 className="popup-anim-item text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 pl-2 mt-4 flex items-center gap-2">
-              <Search className="w-3 h-3" /> System Modules
-            </h3>
-            <div className="space-y-4 pb-6">
-              <div className="popup-anim-item hover-lift"><CyberScanner /></div>
-              <div className="hover-lift"><Translator /></div>
-              <div className="hover-lift"><SmartFilters filters={filters} onFiltersChange={setFilters} /></div>
+              <TabsContent value="filters" className="mt-0 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <SmartFilters filters={filters} onFiltersChange={setFilters} isActive={protection.isActive} />
+                <AdBlockExceptions />
+              </TabsContent>
+
+              <TabsContent value="security" className="mt-0 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <CyberScanner />
+                <div className={`border-t ${colors.border} pt-3`}>
+                  <AiSummary isActive={protection.isActive} />
+                </div>
+                <div className={`border-t ${colors.border} pt-3`}>
+                  <Translator isActive={protection.isActive} />
+                </div>
+              </TabsContent>
             </div>
-          </div>
+          </Tabs>
         </div>
       </div>
     </ScalableContainer>
   );
 }
 
-function ExtensionHeader({ theme, setTheme, protection, colors, glassCardClass }: Readonly<{ theme: Theme, setTheme: (t: Theme) => void, protection: ProtectionState, colors: any, glassCardClass: string }>) {
+function StatItem({ label, value, unit, unitPrefix, highlight, colors }: Readonly<{ label: string, value: string | number, unit?: string, unitPrefix?: boolean, highlight?: boolean, colors: any }>) {
   return (
-    <div className={`rounded-2xl p-3 flex items-center justify-between shadow-lg ${glassCardClass}`}>
-      <div className="flex items-center gap-2">
-        <div className={`p-1.5 rounded-lg ${protection.isActive ? "bg-emerald-500/20 border border-emerald-500/30" : "bg-red-500/10 border border-red-500/20"}`}>
-          <Shield className={`w-4 h-4 ${protection.isActive ? "text-emerald-400" : "text-red-400"}`} />
-        </div>
-        <h1 className={`text-md font-black tracking-tight ${colors.text}`}>AD-BLOCK SHIELD</h1>
-      </div>
-      <Select value={theme} onValueChange={(val) => setTheme(val as Theme)}>
-        <SelectTrigger className={`w-28 h-8 text-xs font-bold tracking-wider rounded-xl border-none ${protection.isActive ? "bg-emerald-500/10 text-emerald-500/80 hover:bg-emerald-500/20 transition-colors" : "bg-zinc-800/50 text-zinc-400"}`}>
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
-          <SelectItem value="dark" className="focus:bg-zinc-800 focus:text-white cursor-pointer hover:bg-zinc-800/50">Dark Mode</SelectItem>
-          <SelectItem value="light" className="focus:bg-zinc-200 focus:text-black cursor-pointer hover:bg-zinc-200/50">Light Mode</SelectItem>
-          <SelectItem value="vaporwave" className="focus:bg-purple-800 focus:text-white cursor-pointer hover:bg-purple-800/50">Vaporwave</SelectItem>
-          <SelectItem value="frutiger-aero" className="focus:bg-sky-200 focus:text-slate-900 cursor-pointer hover:bg-sky-200/50">Frutiger</SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function StatsCard({ blockStats, onReset, glassCardClass }: Readonly<{ blockStats: BlockStats, onReset: () => void, glassCardClass: string }>) {
-  return (
-    <div className={`rounded-xl overflow-hidden animate-fade-slide-up hover-lift shadow-lg ${glassCardClass}`}>
-      <div className="flex flex-row items-center justify-between px-4 py-3 border-b border-zinc-800/30">
-        <div className="flex items-center gap-2">
-          <Zap className="w-3.5 h-3.5 text-emerald-400" />
-          <h3 className="text-xs font-bold tracking-widest uppercase">Performance Stats</h3>
-        </div>
-        <button onClick={onReset} className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 hover:text-emerald-400 transition-colors px-2 py-1 rounded bg-black/20 hover:bg-black/40">Reset</button>
-      </div>
-      <div className="grid grid-cols-2 gap-px bg-zinc-800/30">
-        <StatItem label="Total Blocked" value={blockStats.totalBlocked} highlight />
-        <StatItem label="Bandwidth" value={(blockStats.bandwidthSaved / (1024 * 1024)).toFixed(1)} unit="MB" />
-        <StatItem label="Time Saved" value={blockStats.timeSaved.toFixed(0)} unit="Sec" />
-        <StatItem label="Value Reclaimed" value={blockStats.moneySaved.toFixed(2)} unit="£" unitPrefix />
-      </div>
-    </div>
-  );
-}
-
-function StatItem({ label, value, unit, unitPrefix, highlight }: Readonly<{ label: string, value: string | number, unit?: string, unitPrefix?: boolean, highlight?: boolean }>) {
-  return (
-    <div className="p-3 bg-black/20 flex flex-col items-center justify-center text-center">
-      <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 mb-1">{label}</span>
-      <span className={`font-black tracking-tight ${highlight ? "text-xl text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]" : "text-[15px] pt-1 text-zinc-200"}`}>
-        {unitPrefix && <span className="text-xs text-zinc-500 mr-0.5">{unit}</span>}
+    <div className={`p-3 ${colors.bgSecondary} flex flex-col items-center justify-center text-center`}>
+      <span className={`text-[10px] uppercase font-bold tracking-wider ${colors.textSecondary} mb-1`}>{label}</span>
+      <span className={`font-black tracking-tight ${highlight ? `text-xl ${colors.success} drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]` : `text-[15px] pt-1 ${colors.text}`}`}>
+        {unitPrefix && <span className={`text-xs ${colors.textSecondary} mr-0.5`}>{unit}</span>}
         {value}
-        {!unitPrefix && unit && <span className="text-xs text-zinc-500 ml-0.5">{unit}</span>}
+        {!unitPrefix && unit && <span className={`text-xs ${colors.textSecondary} ml-0.5`}>{unit}</span>}
       </span>
     </div>
   );

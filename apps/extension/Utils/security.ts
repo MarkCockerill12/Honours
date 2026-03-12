@@ -4,7 +4,7 @@
 // Local Threat Database — expanded with comprehensive lists
 const THREAT_DB = {
   PHISHING_DOMAINS: [
-    // Generic phishing patterns
+    // Generic phishing patterns — domains that impersonate real brands
     "login-apple-id.com",
     "secure-paypal-verify.net",
     "crypto-wallet-update.io",
@@ -26,88 +26,55 @@ const THREAT_DB = {
     "binance-secure-login.com",
     "metamask-verify-wallet.io",
   ],
-  MALWARE_PATTERNS: [
-    "exe",
-    "dmg",
-    "zip",
-    "tar.gz",
-    "bat",
-    "sh",
-    "cmd",
-    "scr",
-    "pif",
-    "com",
-    "msi",
-    "vbs",
-    "js",
-    "jse",
-    "wsf",
-    "wsc",
-    "ps1",
-    "psm1",
-    "reg",
-    "inf",
-    "hta",
-    "cpl",
-    "sct",
+  // ONLY truly executable/dangerous file extensions — NOT normal web assets
+  DANGEROUS_EXTENSIONS: [
+    "exe", "msi", "bat", "cmd", "scr", "pif", "vbs", "vbe",
+    "jse", "wsf", "wsc", "ps1", "psm1", "reg", "inf", "hta",
+    "cpl", "sct",
   ],
   // Known malicious TLDs (free or frequently abused)
   SUSPICIOUS_TLDS: [
-    ".tk",
-    ".ml",
-    ".ga",
-    ".cf",
-    ".gq",
-    ".xyz",
-    ".top",
-    ".work",
-    ".click",
-    ".loan",
-    ".download",
-    ".win",
-    ".racing",
-    ".review",
-    ".stream",
-    ".gdn",
-    ".bid",
-    ".date",
-    ".trade",
-    ".accountant",
+    ".tk", ".ml", ".ga", ".cf", ".gq", ".top", ".work", ".click", ".loan",
+    ".download", ".win", ".racing", ".review", ".stream", ".gdn", ".bid",
+    ".date", ".trade", ".accountant",
   ],
-  // URL shorteners (not inherently malicious, but suspicious in some contexts)
+  // TLDs that are almost always safe/official
+  OFFICIAL_TLDS: [
+    ".com", ".net", ".org", ".edu", ".gov", ".mil", ".io", ".app", ".dev",
+    ".co.uk", ".de", ".fr", ".jp", ".co", ".me", ".info", ".uk", ".us",
+    ".ca", ".au", ".eu",
+  ],
+  // Trusted domains that should NEVER be flagged — includes subdomains
+  TRUSTED_DOMAINS: [
+    "facebook.com", "google.com", "google.co.uk", "youtube.com", "apple.com",
+    "icloud.com", "microsoft.com", "live.com", "outlook.com", "amazon.com",
+    "amazon.co.uk", "netflix.com", "paypal.com", "twitter.com", "x.com",
+    "linkedin.com", "github.com", "gitlab.com", "bitbucket.org",
+    "dundee.ac.uk", "instructure.com", "canvas-user-content.com",
+    "reddit.com", "stackoverflow.com", "wikipedia.org", "mozilla.org",
+    "cloudflare.com", "cdn.jsdelivr.net", "unpkg.com", "cdnjs.cloudflare.com",
+    "fonts.googleapis.com", "fonts.gstatic.com", "ajax.googleapis.com",
+    "static.xx.fbcdn.net", "fbcdn.net", "akamaihd.net", "twimg.com",
+    "instagram.com", "whatsapp.com", "signal.org", "zoom.us",
+    "slack.com", "discord.com", "notion.so", "figma.com",
+  ],
+  // URL shorteners (not inherently malicious, but worth flagging)
   URL_SHORTENERS: [
-    "bit.ly",
-    "tinyurl.com",
-    "t.co",
-    "goo.gl",
-    "is.gd",
-    "buff.ly",
-    "ow.ly",
-    "adf.ly",
-    "shorte.st",
-    "bc.vc",
+    "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "buff.ly",
+    "ow.ly", "adf.ly", "shorte.st", "bc.vc",
   ],
-  // Known tracker/ad domains (lightweight, for heuristic scoring)
+  // Known tracker/ad domains
   TRACKER_DOMAINS: [
-    "doubleclick.net",
-    "googlesyndication.com",
-    "googleadservices.com",
-    "facebook.net",
-    "fbcdn.net",
-    "analytics.google.com",
-    "connect.facebook.net",
-    "ads.yahoo.com",
-    "advertising.com",
-    "adnxs.com",
-    "rubiconproject.com",
-    "pubmatic.com",
+    "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+    "analytics.google.com", "ads.yahoo.com", "advertising.com", "adnxs.com",
+    "rubiconproject.com", "pubmatic.com",
   ],
 };
 
-// Heuristic scoring thresholds
+// Heuristic scoring thresholds — raised to reduce false positives
 const HEURISTIC_THRESHOLDS = {
-  SUSPICIOUS: 3, // Score >= 3 = suspicious
-  DANGEROUS: 6, // Score >= 6 = likely dangerous
+  SUSPICIOUS: 4, // Score >= 4 = suspicious (was 3)
+  DANGEROUS: 7,  // Score >= 7 = likely dangerous (was 6)
 };
 
 export interface ScanResult {
@@ -124,6 +91,13 @@ export interface ScanResult {
   score?: number; // Heuristic risk score (0-10)
 }
 
+// Check if a hostname or any of its parent domains is in the trusted list
+const isTrustedDomain = (hostname: string): boolean => {
+  return THREAT_DB.TRUSTED_DOMAINS.some(
+    (trusted) => hostname === trusted || hostname.endsWith("." + trusted),
+  );
+};
+
 // Heuristic analysis — scores URL on multiple risk factors
 const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
   const hostname = url.hostname.toLowerCase();
@@ -138,40 +112,30 @@ const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
     factors.push(`Excessive subdomains (${subdomainCount} levels)`);
   }
 
-  // 2. Very long hostnames (>40 chars)
-  if (hostname.length > 40) {
+  // 2. Very long hostnames (>50 chars — raised from 40)
+  if (hostname.length > 50) {
     score += 1;
     factors.push("Unusually long hostname");
   }
 
   // 3. Contains suspicious keywords in hostname
+  // Only flag if 3+ keywords found (raised from 2)
   const suspiciousKeywords = [
-    "login",
-    "verify",
-    "secure",
-    "account",
-    "update",
-    "confirm",
-    "alert",
-    "suspend",
-    "password",
-    "wallet",
-    "recover",
-    "refund",
-    "bank",
-    "paypal",
-    "crypto",
-    "free",
-    "prize",
-    "winner",
-    "lucky",
+    "verify", "confirm", "alert", "suspend", "password",
+    "wallet", "recover", "refund", "crypto", "free",
+    "prize", "winner", "lucky",
   ];
+  // NOTE: Removed "login", "secure", "account", "update", "bank", "paypal"
+  // These appear on many legitimate sites and cause excessive false positives
   const matchedKeywords = suspiciousKeywords.filter((kw) =>
     hostname.includes(kw),
   );
-  if (matchedKeywords.length >= 2) {
+  if (matchedKeywords.length >= 3) {
     score += 3;
     factors.push(`Multiple suspicious keywords: ${matchedKeywords.join(", ")}`);
+  } else if (matchedKeywords.length >= 2) {
+    score += 2;
+    factors.push(`Suspicious keywords: ${matchedKeywords.join(", ")}`);
   } else if (matchedKeywords.length === 1) {
     score += 1;
     factors.push(`Suspicious keyword: ${matchedKeywords[0]}`);
@@ -179,27 +143,17 @@ const heuristicAnalysis = (url: URL): { score: number; factors: string[] } => {
 
   // 4. Brand name + suspicious TLD combo
   const brandNames = [
-    "apple",
-    "google",
-    "microsoft",
-    "amazon",
-    "facebook",
-    "netflix",
-    "paypal",
-    "instagram",
-    "twitter",
-    "coinbase",
-    "binance",
+    "apple", "google", "microsoft", "amazon", "facebook", "netflix",
+    "paypal", "instagram", "twitter", "coinbase", "binance",
   ];
   const hasBrand = brandNames.some((brand) => hostname.includes(brand));
-  const isNotOfficial =
-    hasBrand &&
-    !hostname.endsWith(".com") &&
-    !hostname.endsWith(".co.uk") &&
-    !hostname.endsWith(".org");
-  if (isNotOfficial && hasBrand) {
+  const isOfficialTLD = THREAT_DB.OFFICIAL_TLDS.some((tld) =>
+    hostname.endsWith(tld),
+  );
+
+  if (hasBrand && !isOfficialTLD) {
     score += 3;
-    factors.push("Brand name on non-official domain");
+    factors.push("Brand name on non-standard TLD");
   }
 
   // 5. Suspicious TLD
@@ -277,6 +231,12 @@ export const scanUrl = (urlString: string): ScanResult => {
     const hostname = url.hostname.toLowerCase();
     const pathname = url.pathname.toLowerCase();
 
+    // 0. Trusted Domain Check (Fast bailout) — applies to all sub-resources too
+    if (isTrustedDomain(hostname)) {
+      console.log(`[Security] Whitelisted domain detected: ${hostname}`);
+      return { url: urlString, isSafe: true, threatType: "safe", score: 0 };
+    }
+
     // 1. Check Known Phishing DB (exact match)
     if (
       THREAT_DB.PHISHING_DOMAINS.some((domain) => hostname.includes(domain))
@@ -308,9 +268,9 @@ export const scanUrl = (urlString: string): ScanResult => {
       };
     }
 
-    // 3. Check for dangerous file extensions
+    // 3. Check for TRULY dangerous file extensions only
     const extension = pathname.split(".").pop();
-    if (extension && THREAT_DB.MALWARE_PATTERNS.includes(extension)) {
+    if (extension && THREAT_DB.DANGEROUS_EXTENSIONS.includes(extension)) {
       console.log(`[Security] THREAT: Dangerous file extension .${extension}`);
       return {
         url: urlString,
@@ -381,4 +341,101 @@ export const scanUrls = (
     safe: results.filter((r) => r.isSafe),
     threats: results.filter((r) => !r.isSafe),
   };
+};
+
+// --- Google Safe Browsing API v4 Integration ---
+// This provides REAL threat intelligence on top of local heuristics.
+// The API call is proxied through the background script to keep the API key secure.
+
+export interface SafeBrowsingResult {
+  isMalicious: boolean;
+  threats: string[];
+  source: "google_safe_browsing";
+}
+
+/**
+ * Check a URL against Google Safe Browsing API v4.
+ * This must be called from the background script context (has fetch access).
+ */
+export const checkSafeBrowsing = async (
+  url: string,
+  apiKey: string,
+): Promise<SafeBrowsingResult> => {
+  if (!apiKey) {
+    return { isMalicious: false, threats: [], source: "google_safe_browsing" };
+  }
+
+  try {
+    const endpoint = `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${apiKey}`;
+    const body = {
+      client: { clientId: "lofi-web-extension", clientVersion: "1.0.0" },
+      threatInfo: {
+        threatTypes: [
+          "MALWARE",
+          "SOCIAL_ENGINEERING",
+          "UNWANTED_SOFTWARE",
+          "POTENTIALLY_HARMFUL_APPLICATION",
+        ],
+        platformTypes: ["ANY_PLATFORM"],
+        threatEntryTypes: ["URL"],
+        threatEntries: [{ url }],
+      },
+    };
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      console.warn(`[Security] Safe Browsing API error: ${response.status}`);
+      return { isMalicious: false, threats: [], source: "google_safe_browsing" };
+    }
+
+    const data = await response.json();
+    const matches = data.matches || [];
+
+    if (matches.length > 0) {
+      const threats = matches.map(
+        (m: any) => `${m.threatType} (${m.platformType})`,
+      );
+      console.log(`[Security] Safe Browsing THREAT for ${url}:`, threats);
+      return { isMalicious: true, threats, source: "google_safe_browsing" };
+    }
+
+    return { isMalicious: false, threats: [], source: "google_safe_browsing" };
+  } catch (e) {
+    console.warn("[Security] Safe Browsing API call failed:", e);
+    return { isMalicious: false, threats: [], source: "google_safe_browsing" };
+  }
+};
+
+/**
+ * Enhanced scan: local heuristics + Google Safe Browsing API.
+ * Returns the local result immediately, then enhances with Safe Browsing.
+ */
+export const scanUrlEnhanced = async (
+  urlString: string,
+  apiKey: string,
+): Promise<ScanResult> => {
+  // 1. Start with fast local scan
+  const localResult = scanUrl(urlString);
+
+  // 2. If already flagged locally, return immediately
+  if (!localResult.isSafe) return localResult;
+
+  // 3. Check against Google Safe Browsing
+  const sbResult = await checkSafeBrowsing(urlString, apiKey);
+  if (sbResult.isMalicious) {
+    return {
+      url: urlString,
+      isSafe: false,
+      threatType: "malware",
+      details: `Google Safe Browsing: ${sbResult.threats.join(", ")}`,
+      score: 10,
+    };
+  }
+
+  return localResult;
 };

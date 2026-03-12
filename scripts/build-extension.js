@@ -14,6 +14,11 @@ const buildConfig = {
   platform: "browser",
   target: ["chrome100"],
   logLevel: "info",
+  // Inject API keys from environment at build time
+  define: {
+    "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
+    "process.env.SAFE_BROWSING_API_KEY": JSON.stringify(process.env.SAFE_BROWSING_API_KEY || ""),
+  },
 };
 
 if (watchMode) {

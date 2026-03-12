@@ -42,7 +42,7 @@ export default function DesktopPage() {
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: false,
-    adblockEnabled: true,
+    adblockEnabled: false,
   });
 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -117,7 +117,7 @@ export default function DesktopPage() {
           setProtection((prev) => ({
             ...prev,
             isActive: true,
-            adblockEnabled: true,
+            adblockEnabled: false,
           }));
         }
         await updateDnsInfo(true);
@@ -250,7 +250,7 @@ export default function DesktopPage() {
         setProtection({
           isActive: false,
           vpnEnabled: false,
-          adblockEnabled: true,
+          adblockEnabled: false,
         });
       } else {
         setError(`Reset Failed: ${result.message}`);

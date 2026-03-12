@@ -131,7 +131,19 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Fixed Extension Popup Dimensions */
+    width: 400px;
+    height: 600px;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
+}
+
+/* Ensure HTML also respects dimensions for popups */
+html {
+  width: 400px;
+  height: 600px;
 }
 
 /* Custom animations for Blocker */

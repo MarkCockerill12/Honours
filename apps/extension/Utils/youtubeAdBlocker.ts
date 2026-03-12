@@ -106,7 +106,14 @@ const injectAdBlockingCSS = () => {
   console.log("[YouTube AdBlock] Ad-blocking CSS injected");
 };
 
-// Setup DOM observer to remove ad elements dynamically
+// Elements that must never be hidden/removed (critical player structure)
+const PROTECTED_SELECTORS = ["#movie_player", "#player", "video", ".html5-video-container", ".html5-video-player"];
+
+const isSafeToHide = (element: HTMLElement): boolean => {
+  return !PROTECTED_SELECTORS.some(sel => element.matches(sel) || element.querySelector(sel));
+};
+
+// Setup DOM observer to hide ad elements dynamically (hide, not remove, to preserve DOM)
 const setupDOMObserver = () => {
   console.log("[YouTube AdBlock] Setting up DOM mutation observer...");
 
@@ -117,12 +124,13 @@ const setupDOMObserver = () => {
           const element = node as HTMLElement;
 
           // Check for ad indicators
-          if (isAdElement(element)) {
+          if (isAdElement(element) && isSafeToHide(element)) {
             console.log(
-              "[YouTube AdBlock] Detected ad element, removing:",
+              "[YouTube AdBlock] Detected ad element, hiding:",
               element.className,
             );
-            element.remove();
+            element.style.display = "none";
+            element.dataset.ytAdHidden = "true";
             recordBlockedRequest("other", window.location.href, "youtube");
           }
 
@@ -130,16 +138,19 @@ const setupDOMObserver = () => {
           const adElements = element.querySelectorAll(
             "ytd-display-ad-renderer, ytd-ad-slot-renderer, " +
               "ytd-promoted-sparkles-web-renderer, ytd-banner-promo-renderer, " +
-              '[class*="ad-showing"], [class*="video-ads"]',
+              "ytd-compact-promoted-video-renderer, ytd-promoted-video-renderer",
           );
 
           if (adElements.length > 0) {
             console.log(
-              `[YouTube AdBlock] Found ${adElements.length} ad elements, removing...`,
+              `[YouTube AdBlock] Found ${adElements.length} ad elements, hiding...`,
             );
             adElements.forEach((el) => {
-              el.remove();
-              recordBlockedRequest("other", window.location.href, "youtube");
+              if (isSafeToHide(el as HTMLElement)) {
+                (el as HTMLElement).style.display = "none";
+                (el as HTMLElement).dataset.ytAdHidden = "true";
+                recordBlockedRequest("other", window.location.href, "youtube");
+              }
             });
           }
         }
@@ -250,9 +261,11 @@ const setupOverlayRemoval = () => {
   console.log("[YouTube AdBlock] Overlay removal active");
 };
 
-// Speed control for ads (if they somehow play)
+// Speed control for ads (if they somehow play) — restores normal speed after
 const setupAdSpeedControl = () => {
   console.log("[YouTube AdBlock] Setting up ad speed control...");
+
+  let wasAdPlaying = false;
 
   videoCheckInterval = window.setInterval(() => {
     const video = document.querySelector("video") as HTMLVideoElement;
@@ -266,6 +279,14 @@ const setupAdSpeedControl = () => {
       video.playbackRate = 16;
       video.muted = true;
       video.volume = 0;
+      wasAdPlaying = true;
+    } else if (!isAdPlaying && wasAdPlaying) {
+      // Restore normal playback after ad finishes
+      console.log("[YouTube AdBlock] Ad finished, restoring normal playback...");
+      video.playbackRate = 1;
+      video.muted = false;
+      video.volume = 1;
+      wasAdPlaying = false;
     }
   }, 250); // Check every 250ms for responsive skipping
 

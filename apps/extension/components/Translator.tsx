@@ -15,6 +15,7 @@ import anime from "animejs";
 import { chromeBridge } from "../Utils/chromeBridge";
 
 const SUPPORTED_LANGUAGES = [
+  { code: "en", name: "English", flag: "🇬🇧" },
   { code: "es", name: "Spanish", flag: "🇪🇸" },
   { code: "fr", name: "French", flag: "🇫🇷" },
   { code: "de", name: "German", flag: "🇩🇪" },
@@ -27,7 +28,11 @@ const SUPPORTED_LANGUAGES = [
   { code: "ko", name: "Korean", flag: "🇰🇷" },
 ];
 
-export function Translator() {
+interface TranslatorProps {
+  isActive: boolean;
+}
+
+export function Translator({ isActive }: TranslatorProps) {
   const [targetLang, setTargetLang] = useState("es");
   const [isTranslating, setIsTranslating] = useState(false);
   const [isTranslationActive, setIsTranslationActive] = useState(false);
@@ -219,7 +224,7 @@ export function Translator() {
           ref={translateBtnRef}
           className="bg-blue-600 hover:bg-blue-500 text-white shrink-0 w-10 h-10 p-0 shadow-lg"
           onClick={handleTranslate}
-          disabled={isTranslating}
+          disabled={isTranslating || !isActive}
         >
           <RefreshCw className={`h-4 w-4 ${isTranslating ? "animate-spin" : ""}`} />
         </Button>
