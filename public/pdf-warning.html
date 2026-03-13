@@ -113,9 +113,6 @@
         Attempted to load: <br /><strong id="detected-url">Unknown</strong>
       </div>
       <div class="buttons">
-        <button class="btn-secondary" onclick="globalThis.history.back()">
-          Go Back Safely
-        </button>
         <button class="btn-primary" id="proceed-anyway">Load PDF Anyway</button>
       </div>
     </div>
@@ -128,14 +125,19 @@
         globalThis.document.getElementById("detected-url").textContent = url;
 
         globalThis.document.getElementById("proceed-anyway").onclick = () => {
-          // Temporarily bypass by adding a bypass param
-          let target = url;
-          if (target.includes("?")) {
-            target += "&bypass=true";
+          // Notify background to allow this specific PDF URL for this session
+          if (typeof chrome !== "undefined" && chrome.runtime) {
+            chrome.runtime.sendMessage(
+              { action: "ALLOW_PDF", url },
+              (response) => {
+                // Redirect back to the original PDF URL
+                globalThis.location.href = url;
+              },
+            );
           } else {
-            target += "?bypass=true";
+            // Fallback for dev/preview
+            globalThis.location.href = url;
           }
-          globalThis.location.href = target;
         };
       }
     </script>

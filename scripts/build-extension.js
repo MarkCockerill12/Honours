@@ -1,45 +1,43 @@
 const { build } = require("esbuild");
 const chokidar = require("chokidar");
 const fs = require("fs");
+const path = require("path");
 
-let geminiKey = process.env.GEMINI_API_KEY || "";
-let sbKey = process.env.SAFE_BROWSING_API_KEY || "";
-
-// Parse .env and .env.local manually since dotenv might not be installed
+// Load .env.local manually if it exists
 try {
-  const envFiles = [".env", ".env.local"];
-  for (const file of envFiles) {
-    if (fs.existsSync(file)) {
-      const envFile = fs.readFileSync(file, "utf8");
-      envFile.split("\n").forEach((line) => {
-        const match = line.match(/^\s*([\w]+)\s*=\s*(.*)?\s*$/);
-        if (match) {
-          let val = match[2] ? match[2].replace(/(^['"]|['"]$)/g, '').trim() : "";
-          if (match[1] === "GEMINI_API_KEY" && !geminiKey) geminiKey = val;
-          if (match[1] === "SAFE_BROWSING_API_KEY" && !sbKey) sbKey = val;
-        }
-      });
-    }
+  const envPath = path.resolve(__dirname, "../.env.local");
+  if (fs.existsSync(envPath)) {
+    console.log("📝 Loading environment variables from .env.local...");
+    const envContent = fs.readFileSync(envPath, "utf-8");
+    envContent.split("\n").forEach((line) => {
+      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+      if (match) {
+        const key = match[1];
+        let value = match[2] || "";
+        if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+        if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+        process.env[key] = value.trim();
+      }
+    });
   }
-} catch (e) {
-  console.warn("Could not read env files", e);
+} catch (err) {
+  console.warn("⚠️ Failed to load .env.local:", err.message);
 }
 
 const watchMode = process.argv.includes("--watch");
 
 const buildConfig = {
   entryPoints: {
-    "content-script": "./apps/extension/Utils/content.ts",
-    background: "./apps/extension/Utils/background.ts",
+    "content-script": "./app/extension/Utils/content.ts",
+    background: "./app/extension/Utils/background.ts",
   },
   bundle: true,
-  outdir: "public",
+  outdir: "extension-dist",
   platform: "browser",
   target: ["chrome100"],
   logLevel: "info",
   define: {
-    "process.env.GEMINI_API_KEY": JSON.stringify(geminiKey),
-    "process.env.SAFE_BROWSING_API_KEY": JSON.stringify(sbKey),
+    "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
   },
 };
 
@@ -47,9 +45,8 @@ if (watchMode) {
   console.log("👁️  Watching for changes in extension files...");
   chokidar
     .watch([
-      "./apps/extension/**/*.ts",
-      "./apps/extension/**/*.tsx",
-      "./packages/**/*.ts",
+      "./app/extension/**/*.ts",
+      "./app/extension/**/*.tsx",
     ])
     .on("change", async (path) => {
       console.log("⚡ File changed:", path);
@@ -58,5 +55,15 @@ if (watchMode) {
       console.log("✓ Extension scripts rebuilt");
     });
 } else {
+  // Clean legacy files in public directory to prevent API key exposure
+  const legacyFiles = ["background.js", "content-script.js"];
+  legacyFiles.forEach(file => {
+    const filePath = path.join(__dirname, "../public", file);
+    if (fs.existsSync(filePath)) {
+      console.log(`🧹 Removing legacy file: ${file}`);
+      fs.unlinkSync(filePath);
+    }
+  });
+
   build(buildConfig);
 }

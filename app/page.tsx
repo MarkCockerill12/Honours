@@ -4,15 +4,16 @@ import React, { useState, useRef, useEffect } from "react";
 import { Monitor, Smartphone, Globe } from "lucide-react";
 import anime from "animejs";
 import { Button } from "@/components/ui/button";
-import { ThemeProvider, useStats } from "@/packages/ui";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { useStats } from "@/components/StatsProvider";
 import type {
   Theme,
   Platform,
   ProtectionState,
-} from "@/packages/ui/types";
-import ExtensionApp from "@/apps/extension/ExtensionApp";
-import { MobileApp } from "@/apps/mobile/MobileApp";
-import { DesktopApp } from "@/apps/desktop/DesktopApp";
+} from "@/components/types";
+import ExtensionApp from "./extension/ExtensionApp";
+import { MobileApp } from "./mobile/MobileApp";
+import { DesktopApp } from "./desktop/DesktopApp";
 
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -137,6 +138,7 @@ export default function Home() {
                 onProtectionToggle={handleProtectionToggle}
                 onVpnToggle={handleVpnToggle}
                 onAdblockToggle={handleAdblockToggle}
+                onFilteringToggle={handleProtectionToggle}
               />
             </div>
           )}
@@ -147,7 +149,8 @@ export default function Home() {
                 onProtectionToggle={handleProtectionToggle}
                 onVpnToggle={handleVpnToggle}
                 onAdblockToggle={handleAdblockToggle}
-                stats={stats}
+                onFilteringToggle={handleProtectionToggle}
+                stats={{ ...stats, moneySaved: stats.moneySaved || 0, totalBlocked: stats.totalBlocked || 0 }}
               />
             </div>
           )}
@@ -158,7 +161,8 @@ export default function Home() {
                 onProtectionToggle={handleProtectionToggle}
                 onVpnToggle={handleVpnToggle}
                 onAdblockToggle={handleAdblockToggle}
-                stats={stats}
+                onFilteringToggle={handleProtectionToggle}
+                stats={{ ...stats, moneySaved: stats.moneySaved || 0, totalBlocked: stats.totalBlocked || 0 }}
                 onTest={async () => ({ isBlocked: true, output: "Mock Test" })}
                 onReset={async () => console.log("Reset clicked")}
               />
@@ -169,3 +173,4 @@ export default function Home() {
     </ThemeProvider>
   );
 }
+

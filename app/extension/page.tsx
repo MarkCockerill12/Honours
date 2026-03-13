@@ -1,9 +1,9 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import ExtensionApp from "@/apps/extension/ExtensionApp";
-import { ThemeProvider } from "@/packages/ui/ThemeProvider";
-import type { Theme, ProtectionState, SmartFilter } from "@/packages/ui/types";
-import { blurContent, clearBlurContent } from "@/apps/extension/Utils/content";
+import ExtensionApp from "./ExtensionApp";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import type { Theme, ProtectionState, SmartFilter } from "@/components/types";
+import { blurContent, clearBlurContent } from "./Utils/content";
 
 export default function ExtensionPage() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -83,14 +83,43 @@ export default function ExtensionPage() {
     }
   }, []);
 
-  const handleProtectionToggle = () => {
-    console.log("[ExtensionPage] Protection toggled");
-    persistProtection({ ...protection, isActive: !protection.isActive });
+  const safeSendMessage = async (message: any) => {
+    if (typeof chrome !== "undefined" && chrome.runtime) {
+      return new Promise((resolve) => {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            console.debug("[Popup] Message error (silenced):", chrome.runtime.lastError.message);
+            resolve({ success: false, error: chrome.runtime.lastError.message });
+          } else {
+            resolve(response);
+          }
+        });
+      });
+    }
   };
 
   const handleVpnToggle = () => {
     console.log("[ExtensionPage] VPN toggled");
     persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
+  };
+
+  const handleFilteringToggle = () => {
+    console.log("[ExtensionPage] Filtering toggled");
+    const newState = !protection.isActive;
+    const newProt = { ...protection, isActive: newState };
+    persistProtection(newProt);
+    
+    safeSendMessage({ action: "TOGGLE_FILTERING", enabled: newState });
+    
+    if (typeof chrome !== "undefined") {
+      chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: newState ? "ENABLE_FILTERING" : "DISABLE_FILTERING",
+          });
+        }
+      });
+    }
   };
 
   const handleAdblockToggle = async () => {
@@ -110,22 +139,16 @@ export default function ExtensionPage() {
     }
 
     // 2. FOR CHROME: Send message to background
-    try {
-      if (typeof chrome !== "undefined" && chrome.runtime) {
-        chrome.runtime.sendMessage(
-          { action: "TOGGLE_ADBLOCK", enabled: newState }
-        );
+    safeSendMessage({ action: "TOGGLE_ADBLOCK", enabled: newState });
 
-        chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(tabs[0].id, {
-              action: newState ? "ENABLE_ADBLOCK" : "DISABLE_ADBLOCK",
-            });
-          }
-        });
-      }
-    } catch (error) {
-       // silence if not in chrome
+    if (typeof chrome !== "undefined") {
+      chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: newState ? "ENABLE_ADBLOCK" : "DISABLE_ADBLOCK",
+          });
+        }
+      });
     }
   };
 
@@ -144,9 +167,10 @@ export default function ExtensionPage() {
       <div className="w-[400px] h-[600px] bg-zinc-950 overflow-y-auto">
         <ExtensionApp
           protection={protection}
-          onProtectionToggle={handleProtectionToggle}
+          onProtectionToggle={handleFilteringToggle}
           onVpnToggle={handleVpnToggle}
           onAdblockToggle={handleAdblockToggle}
+          onFilteringToggle={handleFilteringToggle}
           filters={filters}
           onFiltersChange={persistFilters}
         />
@@ -154,3 +178,4 @@ export default function ExtensionPage() {
     </ThemeProvider>
   );
 }
+
