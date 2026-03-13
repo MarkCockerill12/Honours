@@ -1,8 +1,9 @@
 "use client";
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { DesktopApp } from "@/apps/desktop/DesktopApp";
-import { ThemeProvider, useStats } from "@/packages/ui";
-import type { Theme, ProtectionState } from "@/packages/ui/types";
+import { DesktopApp } from "./DesktopApp";
+import { ThemeProvider } from "@/components/ThemeProvider";
+import { useStats } from "@/components/StatsProvider";
+import type { Theme, ProtectionState } from "@/components/types";
 
 // Declare electron global
 declare global {
@@ -322,6 +323,7 @@ export default function DesktopPage() {
           onProtectionToggle={handleProtectionToggle}
           onVpnToggle={handleVpnToggle}
           onAdblockToggle={handleAdblockToggle}
+          onFilteringToggle={handleProtectionToggle}
           onTest={handleTest}
           onReset={handleReset}
           stats={stats}
@@ -333,3 +335,4 @@ export default function DesktopPage() {
     </ThemeProvider>
   );
 }
+
