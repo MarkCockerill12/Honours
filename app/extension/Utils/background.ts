@@ -1,5 +1,5 @@
 import { scanUrl, checkSafeBrowsing } from "./security";
-import type { ProtectionState, SmartFilter } from "@/components/types";
+import type { ProtectionState } from "@/components/types";
 import {
   setupDeclarativeNetRequestRules,
   isAdOrTracker,
@@ -10,6 +10,7 @@ import {
   addException,
   removeException,
 } from "./adBlockEngine";
+import { isPdfUrl, hasBypassParam } from "@/lib/urlUtils";
 
 let adBlockEnabled = false;
 let protectionEnabled = false;
@@ -90,19 +91,6 @@ const initializeBackground = async () => {
 };
 initializeBackground();
 
-// Setup declarative net request for efficient ad blocking
-const setupDeclarativeNetRequest = async (): Promise<{
-  success: boolean;
-  error?: string;
-}> => {
-  try {
-    if (!chrome.declarativeNetRequest) throw new Error("DNR API unavailable.");
-    const success = await setupDeclarativeNetRequestRules();
-    return success ? { success: true } : { success: false, error: "DNR Setup failed." };
-  } catch (error: any) {
-    return { success: false, error: error.message };
-  }
-};
 
 // Extremely Fast native PDF Blocker via Background Redirect
 // We cannot rely purely on DNR because some PDFs are loaded as links, and we want a visual block overlay.
@@ -111,19 +99,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!protectionEnabled || !adBlockEnabled) return;
   
   if (changeInfo.status === "loading" && tab.url) {
-    const isPdf = tab.url.toLowerCase().split("?")[0].endsWith(".pdf");
+    const isPdf = isPdfUrl(tab.url);
     const isLocal = tab.url.startsWith("file://");
     const tabAllowed = allowedPdfs.get(tabId);
-    const bypass = tab.url.includes("bypass=true") || (tabAllowed && tabAllowed.has(tab.url));
+    const bypass = hasBypassParam(tab.url) || tabAllowed?.has(tab.url);
 
     if (isPdf && !bypass) {
-      // Firefox's open-source pdf.js viewer DOES support content scripts inline, 
-      // unlike Chrome/Edge's closed-source PDFium!
       if (self.navigator?.userAgent?.toLowerCase().includes("firefox")) {
          console.log("[Background] Firefox platform detected. Allowing native inline PDF shielding.");
          return; 
       }
-
       if (isLocal) {
         console.warn("[Background] Cannot scan local file:// PDFs safely.");
       }
@@ -133,17 +118,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       recordBlockedRequest("document", tab.url, "pdf" as any);
     }
   } else if (changeInfo.status === "complete" && tab.url) {
-    const isPdf = tab.url.toLowerCase().split("?")[0].endsWith(".pdf");
+    const isPdf = isPdfUrl(tab.url);
     const tabAllowed = allowedPdfs.get(tabId);
-    const bypass = tab.url.includes("bypass=true") || (tabAllowed && tabAllowed.has(tab.url));
+    const bypass = hasBypassParam(tab.url) || tabAllowed?.has(tab.url);
     
     if (isPdf && bypass) {
-      // Clear bypass after successful load so that refresh triggers the warning again
       allowedPdfs.get(tabId)?.delete(tab.url);
     }
-  } else if (changeInfo.status === "loading" && tab.url) {
-    const isPdf = tab.url.toLowerCase().split("?")[0].endsWith(".pdf");
-    if (!isPdf) {
+    if (!isPdfUrl(tab.url)) {
       allowedPdfs.delete(tabId);
     }
   }
@@ -232,6 +214,97 @@ async function handleAdBlockActions(request: any, sender: chrome.runtime.Message
   }
 }
 
+async function handleContentActions(request: any) {
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tabs[0]?.id) return { success: false, error: "No active tab found" };
+
+  if (request.action === "SCAN_PAGE_LINKS" && tabs[0].url?.toLowerCase().endsWith(".pdf")) {
+    return { success: false, error: "Scanning is not supported for native PDF documents." };
+  }
+  
+  try {
+    return await chrome.tabs.sendMessage(tabs[0].id, request);
+  } catch (e: any) {
+    console.debug("[Background] Message failed (normal if receiver absent):", e.message);
+    return { success: false, error: `Content script not ready: ${e.message}` };
+  }
+}
+
+async function handleTranslateAction(request: any) {
+  const texts = Array.isArray(request.text) ? request.text : [request.text];
+  const results: string[] = [];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
+    const batch = texts.slice(i, i + BATCH_SIZE);
+    const batchPromises = batch.map(async (text: string) => {
+      const translateUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${request.targetLang}&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(translateUrl);
+      const data = await res.json();
+      if (Array.isArray(data) && Array.isArray(data[0])) {
+        return data[0].filter((segment: any) => segment?.[0]).map((segment: any) => segment[0]).join("");
+      }
+      return text;
+    });
+    results.push(...(await Promise.all(batchPromises)));
+  }
+  return { success: true, translatedTexts: results };
+}
+
+async function handleSummarizeAction(request: any) {
+  try {
+    const storage = await chrome.storage.local.get(["geminiApiKey"]);
+    const apiKey = (storage.geminiApiKey as string) || "";
+    
+    if (!apiKey) {
+      return { success: false, error: "No Gemini API key configured. Add one in the extension settings." };
+    }
+    
+    let contents: any[] = [];
+    if (request.url && isPdfUrl(request.url)) {
+      const cleanUrl = request.url.split("?bypass=true")[0].split("&bypass=true")[0];
+      const respPdf = await fetch(cleanUrl);
+      const buffer = await respPdf.arrayBuffer();
+      const bytes = new Uint8Array(buffer);
+      const limit = Math.min(bytes.byteLength, 4 * 1024 * 1024);
+      let binary = "";
+      const chunkSize = 8192;
+      for (let i = 0; i < limit; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+            binary += String.fromCodePoint(chunk as unknown as number);
+      }
+      const base64Pdf = btoa(binary);
+      contents = [{
+        parts: [
+          { text: "Analyze and summarize this PDF document thoroughly. Provide 5-7 clear, direct, and informative bullet points. Do not truncate the summary." },
+          { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
+        ]
+      }];
+    } else {
+      const text = (request.text || "").substring(0, 15000);
+      contents = [{
+        parts: [{ text: `Analyze and summarize this webpage content thoroughly. Provide 5-7 clear, direct, and informative bullet points.\n\n${text}` }]
+      }];
+    }
+
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    const resp = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: 2000, temperature: 0.1 } }),
+    });
+    
+    if (!resp.ok) {
+      const errData = await resp.text();
+      return { success: false, error: `Gemini API error (${resp.status}): ${errData.substring(0, 200)}` };
+    }
+    const data = await resp.json();
+    const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
+    return { success: true, summary };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
+}
+
 async function handleOtherActions(request: any) {
   switch (request.action) {
     case "GET_BLOCK_STATS": {
@@ -244,8 +317,6 @@ async function handleOtherActions(request: any) {
     }
 
     case "TOGGLE_ADBLOCK": {
-      // Background just initiates a sync; the popup already updated storage
-      console.log("[Background] TOGGLE_ADBLOCK requested, initiating sync...");
       await syncAdBlockState();
       return { success: true, enabled: adBlockEnabled };
     }
@@ -253,41 +324,12 @@ async function handleOtherActions(request: any) {
     case "CLEAR_FILTERS":
     case "APPLY_FILTERS":
     case "CLEAR_TRANSLATIONS":
-    case "SCAN_PAGE_LINKS": {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tabs[0]?.id) {
-        if (request.action === "SCAN_PAGE_LINKS" && tabs[0].url?.toLowerCase().endsWith(".pdf")) {
-          return { success: false, error: "Scanning is not supported for native PDF documents." };
-        }
-        try {
-          return await chrome.tabs.sendMessage(tabs[0].id, request);
-        } catch (e: any) {
-          console.debug("[Background] Message failed (normal if receiver absent):", e.message);
-          return { success: false, error: `Content script not ready: ${e.message}` };
-        }
-      }
-      return { success: false, error: "No active tab found" };
-    }
+    case "SCAN_PAGE_LINKS":
+    case "GET_PAGE_TEXT":
+      return handleContentActions(request);
 
-    case "TRANSLATE_TEXT": {
-      const texts = Array.isArray(request.text) ? request.text : [request.text];
-      const results: string[] = [];
-      const BATCH_SIZE = 5;
-      for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-        const batch = texts.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(async (text: string) => {
-          const translateUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${request.targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-          const res = await fetch(translateUrl);
-          const data = await res.json();
-          if (Array.isArray(data) && Array.isArray(data[0])) {
-            return data[0].filter((segment: any) => segment?.[0]).map((segment: any) => segment[0]).join("");
-          }
-          return text;
-        });
-        results.push(...(await Promise.all(batchPromises)));
-      }
-      return { success: true, translatedTexts: results };
-    }
+    case "TRANSLATE_TEXT":
+      return handleTranslateAction(request);
 
     case "CHECK_URL_REAL": {
       try {
@@ -299,88 +341,15 @@ async function handleOtherActions(request: any) {
     }
 
     case "CHECK_SAFE_BROWSING": {
-      try {
-        const storage = await chrome.storage.local.get(["safeBrowsingApiKey"]);
-        const apiKey = (storage.safeBrowsingApiKey as string) || "";
-        if (!apiKey) {
-          return { success: false, error: "No Safe Browsing API key configured" };
-        }
-        const result = await checkSafeBrowsing(request.url as string, apiKey);
-        return { success: true, ...result };
-      } catch (e: any) {
-        return { success: false, error: e.message };
-      }
+      const storage = await chrome.storage.local.get(["safeBrowsingApiKey"]);
+      const apiKey = (storage.safeBrowsingApiKey as string) || "";
+      if (!apiKey) return { success: false, error: "No Safe Browsing API key configured" };
+      const result = await checkSafeBrowsing(request.url as string, apiKey);
+      return { success: true, ...result };
     }
 
-    case "SUMMARIZE_TEXT": {
-      try {
-        const storage = await chrome.storage.local.get(["geminiApiKey"]);
-        // Use storage key if available, otherwise fallback to baked key from build process
-        const apiKey = (storage.geminiApiKey as string) || (process.env as any).GEMINI_API_KEY || "";
-        
-        if (!apiKey) {
-          return { success: false, error: "No Gemini API key configured. Add one in the extension settings." };
-        }
-        let contents: any[] = [];
-        if (request.url && (request.url.toLowerCase().split("?")[0].endsWith(".pdf") || request.url.includes("application/pdf"))) {
-          // Strip bypass params from URL before fetching
-          const cleanUrl = request.url.split("?bypass=true")[0].split("&bypass=true")[0];
-          const respPdf = await fetch(cleanUrl);
-          const buffer = await respPdf.arrayBuffer();
-          const bytes = new Uint8Array(buffer);
-          const limit = Math.min(bytes.byteLength, 4 * 1024 * 1024); // Cap at 4MB
-          let binary = "";
-          const chunkSize = 8192;
-          for (let i = 0; i < limit; i += chunkSize) {
-            const chunk = bytes.subarray(i, i + chunkSize);
-            binary += String.fromCharCode.apply(null, chunk as unknown as number[]);
-          }
-          const base64Pdf = btoa(binary);
-          contents = [{
-            parts: [
-              { text: "Analyze and summarize this PDF document thoroughly. Provide 5-7 clear, direct, and informative bullet points covering the key findings, conclusions, and any technical details present. Do not truncate the summary." },
-              { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
-            ]
-          }];
-        } else {
-          const text = (request.text || "").substring(0, 15000);
-          contents = [{
-            parts: [{ text: `Analyze and summarize this webpage content thoroughly. Provide 5-7 clear, direct, and informative bullet points. Do not be brief; capture the essential meaning and details. Keep the output comprehensive:\n\n${text}` }]
-          }];
-        }
-
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-        const resp = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents,
-            generationConfig: { maxOutputTokens: 2000, temperature: 0.1 }
-          }),
-        });
-        if (!resp.ok) {
-          const errData = await resp.text();
-          return { success: false, error: `Gemini API error (${resp.status}): ${errData.substring(0, 200)}` };
-        }
-        const data = await resp.json();
-        const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
-        return { success: true, summary };
-      } catch (e: any) {
-        return { success: false, error: e.message };
-      }
-    }
-
-    case "GET_PAGE_TEXT": {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (tabs[0]?.id) {
-        try {
-          return await chrome.tabs.sendMessage(tabs[0].id, { action: "GET_PAGE_TEXT" });
-        } catch (e: any) {
-          return { success: false, error: `Content script not ready: ${e.message}` };
-        }
-      }
-      return { success: false, error: "No active tab found" };
-    }
+    case "SUMMARIZE_TEXT":
+      return handleSummarizeAction(request);
 
     case "QUERY_TABS": {
       const tabs = await chrome.tabs.query(request.query || {});
@@ -403,7 +372,7 @@ async function handleRequest(request: any, sender: chrome.runtime.MessageSender)
 
   // 1. Try AdBlock specific actions
   const adBlockResult = await handleAdBlockActions(request, sender).catch(e => ({ success: false, error: e.message }));
-  if (adBlockResult && adBlockResult.success) return adBlockResult;
+  if (adBlockResult !== null) return adBlockResult;
 
   // 2. Try remaining actions
   return handleOtherActions(request).catch(e => ({ success: false, error: e.message }));

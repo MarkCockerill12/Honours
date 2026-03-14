@@ -36,6 +36,14 @@ if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
     if (!event.data || typeof event.data !== "object") return;
 
+    // 0. Security: Origin Validation
+    const isExtensionOrigin = event.origin.startsWith("chrome-extension://");
+    const isDevOrigin = event.origin === "http://localhost:3000";
+    if (!isExtensionOrigin && !isDevOrigin) {
+      console.warn("[Chrome Bridge] Untrusted message origin:", event.origin);
+      return;
+    }
+
     // 1. Discovery of Extension ID (Dev Mode)
     if (event.data.type === "SET_EXTENSION_ID") {
       console.log("[Chrome Bridge] Extension ID discovered:", event.data.id);
@@ -114,7 +122,9 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
 
     // b) If in Iframe, use postMessage to parent
     if (env.isInExtensionIframe && window.parent) {
-      window.parent.postMessage({ action, requestId, data }, "*");
+      // Security: Use specific target origin if known, otherwise fallback to "*" only if strictly necessary for discovery
+      const targetOrigin = _extensionId ? `chrome-extension://${_extensionId}` : (window.location.origin === "http://localhost:3000" ? "*" : window.location.origin);
+      window.parent.postMessage({ action, requestId, data }, targetOrigin);
     } else {
       // No bridge available
       env.pendingRequests.delete(requestId);

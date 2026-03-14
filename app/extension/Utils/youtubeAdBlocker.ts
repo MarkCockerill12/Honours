@@ -32,30 +32,22 @@ export const shouldBlockYouTubeRequest = (url: string): boolean => {
   return false;
 };
 
-let adCheckInterval: number | null = null;
+let youtubeObserver: MutationObserver | null = null;
 
 // Initialize YouTube ad blocking
 export const initYouTubeAdBlocker = () => {
-  console.log("[YouTube AdBlock] Initializing safe YouTube ad skipper...");
+  if (!window.location.hostname.includes("youtube.com")) return;
 
-  if (!window.location.hostname.includes("youtube.com")) {
-    return;
-  }
+  console.log("[YouTube AdBlock] Initializing safe YouTube ad skipper...");
 
   const checkState = async () => {
     try {
       const res = await chrome.storage.local.get(["protectionState"]);
       const state = res.protectionState as any;
-      const isActive = state?.isActive ?? false;
-      const adblockEnabled = state?.adblockEnabled ?? false;
-      
-      if (!isActive || !adblockEnabled) {
-        console.log("[YouTube AdBlock] AdBlock toggled OFF.");
-        return;
+      if (state?.isActive && state?.adblockEnabled) {
+        setupAutoSkip();
+        console.log("[YouTube AdBlock] Safe auto-skip activated");
       }
-      
-      setupAutoSkip();
-      console.log("[YouTube AdBlock] Safe auto-skip activated");
     } catch (e) {
       console.error("[YouTube AdBlock] Error checking state:", e);
     }
@@ -65,48 +57,64 @@ export const initYouTubeAdBlocker = () => {
 };
 
 export const cleanupYouTubeAdBlocker = () => {
-  if (adCheckInterval) {
-    clearInterval(adCheckInterval);
-    adCheckInterval = null;
+  if (youtubeObserver) {
+    youtubeObserver.disconnect();
+    youtubeObserver = null;
   }
 };
 
 const setupAutoSkip = () => {
-  adCheckInterval = window.setInterval(() => {
+  const player = document.querySelector(".html5-video-player");
+  if (!player) {
+    // Retry if player is not yet in DOM
+    setTimeout(setupAutoSkip, 1000);
+    return;
+  }
+
+  if (youtubeObserver) youtubeObserver.disconnect();
+
+  youtubeObserver = new MutationObserver(() => {
     const video = document.querySelector("video.video-stream") as HTMLVideoElement;
     if (!video) return;
 
     // Is an ad playing?
-    const adShowing = document.querySelector(".ad-showing, .ad-interrupting, .ytp-ad-player-overlay");
+    const adShowing = player.classList.contains("ad-showing") || 
+                      player.classList.contains("ad-interrupting") || 
+                      document.querySelector(".ytp-ad-player-overlay");
+    
     const skipButton = document.querySelector(".ytp-ad-skip-button, .ytp-skip-ad-button, .ytp-ad-skip-button-modern, .ytp-ad-skip-button-slot") as HTMLButtonElement | null;
 
     if (adShowing) {
-      // Step 1: Click the skip button instantly if it exists
       if (skipButton) {
         skipButton.click();
         recordBlockedRequest("video", globalThis.location.href, "youtube");
-      } 
-      // Step 2: If no skip button, accelerate the ad video to maximum speed and mute it
-      else if (video.duration && video.duration > 0) {
-        // Safe check to make sure it's actually an ad video loaded in the player
-        if (video.playbackRate !== 16) {
+      } else if (video.duration && video.duration > 0 && isFinite(video.duration)) {
+        // Robust skipping: seek to the end AND accelerate
+        // Using video.duration - 0.1 ensure it actually triggers the 'ended' or transition event
+        if (video.currentTime < video.duration - 0.5) {
+          video.currentTime = video.duration - 0.1;
           video.playbackRate = 16;
           video.muted = true;
           recordBlockedRequest("video", globalThis.location.href, "youtube");
         }
       }
-    } 
-    // Failsafe: Reset playback rate if ad finishes but rate remained stuck
-    else {
-      if (video.playbackRate === 16) {
-         video.playbackRate = 1;
-         video.muted = false;
+    } else {
+      // Failsafe: Reset playback rate if ad finishes but rate remained stuck
+      if (video.playbackRate > 2) {
+        video.playbackRate = 1;
+        video.muted = false;
       }
     }
+
     // Safety check: close static banner ads over the player
     const overlayClose = document.querySelector(".ytp-ad-overlay-close-button") as HTMLButtonElement | null;
-    if (overlayClose) {
-      overlayClose.click();
-    }
-  }, 100);
+    if (overlayClose) overlayClose.click();
+  });
+
+  youtubeObserver.observe(player, { 
+    attributes: true, 
+    attributeFilter: ["class"],
+    childList: true, 
+    subtree: true 
+  });
 };

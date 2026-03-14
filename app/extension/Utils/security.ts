@@ -1,5 +1,5 @@
-// Enhanced Cyber Security Scanner - Threat Intelligence Module
 // Uses heuristic analysis, pattern matching, and known threat databases
+import { COMPREHENSIVE_DOMAINS } from "@/lib/constants";
 
 // Local Threat Database — expanded with comprehensive lists
 const THREAT_DB = {
@@ -63,12 +63,8 @@ const THREAT_DB = {
     "bit.ly", "tinyurl.com", "t.co", "goo.gl", "is.gd", "buff.ly",
     "ow.ly", "adf.ly", "shorte.st", "bc.vc",
   ],
-  // Known tracker/ad domains
-  TRACKER_DOMAINS: [
-    "doubleclick.net", "googlesyndication.com", "googleadservices.com",
-    "analytics.google.com", "ads.yahoo.com", "advertising.com", "adnxs.com",
-    "rubiconproject.com", "pubmatic.com",
-  ],
+  // Known tracker/ad domains (Consolidated from COMPREHENSIVE_DOMAINS)
+  TRACKER_DOMAINS: COMPREHENSIVE_DOMAINS,
 };
 
 // Heuristic scoring thresholds — raised to reduce false positives

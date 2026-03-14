@@ -2,6 +2,7 @@ import { SmartFilter } from "@/components/types";
 import { initYouTubeAdBlocker } from "./youtubeAdBlocker";
 import { AD_SELECTORS } from "@/lib/constants";
 import { scanUrl } from "./security";
+import { isPdfUrl } from "@/lib/urlUtils";
 
 // --- STATE ---
 let filtersActive = false;
@@ -50,40 +51,33 @@ const safeSendMessage = async (message: any): Promise<any> => {
 };
 
 const hideAdElements = () => {
-  // Whitelist sites where aggressive element hiding often breaks functionality
   const whitelist = ["facebook.com", "youtube.com", "twitter.com", "x.com"];
-  if (whitelist.some(site => globalThis.location.hostname.includes(site))) {
-    return;
-  }
+  if (whitelist.some(site => globalThis.location.hostname.includes(site))) return;
 
-  AD_SELECTORS.forEach((selector) => {
-    try {
-      globalThis.document.querySelectorAll(selector).forEach((el) => {
-        const htmlEl = el as HTMLElement;
+  try {
+    const combinedSelector = AD_SELECTORS.join(", ");
+    globalThis.document.querySelectorAll(combinedSelector).forEach((el) => {
+      const htmlEl = el as HTMLElement;
+      if (htmlEl.dataset.adHidden !== "true") {
         htmlEl.style.display = "none";
         htmlEl.dataset.adHidden = "true";
-      });
-    } catch (error: any) {
-      console.warn(`[Content] Failed to hide elements for selector ${selector}:`, error.message);
-    }
-  });
+      }
+    });
+  } catch (error: any) {
+    console.warn("[Content] Failed to hide ad elements with combined selector:", error.message);
+  }
 };
 
 const setupAdBlockObserver = () => {
   if (adObserver) adObserver.disconnect();
+  let debounceTimer: any = null;
+  
   adObserver = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      for (const node of Array.from(m.addedNodes)) {
-        if (node instanceof HTMLElement) {
-          for (const selector of AD_SELECTORS) {
-            if (node.matches(selector)) {
-              node.style.display = "none";
-              node.dataset.adHidden = "true";
-            }
-          }
-        }
-      }
-    }
+    if (debounceTimer) return;
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      hideAdElements(); // Re-run combined query which is more efficient
+    }, 100);
   });
   adObserver.observe(globalThis.document.body, { childList: true, subtree: true });
 };
@@ -111,10 +105,16 @@ const disableAdBlocking = () => {
 
 const setupContentObserver = (filters: SmartFilter[], method: string) => {
   if (contentMutationObserver) contentMutationObserver.disconnect();
+  let debounceTimer: any = null;
+  
   contentMutationObserver = new MutationObserver((mutations) => {
-    if (mutations.some(m => m.addedNodes.length > 0)) {
-      blurContent(document.body, filters, method as any);
-    }
+    if (debounceTimer) return;
+    debounceTimer = setTimeout(() => {
+      debounceTimer = null;
+      if (mutations.some(m => m.addedNodes.length > 0)) {
+        blurContent(document.body, filters, method as any);
+      }
+    }, 150);
   });
   contentMutationObserver.observe(document.body, { childList: true, subtree: true });
 };
@@ -460,7 +460,7 @@ const syncState = (protection: any, filters: SmartFilter[], method: string, isFi
 
 if (globalThis.window !== undefined) {
   // Prevent content script from running on PDF documents and lagging the browser
-  if (globalThis.document.contentType === "application/pdf" || globalThis.location.pathname.toLowerCase().split("?")[0].endsWith(".pdf")) {
+  if (globalThis.document.contentType === "application/pdf" || isPdfUrl(globalThis.location.href)) {
     console.log("[Content] Aborting execution on PDF to prevent native viewer lag.");
   } else {
     if (globalThis.location.hostname.includes("youtube.com")) setTimeout(() => initYouTubeAdBlocker(), 1000);

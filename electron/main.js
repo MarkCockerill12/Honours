@@ -136,7 +136,15 @@ async function getActiveAdapter() {
   try {
     const { stdout } = await execAsync('powershell -Command "Get-NetAdapter -Physical | Where-Object Status -eq \'Up\' | Select-Object -ExpandProperty Name"');
     const adapters = stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
-    return adapters.length > 0 ? adapters[0] : null;
+    const adapter = adapters.length > 0 ? adapters[0] : null;
+    
+    // Security: Only allow safe characters in adapter names to prevent shell injection
+    if (adapter && !/^[a-zA-Z0-9\s\-_]+$/.test(adapter)) {
+      console.error("[Security] Malicious network adapter name detected:", adapter);
+      return null;
+    }
+    
+    return adapter;
   } catch (err) {
     console.error("Failed to get physical adapter:", err.message);
     return null;
