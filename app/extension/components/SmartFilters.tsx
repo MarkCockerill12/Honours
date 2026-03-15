@@ -163,7 +163,7 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
                       </SelectContent>
                     </Select>
                   </div>
-                  {filter.exceptWhen && <span className="text-[9px] font-bold text-zinc-600 uppercase">Unless: {filter.exceptWhen}</span>}
+                  {filter.exceptWhen && <span className="text-[9px] font-bold text-blue-400 uppercase tracking-widest">Safe if contains: {filter.exceptWhen}</span>}
                 </div>
               </div>
               <div className="flex items-center gap-3">
@@ -185,7 +185,7 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
             ADD
           </Button>
         </div>
-        <Input placeholder="OPTIONAL EXCEPTION" value={newExceptWhen} onChange={(e) => setNewExceptWhen(e.target.value.toLowerCase())} className="h-8 text-[9px] font-black tracking-widest uppercase bg-zinc-950 border-zinc-900" />
+        <Input placeholder="BLOCK UNLESS (WORD OR PHRASE)" value={newExceptWhen} onChange={(e) => setNewExceptWhen(e.target.value.toLowerCase())} className="h-8 text-[9px] font-black tracking-widest uppercase bg-zinc-950 border-zinc-900" />
       </div>
     </div>
   );
