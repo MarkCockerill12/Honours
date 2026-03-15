@@ -35,6 +35,29 @@ export function Translator() {
   const [status, setStatus] = useState<string | null>(null);
   const [translatedCount, setTranslatedCount] = useState(0);
   const { theme, colors } = useTheme();
+
+  // Load persistence
+  useEffect(() => {
+    const loadState = async () => {
+      if (!chromeBridge.isAvailable()) return;
+      const res = await chrome.storage.local.get(["translatorTargetLang", "isTranslationActive", "translatedCount"]);
+      if (typeof res.translatorTargetLang === "string") setTargetLang(res.translatorTargetLang);
+      if (typeof res.isTranslationActive === "boolean") setIsTranslationActive(res.isTranslationActive);
+      if (typeof res.translatedCount === "number") setTranslatedCount(res.translatedCount);
+    };
+    loadState();
+  }, []);
+
+  // Save persistence
+  useEffect(() => {
+    if (chromeBridge.isAvailable()) {
+      chrome.storage.local.set({ 
+        translatorTargetLang: targetLang, 
+        isTranslationActive, 
+        translatedCount 
+      });
+    }
+  }, [targetLang, isTranslationActive, translatedCount]);
   
   const glassCardClass = useMemo(() => {
     switch (theme) {
@@ -83,25 +106,34 @@ export function Translator() {
     if (!progressRef.current) return;
     if (isTranslating) {
       progressRef.current.style.display = "block";
+      progressRef.current.style.opacity = "1"; // Ensure visible
       anime({
         targets: progressRef.current,
         width: ["0%", "90%"],
         duration: 8000,
         easing: "easeOutQuad",
       });
-    } else if (translatedCount > 0) {
-      anime({
-        targets: progressRef.current,
-        width: "100%",
-        duration: 300,
-        easing: "easeOutQuad",
-        complete: () => {
-          // Flattened timeout to reduce nesting
-          handleProgressCompletion();
-        },
-      });
+    } else if (translatedCount > 0 && isTranslationActive) {
+      // If we were just translating, animate to 100% and hide
+      if (isTranslating) {
+        anime({
+          targets: progressRef.current,
+          width: "100%",
+          duration: 300,
+          easing: "easeOutQuad",
+          complete: () => handleProgressCompletion(),
+        });
+      } else {
+        // Restored from persistence: show full bar without hiding
+        progressRef.current.style.display = "block";
+        progressRef.current.style.width = "100%";
+        progressRef.current.style.opacity = "1";
+      }
+    } else {
+      progressRef.current.style.display = "none";
+      progressRef.current.style.width = "0%";
     }
-  }, [isTranslating, translatedCount]);
+  }, [isTranslating, translatedCount, isTranslationActive]);
 
   const handleProgressCompletion = () => {
     setTimeout(() => {
@@ -123,6 +155,7 @@ export function Translator() {
   const handleTranslate = async () => {
     setIsTranslating(true);
     setStatus("Translating...");
+    // Clear previous count to reset bar
     setTranslatedCount(0);
 
     if (translateBtnRef.current) {

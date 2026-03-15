@@ -14,6 +14,8 @@ import anime from "animejs";
 
 export function AdBlockExceptions() {
   const [exceptions, setExceptions] = useState<string[]>([]);
+  const [manualDomain, setManualDomain] = useState("");
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -65,6 +67,40 @@ export function AdBlockExceptions() {
     }
   };
 
+  const addManualException = async () => {
+    let domain = manualDomain.trim().toLowerCase();
+    if (!domain) return;
+
+    // URL parsing safety
+    if (domain.includes("://") || domain.startsWith("www.")) {
+      try {
+        const urlToParse = domain.startsWith("http") ? domain : `https://${domain}`;
+        const parsed = new URL(urlToParse);
+        domain = parsed.hostname;
+      } catch (e) {
+        console.debug("[AdBlockExceptions] Manual entry parsing failed, using literal:", domain);
+      }
+    }
+
+    if (!domain || exceptions.includes(domain)) {
+      setStatusMessage(domain ? `"${domain}" is already trusted` : "Invalid domain");
+      setTimeout(() => setStatusMessage(null), 3000);
+      return;
+    }
+
+    if (chromeBridge.isAvailable()) {
+      try {
+        const response = await chromeBridge.sendMessage(undefined as any, { action: "ADD_EXCEPTION", domain });
+        if (response?.success) {
+          setExceptions(response.exceptions);
+          setManualDomain("");
+          setStatusMessage(`Trusted ${domain}`);
+          setTimeout(() => setStatusMessage(null), 3000);
+        }
+      } catch (err) { console.warn(err); }
+    }
+  };
+
   const trustCurrentSite = async () => {
     if (!chromeBridge.isAvailable()) return;
     try {
@@ -77,25 +113,20 @@ export function AdBlockExceptions() {
             const response = await chromeBridge.sendMessage(undefined as any, { action: "ADD_EXCEPTION", domain });
             if (response?.success) {
               setExceptions(response.exceptions);
-              setStatusMessage(`Added ${domain} to Allowlist`);
+              setStatusMessage(`Trusted ${domain}`);
               setTimeout(() => setStatusMessage(null), 3000);
             }
           }
-        } catch (e) {
-          console.warn("[AdBlockExceptions] Invalid URL on tab:", tabs[0].url, e);
-        }
+        } catch (e) { console.warn(e); }
       }
-    } catch (err) {
-      console.warn("[AdBlockExceptions] Error trusting current site:", err);
-    }
+    } catch (err) { console.warn(err); }
   };
 
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
   return (
     <div ref={cardRef} className="w-full text-zinc-100 space-y-5">
       <div className={`p-4 rounded-2xl border transition-all duration-500 bg-zinc-950 border-zinc-800`}>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex flex-col">
             <span className="text-sm font-black tracking-tight uppercase">Allowlist</span>
             <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
@@ -106,9 +137,27 @@ export function AdBlockExceptions() {
             variant="outline" 
             size="sm" 
             onClick={trustCurrentSite}
-            className="h-8 border-emerald-500/30 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10 text-[10px] font-black uppercase tracking-widest"
+            className="h-8 border-emerald-500/30 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/50 text-[10px] font-black uppercase tracking-widest"
           >
             <Shield size={12} className="mr-2" /> Trust Current Site
+          </Button>
+        </div>
+
+        <div className="flex gap-2 border-t border-zinc-900 mt-1 pt-3">
+          <input 
+            placeholder="DOMAIN OR URL" 
+            value={manualDomain}
+            onChange={(e) => setManualDomain(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addManualException()}
+            className="flex-1 h-8 bg-black/40 border border-zinc-800 rounded-lg px-3 text-[10px] font-black tracking-widest uppercase focus:outline-none focus:border-emerald-500/50 transition-colors"
+          />
+          <Button 
+            variant="secondary" 
+            size="sm" 
+            onClick={addManualException}
+            className="h-8 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[10px] font-black uppercase tracking-widest"
+          >
+            Add
           </Button>
         </div>
       </div>

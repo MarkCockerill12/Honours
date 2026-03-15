@@ -139,11 +139,11 @@ export default function ExtensionPage() {
     // Clear existing filters first to avoid duplication/overlapping
     clearBlurContent();
 
-    if (protection.adblockEnabled && testContentRef.current) {
+    if (protection.filteringEnabled && testContentRef.current) {
       console.log("[ExtensionPage] Applying blurContent with filters:", filters);
       blurContent(testContentRef.current, filters, "blur");
     }
-  }, [protection.adblockEnabled, filters]);
+  }, [protection.isActive, protection.filteringEnabled, filters]);
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
