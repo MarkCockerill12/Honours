@@ -1,18 +1,18 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { Shield, Globe, Lock, Filter } from "lucide-react";
+import { Shield, Globe, Filter } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
 import type { ProtectionState } from "./types";
 
 interface ProtectionTogglesProps {
-  protection: ProtectionState;
-  onVpnToggle: () => void;
-  onAdblockToggle: () => void;
-  onFilteringToggle: () => void;
-  layout?: "horizontal" | "vertical";
+  readonly protection: ProtectionState;
+  readonly onVpnToggle: () => void;
+  readonly onAdblockToggle: () => void;
+  readonly onFilteringToggle: () => void;
+  readonly layout?: "horizontal" | "vertical";
 }
 
 export function ProtectionToggles({
@@ -88,7 +88,7 @@ export function ProtectionToggles({
         <span className={`text-sm font-medium ${colors.text}`}>VPN</span>
         <Switch
           checked={protection.vpnEnabled}
-          onCheckedChange={!isVpnLocked ? onVpnToggle : undefined}
+          onCheckedChange={protection.isActive ? undefined : onVpnToggle}
           onClick={(e) => e.stopPropagation()}
           disabled={isVpnLocked}
         />
@@ -127,13 +127,13 @@ export function ProtectionToggles({
       >
         <Filter
           className={
-            protection.isActive ? colors.success : colors.textSecondary
+            protection.filteringEnabled ? colors.success : colors.textSecondary
           }
           size={20}
         />
         <span className={`text-sm font-medium ${colors.text}`}>Filter</span>
         <Switch
-          checked={protection.isActive}
+          checked={protection.filteringEnabled}
           onCheckedChange={onFilteringToggle}
           onClick={(e) => e.stopPropagation()}
         />

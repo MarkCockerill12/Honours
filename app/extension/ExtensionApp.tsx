@@ -172,12 +172,6 @@ export default function ExtensionApp({
                   <div className={`flex justify-center py-2 relative transition-all duration-700 ${protection.isActive ? "animate-shield-pulse" : "scale-95 grayscale-[0.2]"}`}>
                     <ActivationButton protection={protection} onToggle={onProtectionToggle} size="lg" />
                   </div>
-                  <div className="text-center">
-                    <h2 className={`text-xl font-black tracking-tighter uppercase ${colors.text}`}>{protection.isActive || protection.adblockEnabled || protection.vpnEnabled ? "Protected" : "System Off"}</h2>
-                    <p className={`text-[10px] font-bold uppercase tracking-wider ${protection.isActive || protection.adblockEnabled || protection.vpnEnabled ? colors.success : colors.textSecondary}`}>
-                      {protection.isActive || protection.adblockEnabled || protection.vpnEnabled ? "Security Shield Active" : "Vulnerable to trackers"}
-                    </p>
-                  </div>
                 </div>
 
                 <div className={`p-1 rounded-2xl ${glassCardClass} relative overflow-hidden group`}>

@@ -3,48 +3,17 @@ import React, { useState, useEffect, useRef } from "react";
 import ExtensionApp from "./ExtensionApp";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import type { Theme, ProtectionState, SmartFilter } from "@/components/types";
+import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@/lib/constants";
 import { blurContent, clearBlurContent } from "./Utils/content";
+import { chromeBridge } from "./Utils/chromeBridge";
 
 export default function ExtensionPage() {
   const [theme, setTheme] = useState<Theme>("dark");
-  const [protection, setProtection] = useState<ProtectionState>({
-    isActive: false,
-    vpnEnabled: true,
-    adblockEnabled: false,
-  });
+  const [protection, setProtection] = useState<ProtectionState>(DEFAULT_PROTECTION_STATE);
 
   const testContentRef = useRef<HTMLDivElement>(null);
 
-  const [filters, setFilters] = useState<SmartFilter[]>([
-    {
-      id: "1",
-      blockTerm: "facebook",
-      exceptWhen: "",
-      enabled: true,
-      blockScope: "word",
-    },
-    {
-      id: "2",
-      blockTerm: "advertisement",
-      exceptWhen: "",
-      enabled: true,
-      blockScope: "paragraph",
-    },
-    {
-      id: "3",
-      blockTerm: "malware",
-      exceptWhen: "",
-      enabled: true,
-      blockScope: "page-warning",
-    },
-    {
-      id: "4",
-      blockTerm: "doubleclick",
-      exceptWhen: "",
-      enabled: true,
-      blockScope: "word",
-    },
-  ]);
+  const [filters, setFilters] = useState<SmartFilter[]>(DEFAULT_FILTERS);
 
   // Load initial state from Chrome Storage
   useEffect(() => {
@@ -83,39 +52,53 @@ export default function ExtensionPage() {
     }
   }, []);
 
-  const safeSendMessage = async (message: any) => {
-    if (typeof chrome !== "undefined" && chrome.runtime) {
-      return new Promise((resolve) => {
-        chrome.runtime.sendMessage(message, (response) => {
-          if (chrome.runtime.lastError) {
-            console.debug("[Popup] Message error (silenced):", chrome.runtime.lastError.message);
-            resolve({ success: false, error: chrome.runtime.lastError.message });
-          } else {
-            resolve(response);
-          }
-        });
-      });
-    }
-  };
 
   const handleVpnToggle = () => {
     console.log("[ExtensionPage] VPN toggled");
     persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
   };
 
+  const handleMasterToggle = () => {
+    console.log("[ExtensionPage] Master toggle clicked");
+    const newState = !protection.isActive;
+    persistProtection({ ...protection, isActive: newState });
+    
+    // Notify backgrounds/tabs of master state change if needed
+    chromeBridge.sendMessage(0, { action: "TOGGLE_MASTER", enabled: newState });
+
+    if (typeof chrome !== "undefined") {
+      chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          // Send current state to ensure immediate reaction
+          chromeBridge.sendMessage(tabs[0].id, {
+            action: "APPLY_FILTERS",
+            isActive: newState,
+            filteringEnabled: protection.filteringEnabled,
+            filters,
+            blurMethod: "blur"
+          });
+        }
+      });
+    }
+  };
+
   const handleFilteringToggle = () => {
     console.log("[ExtensionPage] Filtering toggled");
-    const newState = !protection.isActive;
-    const newProt = { ...protection, isActive: newState };
+    const newState = !protection.filteringEnabled;
+    const newProt = { ...protection, filteringEnabled: newState };
     persistProtection(newProt);
     
-    safeSendMessage({ action: "TOGGLE_FILTERING", enabled: newState });
+    chromeBridge.sendMessage(0, { action: "TOGGLE_FILTERING", enabled: newState });
     
     if (typeof chrome !== "undefined") {
       chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: newState ? "ENABLE_FILTERING" : "DISABLE_FILTERING",
+          chromeBridge.sendMessage(tabs[0].id, {
+            action: "APPLY_FILTERS",
+            isActive: protection.isActive,
+            filteringEnabled: newState,
+            filters,
+            blurMethod: "blur"
           });
         }
       });
@@ -139,12 +122,12 @@ export default function ExtensionPage() {
     }
 
     // 2. FOR CHROME: Send message to background
-    safeSendMessage({ action: "TOGGLE_ADBLOCK", enabled: newState });
+    chromeBridge.sendMessage(0, { action: "TOGGLE_ADBLOCK", enabled: newState });
 
     if (typeof chrome !== "undefined") {
       chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
+          chromeBridge.sendMessage(tabs[0].id, {
             action: newState ? "ENABLE_ADBLOCK" : "DISABLE_ADBLOCK",
           });
         }
@@ -167,7 +150,7 @@ export default function ExtensionPage() {
       <div className="w-[400px] h-[600px] bg-zinc-950 overflow-y-auto">
         <ExtensionApp
           protection={protection}
-          onProtectionToggle={handleFilteringToggle}
+          onProtectionToggle={handleMasterToggle}
           onVpnToggle={handleVpnToggle}
           onAdblockToggle={handleAdblockToggle}
           onFilteringToggle={handleFilteringToggle}

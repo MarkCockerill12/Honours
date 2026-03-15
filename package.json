@@ -5,7 +5,7 @@
     "main": "electron/main.js",
     "scripts": {
         "dev": "next dev",
-        "build": "node scripts/build-extension.js && next build && node scripts/rename-next.js && node scripts/extract-inline-scripts.js && xcopy /E /I /Y extension-dist out",
+        "build": "node scripts/clean.js && node scripts/build-extension.js && next build && node scripts/rename-next.js && node scripts/extract-inline-scripts.js && xcopy /E /I /Y extension-dist out",
         "start": "next start",
         "lint": "eslint .",
         "test": "vitest run",

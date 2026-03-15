@@ -16,7 +16,6 @@ import { useTheme } from "@/components/ThemeProvider";
 import {
   EyeOff,
   Shield,
-  Plus,
   X,
 } from "lucide-react";
 import { SmartFilter, BlurMethod, BlockScope } from "@/components/types";
@@ -24,16 +23,15 @@ import { chromeBridge } from "../Utils/chromeBridge";
 import anime from "animejs";
 
 interface SmartFiltersProps {
-  filters: SmartFilter[];
-  onFiltersChange: (filters: SmartFilter[]) => void;
-  isActive: boolean;
+  readonly filters: SmartFilter[];
+  readonly onFiltersChange: (filters: SmartFilter[]) => void;
+  readonly isActive: boolean;
 }
 
 export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFiltersProps) {
   const [newBlockTerm, setNewBlockTerm] = useState("");
   const [newExceptWhen, setNewExceptWhen] = useState("");
   const [newBlockScope, setNewBlockScope] = useState<BlockScope>("word");
-  const [isFilteringActive, setIsFilteringActive] = useState(false);
   const [blurMethod, setBlurMethod] = useState<BlurMethod>("blur");
   const [isTabReady, setIsTabReady] = useState<boolean | null>(null);
   const { theme, colors } = useTheme();
@@ -54,17 +52,14 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
   useEffect(() => {
     const loadSettings = async () => {
       if (typeof chrome !== "undefined" && chrome.storage?.local) {
-        const res = await chrome.storage.local.get(["isFilteringActive", "blurMethod", "newBlockScope"]);
-        if (typeof res.isFilteringActive === "boolean") setIsFilteringActive(res.isFilteringActive);
+        const res = await chrome.storage.local.get(["blurMethod", "newBlockScope"]);
         if (typeof res.blurMethod === "string") setBlurMethod(res.blurMethod as BlurMethod);
         if (typeof res.newBlockScope === "string") setNewBlockScope(res.newBlockScope as BlockScope);
       } else {
         // Fallback for non-Chrome environments (e.g., development in browser)
-        const savedActive = localStorage.getItem("isFilteringActive");
         const savedMethod = localStorage.getItem("blurMethod") as BlurMethod | null;
         const savedBlockScope = localStorage.getItem("newBlockScope") as BlockScope | null;
         
-        if (savedActive !== null) setIsFilteringActive(savedActive === "true");
         if (savedMethod) setBlurMethod(savedMethod);
         if (savedBlockScope) setNewBlockScope(savedBlockScope);
       }
@@ -80,39 +75,8 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
     }
   };
 
-  // Application effect
-  useEffect(() => {
-    const apply = async () => {
-      if (!chromeBridge.isAvailable()) return;
-      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
-      if (!tabs[0]?.id) return;
+  // Application effect - Removed. syncState in content.ts now handles this globally via storage.
 
-      try {
-        // Content filters also only run if master activation is on AND the content sanitizer is active
-        if (isActive && isFilteringActive && filters?.length > 0) {
-          await chromeBridge.sendMessage(tabs[0].id, {
-            action: "APPLY_FILTERS",
-            filters,
-            blurMethod,
-            isFilteringActive: isActive && isFilteringActive,
-          });
-        } else {
-          await chromeBridge.sendMessage(tabs[0].id, { action: "CLEAR_FILTERS" });
-        }
-        setIsTabReady(true);
-      } catch (e: any) {
-        if (e.message?.includes("Receiving end does not exist")) {
-          setIsTabReady(false);
-        }
-      }
-    };
-    apply();
-  }, [isFilteringActive, filters, blurMethod, isActive]);
-
-  const handleMasterToggle = (active: boolean) => {
-    setIsFilteringActive(active);
-    updatePersistence("isFilteringActive", active);
-  };
 
   const addFilter = () => {
     if (!newBlockTerm.trim()) return;
@@ -154,17 +118,6 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
           ⚠️ Content script not detected. Refresh the page to enable filters.
         </div>
       )}
-      <div className={`flex flex-col p-3 rounded-xl border transition-all duration-300 ${isFilteringActive ? "bg-emerald-500/5 border-emerald-500/20" : "bg-zinc-950 border-zinc-800"}`}>
-        <div className="flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="text-[11px] font-black uppercase tracking-tight">Active Sanitizer</span>
-            <span className={`text-[8px] font-bold uppercase tracking-widest ${isFilteringActive ? "text-emerald-400" : "text-zinc-500"}`}>
-              {isFilteringActive ? "Content Clean" : "Filters Idle"}
-            </span>
-          </div>
-          <Switch checked={isFilteringActive} onCheckedChange={handleMasterToggle} />
-        </div>
-      </div>
 
       <div className="flex items-center justify-between gap-4 px-1">
         <Label className="text-[10px] font-black uppercase tracking-widest text-zinc-500">Method</Label>

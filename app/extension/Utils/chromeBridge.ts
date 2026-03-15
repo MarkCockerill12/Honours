@@ -106,16 +106,20 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
       chrome.runtime?.sendMessage
     ) {
       try {
-        const response = await chrome.runtime.sendMessage(_extensionId, {
+        const response = await (chrome.runtime.sendMessage(_extensionId, {
           action,
           ...data,
+        }) as Promise<any>).catch((err) => {
+          console.debug("[Chrome Bridge] callBackground caught async error:", err.message);
+          return { success: false, error: err.message };
         });
         env.pendingRequests.delete(requestId);
         resolve(response);
         return;
-      } catch (e) {
+      } catch (e: any) {
         console.warn(
           "[Chrome Bridge] External sendMessage failed, falling back...",
+          e.message
         );
       }
     }
@@ -188,12 +192,18 @@ export const chromeBridge = {
         return new Promise((r) => {
           try {
             chrome.tabs.sendMessage(tabId, message, (response) => {
-              if (chrome.runtime.lastError) {
-                console.warn(`[Chrome Bridge] sendMessage(${message.action}) error:`, chrome.runtime.lastError.message);
-                r({ success: false, error: chrome.runtime.lastError.message });
-              } else {
-                r(response);
-              }
+                const err = chrome.runtime.lastError;
+                if (err) {
+                  const msg = err.message || "";
+                  if (msg.includes("Could not establish connection") || msg.includes("Receiving end does not exist")) {
+                    console.debug("[Chrome Bridge] Content ready-check (silenced):", msg);
+                  } else {
+                    console.warn(`[Chrome Bridge] sendMessage(${message.action}) error:`, msg);
+                  }
+                  r({ success: false, error: msg });
+                } else {
+                  r(response);
+                }
             });
           } catch (e) {
             console.warn(`[Chrome Bridge] sendMessage(${message.action}) failed:`, e);
@@ -204,9 +214,15 @@ export const chromeBridge = {
         return new Promise((r) => {
           try {
             chrome.runtime.sendMessage(message, (response) => {
-              if (chrome.runtime.lastError) {
-                console.warn("[Chrome Bridge] runtime.sendMessage error:", chrome.runtime.lastError.message);
-                r({ success: false, error: chrome.runtime.lastError.message });
+              const err = chrome.runtime.lastError;
+              if (err) {
+                const msg = err.message || "";
+                if (msg.includes("Could not establish connection") || msg.includes("Receiving end does not exist")) {
+                  console.debug("[Chrome Bridge] Runtime not ready (silenced):", msg);
+                } else {
+                  console.warn("[Chrome Bridge] runtime.sendMessage error:", msg);
+                }
+                r({ success: false, error: msg });
               } else {
                 r(response);
               }
