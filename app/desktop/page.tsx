@@ -44,6 +44,7 @@ export default function DesktopPage() {
     isActive: false,
     vpnEnabled: false,
     adblockEnabled: false,
+    filteringEnabled: false,
   });
 
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -252,6 +253,7 @@ export default function DesktopPage() {
           isActive: false,
           vpnEnabled: false,
           adblockEnabled: false,
+          filteringEnabled: false,
         });
       } else {
         setError(`Reset Failed: ${result.message}`);

@@ -59,4 +59,5 @@ export interface ProtectionState {
   isActive: boolean;
   vpnEnabled: boolean;
   adblockEnabled: boolean;
+  filteringEnabled: boolean;
 }

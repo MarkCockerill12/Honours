@@ -27,49 +27,50 @@ export function AiSummary() {
     });
   }, [summary]);
 
+  const getPageText = async (tabs: any[]) => {
+    if (!tabs[0]?.id) return { success: false, error: "No active tab found" };
+    const url = tabs[0].url || "";
+    if (url.toLowerCase().endsWith(".pdf") || url.includes("application/pdf")) {
+      return { success: true, url, text: "" };
+    }
+    const textResp = await chromeBridge.sendMessage(tabs[0].id, { action: "GET_PAGE_TEXT" });
+    if (textResp?.success) {
+      return { success: true, url, text: textResp.text };
+    }
+    return { success: false, error: "Could not extract page text. Refresh and try again." };
+  };
+
   const handleSummarize = async () => {
     setIsLoading(true);
     setError(null);
     setSummary(null);
 
     try {
-      // 1. Get page text from content script
-      let text = "";
-      let url = "";
-      if (chromeBridge.isAvailable()) {
-        const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
-        if (tabs[0]?.id) {
-          url = tabs[0].url || "";
-          if (url.toLowerCase().endsWith(".pdf") || url.includes("application/pdf")) {
-            // PDF: Background script will fetch and parse it
-          } else {
-            const textResp = await chromeBridge.sendMessage(tabs[0].id, { action: "GET_PAGE_TEXT" });
-            if (textResp?.success) {
-              text = textResp.text;
-            } else {
-              setError("Could not extract page text. Refresh and try again.");
-              setIsLoading(false);
-              return;
-            }
-          }
-        }
-      } else {
+      if (!chromeBridge.isAvailable()) {
         setError("Chrome extension environment required.");
         setIsLoading(false);
         return;
       }
 
-      if (!text && !url.toLowerCase().endsWith(".pdf")) {
+      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
+      const pageData = await getPageText(tabs);
+
+      if (!pageData.success) {
+        setError(pageData.error!);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!pageData.text && !pageData.url?.toLowerCase().endsWith(".pdf")) {
         setError("Not enough text content on this page to summarize.");
         setIsLoading(false);
         return;
       }
 
-      // 2. Send to background for Gemini API call
       const resp = await chromeBridge.sendMessage(undefined as any, {
         action: "SUMMARIZE_TEXT",
-        text,
-        url,
+        text: pageData.text,
+        url: pageData.url,
       });
 
       if (resp?.success && resp.summary) {
@@ -126,21 +127,72 @@ export function AiSummary() {
             )}
           </button>
           {isExpanded && (
-            <div 
-               className={`px-4 pb-4 text-xs ${colors.text} leading-relaxed border-t ${colors.border} pt-3 prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5`}
-               dangerouslySetInnerHTML={{ 
-                  __html: summary
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-                    .replace(/^\s*\*\s+(.*)$/gm, '<li>$1</li>')
-                    .replace(/(<li>[\s\S]*<\/li>)/, '<ul>$1</ul>')
-                    .replace(/\n\n/g, '<br/><br/>')
-               }} 
-            />
+            <div className={`px-4 pb-4 text-xs ${colors.text} leading-relaxed border-t ${colors.border} pt-3 prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5`}>
+              {renderSafeSummary(summary, colors.textSecondary)}
+            </div>
           )}
         </div>
       )}
     </div>
   );
+}
+
+function renderSafeSummary(text: string, secondaryColor: string) {
+  if (!text) return null;
+
+  const lines = text.split("\n");
+  const result: React.ReactNode[] = [];
+  let currentList: React.ReactNode[] = [];
+
+  const flushList = (listIndex: number) => {
+    if (currentList.length > 0) {
+      result.push(
+        <ul key={`ul-${listIndex}`} className="list-disc pl-5 my-2 space-y-1">
+          {currentList}
+        </ul>
+      );
+      currentList = [];
+    }
+  };
+
+  lines.forEach((line, i) => {
+    const trimmed = line.trim();
+    const lineHash = `line-${i}-${trimmed.substring(0, 10).replaceAll(/\s/g, "-")}`;
+
+    if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
+      const content = trimmed.substring(2);
+      currentList.push(<li key={`li-${i}-${lineHash}`}>{parseInline(content)}</li>);
+    } else {
+      flushList(i);
+      if (trimmed === "") {
+        if (result.length > 0 && i < lines.length - 1) {
+          result.push(<div key={`br-${i}`} className="h-2" />);
+        }
+      } else {
+        result.push(
+          <p key={`p-${i}-${lineHash}`} className="my-1">
+            {parseInline(line)}
+          </p>
+        );
+      }
+    }
+  });
+
+  flushList(lines.length);
+  return result;
+}
+
+function parseInline(text: string) {
+  const parts = text.split(/(\*\*.*?\*\*|\*.*?\*)/g);
+  return parts.map((part, i) => {
+    const key = `inline-${i}`;
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={key}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith("*") && part.endsWith("*")) {
+      return <em key={key}>{part.slice(1, -1)}</em>;
+    }
+    return part;
+  });
 }
 

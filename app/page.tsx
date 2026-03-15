@@ -22,6 +22,7 @@ export default function Home() {
     isActive: false,
     vpnEnabled: false,
     adblockEnabled: false,
+    filteringEnabled: false,
   });
   const { stats } = useStats();
 

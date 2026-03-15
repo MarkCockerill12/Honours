@@ -11,6 +11,7 @@ export default function MobilePage() {
     isActive: false,
     vpnEnabled: false,
     adblockEnabled: false,
+    filteringEnabled: false,
   });
 
   const { stats } = useStats();

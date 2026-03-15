@@ -1,5 +1,45 @@
 export const APP_NAME = "Privacy Shield";
-export const APP_VERSION = "1.0.42-STABLE";
+export const APP_VERSION = "1.0.43-STABLE";
+
+import { SmartFilter, ProtectionState } from "@/components/types";
+
+export const DEFAULT_PROTECTION_STATE: ProtectionState = {
+  isActive: false, // OFF by default as requested in initial design
+  vpnEnabled: true,
+  adblockEnabled: true,
+  filteringEnabled: true,
+};
+
+export const DEFAULT_FILTERS: SmartFilter[] = [
+  {
+    id: "1",
+    blockTerm: "facebook",
+    exceptWhen: "",
+    enabled: true,
+    blockScope: "word",
+  },
+  {
+    id: "2",
+    blockTerm: "advertisement",
+    exceptWhen: "",
+    enabled: true,
+    blockScope: "paragraph",
+  },
+  {
+    id: "3",
+    blockTerm: "malware",
+    exceptWhen: "",
+    enabled: true,
+    blockScope: "page-warning",
+  },
+  {
+    id: "4",
+    blockTerm: "doubleclick",
+    exceptWhen: "",
+    enabled: true,
+    blockScope: "word",
+  },
+];
 
 export const VPN_REGIONS = [
   { id: "uk", name: "United Kingdom", emoji: "🇬🇧" },
