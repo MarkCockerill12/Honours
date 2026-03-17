@@ -1,15 +1,42 @@
 import express from "express";
 import cors from "cors";
 import axios from "axios";
+import dotenv from "dotenv";
+import { z } from "zod";
+
+// Load environment variables from .env.local
+dotenv.config({ path: ".env.local" });
 
 const app = express();
-app.use(cors()); // Allow your extension/app to talk to this
+
+// SECURITY: Use a restrictive CORS policy in production
+// For now, allowing all for ease of development, but adding a note.
+app.use(cors());
 app.use(express.json());
 
+// Security Headers (Basic implementation)
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  next();
+});
+
 // CONFIG
-// TODO: Securely manage the DeepL API Key using environment variables or a secret manager
-const DEEPL_API_KEY = process.env.DEEPL_KEY || "your-key-here";
-const PORT = 8080;
+const DEEPL_API_KEY = process.env.DEEPL_KEY;
+const PORT = process.env.PORT || 8080;
+
+if (!DEEPL_API_KEY) {
+  console.warn(
+    "WARNING: DEEPL_KEY is not set in environment variables. Translation will fail.",
+  );
+}
+
+// VALIDATION SCHEMAS
+const TranslateSchema = z.object({
+  text: z.string().min(1).max(5000), // Protect against overly large requests
+  targetLang: z.string().length(2).default("EN"),
+});
 
 /**
  * FEATURE: TRANSLATE
@@ -18,7 +45,24 @@ const PORT = 8080;
  */
 app.post("/api/translate", async (req, res) => {
   try {
-    const { text, targetLang } = req.body;
+    // Validate request body
+    const result = TranslateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res
+        .status(400)
+        .json({
+          error: "Invalid request data",
+          details: result.error.format(),
+        });
+    }
+
+    const { text, targetLang } = result.data;
+
+    if (!DEEPL_API_KEY) {
+      return res
+        .status(503)
+        .json({ error: "Translation service unavailable (misconfigured)" });
+    }
 
     // Call DeepL (Free Tier)
     const response = await axios.post(
@@ -28,14 +72,14 @@ app.post("/api/translate", async (req, res) => {
         params: {
           auth_key: DEEPL_API_KEY,
           text: text,
-          target_lang: targetLang || "EN",
+          target_lang: targetLang.toUpperCase(),
         },
       },
     );
 
     res.json({ translated: response.data.translations[0].text });
-  } catch (error) {
-    console.error("Translation Error", error);
+  } catch (error: any) {
+    console.error("Translation Error:", error.message);
     res.status(500).json({ error: "Translation failed" });
   }
 });
@@ -46,7 +90,6 @@ app.post("/api/translate", async (req, res) => {
  */
 app.get("/api/vpn/status", (req, res) => {
   // TODO: Implement actual logic to check status of WireGuard and Dante services
-  // You could add logic here to check if WireGuard/Dante is running
   res.json({ status: "active", server: "EC2-Frankfurt", load: "12%" });
 });
 
