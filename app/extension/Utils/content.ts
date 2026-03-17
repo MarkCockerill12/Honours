@@ -70,13 +70,15 @@ export const blockWord = (textNode: Text, filters: SmartFilter[], method: string
     span.dataset.contentFiltered = "true";
     span.dataset.originalTerm = term;
     
-    if (method === "redact") {
-      span.style.background = "#000";
+    const isRedact = method === "redact" || method === "blackbar";
+    
+    if (isRedact) {
+      span.style.backgroundColor = "#000";
       span.style.color = "#000";
     } else if (method === "kitten") {
       span.textContent = "🐱";
     } else {
-      span.style.filter = "blur(4px)";
+      span.style.filter = "blur(6px)";
     }
 
     span.title = "Content hidden by Privacy Shield";
@@ -110,12 +112,14 @@ export const blockParagraph = (textNode: Text, method: string) => {
   if (!el || el.closest('[data-content-filtered]')) return null;
   
   el.dataset.contentFiltered = "true";
-  if (method === "redact") {
-    el.style.background = "#000";
+  const isRedact = method === "redact" || method === "blackbar";
+
+  if (isRedact) {
+    el.style.backgroundColor = "#000";
     el.style.color = "#000";
   } else if (method === "kitten") {
      el.dataset.originalHtml = el.innerHTML;
-     el.innerHTML = "🐱 Paragraph hidden for your safety.";
+     el.textContent = "🐱 Paragraph hidden for your safety.";
   } else {
     el.style.filter = "blur(12px)";
   }
@@ -123,9 +127,11 @@ export const blockParagraph = (textNode: Text, method: string) => {
   el.style.cursor = "help";
   el.addEventListener("click", () => {
     el.style.filter = "none";
-    el.style.background = "transparent";
+    el.style.backgroundColor = "transparent";
     el.style.color = "inherit";
-    if (method === "kitten" && el.dataset.originalHtml) el.innerHTML = el.dataset.originalHtml;
+    if (method === "kitten" && el.dataset.originalHtml) {
+      el.innerHTML = el.dataset.originalHtml;
+    }
     el.dataset.userRevealed = "true";
   });
   return el;
@@ -139,17 +145,45 @@ export const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
   pageWarningOverlay = globalThis.document.createElement("div");
   pageWarningOverlay.id = "content-filter-page-warning";
   pageWarningOverlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:999999;background:rgba(0,0,0,0.92);backdrop-filter:blur(20px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:24px;font-family:sans-serif;";
-  pageWarningOverlay.innerHTML = `
-    <div style="max-width:80%;">
-      <div style="font-size:64px;margin-bottom:20px;">${blurMethod === "kitten" ? "🐱" : "⚠️"}</div>
-      <h1 style="font-size:32px;margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:2px;color:#60a5fa;">Content Protected</h1>
-      <p style="font-size:16px;color:#aaa;margin-bottom:24px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">Terms Detected:</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:32px;">
-        ${matchedTerms.map(t => `<span style="background:rgba(255,255,255,0.1);padding:6px 16px;border-radius:100px;font-size:14px;font-weight:900;color:#fff;border:1px solid rgba(255,255,255,0.2);text-transform:none !important;filter:none !important;backdrop-filter:none !important;">${t}</span>`).join("")}
-      </div>
-      <button id="privacy-shield-proceed-btn" style="padding:16px 48px;cursor:pointer;background:#fff;color:#000;border:none;border-radius:100px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:2px;transition:transform 0.2s;">Proceed to Site</button>
-    </div>
-  `;
+  
+  const container = globalThis.document.createElement("div");
+  container.style.maxWidth = "80%";
+  
+  const icon = globalThis.document.createElement("div");
+  icon.style.fontSize = "64px";
+  icon.style.marginBottom = "20px";
+  icon.textContent = blurMethod === "kitten" ? "🐱" : "⚠️";
+  
+  const title = globalThis.document.createElement("h1");
+  title.style.cssText = "font-size:32px;margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:2px;color:#60a5fa;";
+  title.textContent = "Content Protected";
+  
+  const desc = globalThis.document.createElement("p");
+  desc.style.cssText = "font-size:16px;color:#aaa;margin-bottom:24px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;";
+  desc.textContent = "Terms Detected:";
+  
+  const termsDiv = globalThis.document.createElement("div");
+  termsDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:32px;";
+  
+  matchedTerms.forEach(t => {
+    const badge = globalThis.document.createElement("span");
+    badge.style.cssText = "background:rgba(255,255,255,0.1);padding:6px 16px;border-radius:100px;font-size:14px;font-weight:900;color:#fff;border:1px solid rgba(255,255,255,0.2);text-transform:none !important;filter:none !important;backdrop-filter:none !important;";
+    badge.textContent = t;
+    termsDiv.appendChild(badge);
+  });
+  
+  const btn = globalThis.document.createElement("button");
+  btn.id = "privacy-shield-proceed-btn";
+  btn.style.cssText = "padding:16px 48px;cursor:pointer;background:#fff;color:#000;border:none;border-radius:100px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:2px;transition:transform 0.2s;";
+  btn.textContent = "Proceed to Site";
+  
+  container.appendChild(icon);
+  container.appendChild(title);
+  container.appendChild(desc);
+  container.appendChild(termsDiv);
+  container.appendChild(btn);
+  pageWarningOverlay.appendChild(container);
+  
   globalThis.document.body.appendChild(pageWarningOverlay);
   globalThis.document.body.classList.add("content-filter-warning-active");
   
@@ -205,11 +239,32 @@ export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], bl
 
   let count = 0;
   for (const textNode of textNodes) {
-    const matches = wordFilters.filter(f => textNode.textContent?.toLowerCase().includes(f.blockTerm.toLowerCase()));
+    const parent = textNode.parentElement;
+    if (parent && parent.closest('[data-content-filtered]')) continue;
+
+    const content = textNode.textContent?.toLowerCase() || "";
+    const matches = wordFilters.filter(f => {
+      const isMatch = content.includes(f.blockTerm.toLowerCase());
+      if (isMatch && f.exceptWhen && content.includes(f.exceptWhen.toLowerCase())) {
+        return false;
+      }
+      return isMatch;
+    });
+
     if (matches.length > 0) {
-       const added = blockWord(textNode, matches, blurMethod);
-       added.forEach(e => appliedElements.push(e));
-       if (added.length > 0) count++;
+       // If any match is "paragraph" scope, we block the whole paragraph
+       const hasParagraphScope = matches.some(f => f.blockScope === "paragraph");
+       if (hasParagraphScope) {
+         const added = blockParagraph(textNode, blurMethod);
+         if (added) {
+           appliedElements.push(added);
+           count++;
+         }
+       } else {
+         const added = blockWord(textNode, matches, blurMethod);
+         added.forEach(e => appliedElements.push(e));
+         if (added.length > 0) count++;
+       }
     }
   }
   
@@ -301,14 +356,20 @@ if (typeof globalThis.window !== "undefined") {
   let isInitialSyncCompleted = false;
   let isSyncInProgress = false;
 
-  const runInitialSync = (trigger: string) => {
+  const runInitialSync = async (trigger: string) => {
     if (isSyncInProgress || !isContextValid()) return;
     if (isInitialSyncCompleted && (trigger === "DOMContentLoaded" || trigger === "load")) return;
 
+    // Robust wait for body
     if (!globalThis.document.body) {
-      console.log("[Content] Body not ready, retrying sync...");
-      setTimeout(() => runInitialSync(trigger), 200);
-      return;
+      console.log("[Content] Body not ready, waiting for body...");
+      await new Promise(resolve => {
+        const check = () => {
+          if (globalThis.document.body) resolve(null);
+          else requestAnimationFrame(check);
+        };
+        check();
+      });
     }
 
     isSyncInProgress = true;

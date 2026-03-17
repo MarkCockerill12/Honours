@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { Sparkles, Loader2, ChevronDown, ChevronUp, Settings as SettingsIcon } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import anime from "animejs";
 import { chromeBridge } from "../Utils/chromeBridge";
@@ -12,8 +12,29 @@ export function AiSummary() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [groqApiKey, setGroqApiKey] = useState("");
   const summaryRef = useRef<HTMLDivElement>(null);
   const { colors } = useTheme();
+
+  // Load API key from storage
+  useEffect(() => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.get(["groqApiKey"], (result: { [key: string]: any }) => {
+        if (typeof result.groqApiKey === "string") {
+          setGroqApiKey(result.groqApiKey);
+        }
+      });
+    }
+  }, []);
+
+  const saveApiKey = () => {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ groqApiKey }, () => {
+        setShowApiKeyInput(false);
+      });
+    }
+  };
 
   // Summary entrance animation
   useEffect(() => {
@@ -87,10 +108,39 @@ export function AiSummary() {
 
   return (
     <div className="w-full space-y-3">
-      <div className="flex items-center gap-2">
-        <Sparkles className="h-4 w-4 text-purple-400" />
-        <span className={`text-sm font-black tracking-tight uppercase ${colors.text}`}>AI Summary</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-purple-400" />
+          <span className={`text-sm font-black tracking-tight uppercase ${colors.text}`}>AI Summary</span>
+        </div>
+        <button 
+          onClick={() => setShowApiKeyInput(!showApiKeyInput)}
+          className={`p-1 rounded-md hover:bg-white/10 transition-colors ${showApiKeyInput ? 'text-purple-400' : colors.textSecondary}`}
+        >
+          <SettingsIcon className="h-3.5 w-3.5" />
+        </button>
       </div>
+
+      {showApiKeyInput && (
+        <div className={`p-3 rounded-xl border ${colors.border} ${colors.bgSecondary} space-y-2 animate-in fade-in slide-in-from-top-1`}>
+          <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Groq API Key</div>
+          <div className="flex gap-2">
+            <input 
+              type="password"
+              placeholder="gsk_..."
+              value={groqApiKey}
+              onChange={(e) => setGroqApiKey(e.target.value)}
+              className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-xs font-mono focus:outline-none focus:border-purple-500/50"
+            />
+            <Button size="sm" className="h-7 px-3 bg-purple-600 hover:bg-purple-500 text-[10px] font-bold" onClick={saveApiKey}>
+              SAVE
+            </Button>
+          </div>
+          <p className="text-[8px] text-zinc-500 leading-tight">
+            Key is stored locally in your browser. Get one at groq.com.
+          </p>
+        </div>
+      )}
 
       <Button
         className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/20 flex items-center gap-2"

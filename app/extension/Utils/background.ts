@@ -268,47 +268,55 @@ async function handleTranslateAction(request: any) {
 
 async function handleSummarizeAction(request: any) {
   try {
-    const storage = await chrome.storage.local.get(["geminiApiKey"]);
-    const apiKey = (storage.geminiApiKey as string) || process.env.GEMINI_API_KEY || "";
-    if (!apiKey) return { success: false, error: "No Gemini API key configured." };
+    const storage = await chrome.storage.local.get(["groqApiKey"]);
+    const apiKey = (storage.groqApiKey as string) || process.env.GROQ_API_KEY || "";
+    if (!apiKey) return { success: false, error: "No Groq API key configured." };
     
-    let contents: any[] = [];
+    let contentToSummarize = "";
     if (request.url && isPdfUrl(request.url)) {
-      const cleanUrl = request.url.split("?bypass=true")[0].split("&bypass=true")[0];
-      const respPdf = await fetch(cleanUrl);
-      const buffer = await respPdf.arrayBuffer();
-      const bytes = new Uint8Array(buffer);
-      const limit = Math.min(bytes.byteLength, 4 * 1024 * 1024);
-      let binary = "";
-      const chunkSize = 8192;
-      for (let i = 0; i < limit; i += chunkSize) {
-        const chunk = bytes.subarray(i, i + chunkSize);
-        binary += Array.from(chunk).map(b => String.fromCharCode(b)).join("");
-      }
-      const base64Pdf = btoa(binary);
-      contents = [{
-        parts: [
-          { text: "Analyze and summarize this PDF document thoroughly." },
-          { inlineData: { mimeType: "application/pdf", data: base64Pdf } }
-        ]
-      }];
+      // For PDFs on Groq, we'd ideally need text extraction. 
+      // For now, if text is provided via request.text, use it; otherwise, warn.
+      contentToSummarize = request.text || "PDF content could not be extracted for Groq summarization.";
     } else {
-      const text = (request.text || "").substring(0, 15000);
-      contents = [{
-        parts: [{ text: `Summarize this webpage content:\n\n${text}` }]
-      }];
+      contentToSummarize = (request.text || "").substring(0, 15000);
     }
 
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+    if (!contentToSummarize || contentToSummarize.length < 50) {
+      return { success: false, error: "Not enough content to summarize." };
+    }
+
+    const endpoint = `https://api.groq.com/openai/v1/chat/completions`;
+    const body = {
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "You are a professional assistant that provides extremely concise, high-impact summaries. Use bullet points for key takeaways. Avoid any introductory or closing remarks. Be brief."
+        },
+        {
+          role: "user",
+          content: `Summarize the following content concisely:\n\n${contentToSummarize}`
+        }
+      ],
+      max_tokens: 1000,
+      temperature: 0.1
+    };
+
     const resp = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: 2500, temperature: 0.1 } }),
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body),
     });
     
-    if (!resp.ok) return { success: false, error: `Gemini API error (${resp.status})` };
+    if (!resp.ok) {
+      const errorData = await resp.json().catch(() => ({}));
+      return { success: false, error: `Groq API error (${resp.status}): ${errorData.error?.message || "Unknown error"}` };
+    }
     const data = await resp.json();
-    const summary = data.candidates?.[0]?.content?.parts?.[0]?.text || "No summary generated.";
+    const summary = data.choices?.[0]?.message?.content || "No summary generated.";
     return { success: true, summary };
   } catch (e: any) {
     return { success: false, error: e.message };

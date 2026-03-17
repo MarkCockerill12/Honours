@@ -139,7 +139,7 @@ export function DesktopApp({
         />
 
         {/* Top Header Strip */}
-        <div className={`dashboard-anim-item ${glassCardClass} border-b ${colors.border} px-6 py-4 flex items-center justify-between z-10 relative`}>
+        <div className={`dashboard-anim-item ${glassCardClass} border-b ${colors.border} px-8 py-6 flex items-center justify-between z-10 relative`}>
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-xl border transition-all duration-500 ${protection.isActive ? "bg-emerald-500/20 border-emerald-500/30" : "bg-red-500/10 border-red-500/20"}`}>
               <Shield className={`w-5 h-5 ${protection.isActive ? "text-emerald-400" : "text-red-400"}`} />
@@ -169,8 +169,8 @@ export function DesktopApp({
 
         {/* Main Dashboard */}
         <div ref={dashboardRef} className="flex-1 flex flex-col overflow-hidden items-center perspective-[1000px]">
-          <div className="w-full max-w-7xl px-6 py-2 lg:px-8 flex-1 overflow-y-auto custom-scrollbar">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start py-4">
+          <div className="w-full max-w-7xl px-8 py-8 lg:px-12 flex-1 overflow-y-auto custom-scrollbar">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-10 items-start py-4">
               
               {/* Left Side: System Integrity & Stats */}
               <div className="md:col-span-5 space-y-6 flex flex-col z-10">

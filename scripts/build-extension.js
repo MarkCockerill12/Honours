@@ -38,6 +38,7 @@ const buildConfig = {
   logLevel: "info",
   define: {
     "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
+    "process.env.GROQ_API_KEY": JSON.stringify(process.env.GROQ_API_KEY || ""),
   },
 };
 
