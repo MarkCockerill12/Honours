@@ -18,9 +18,12 @@ export const shouldBlockYouTubeRequest = (url: string): boolean => {
 };
 
 let youtubeObserver: MutationObserver | null = null;
-let pollingInterval: any = null;
+let pollingInterval: NodeJS.Timeout | null = null;
 let isProcessingAd = false;
 let lastAdCheckTime = 0;
+let currentPollingDelay = 500;
+let retryCount = 0;
+const MAX_RETRIES = 10;
 
 const isContextValid = () => {
   try {
@@ -61,23 +64,24 @@ const findSkipButtonByText = (player: HTMLElement, isHeavy = false): HTMLElement
   return null;
 };
 
-const runAdCheck = (player: HTMLElement, isHeavy = false) => {
+const runAdCheck = (player: HTMLElement, isHeavy = false): boolean => {
   if (!isContextValid()) {
     const v = globalThis.document.querySelector("video.video-stream") as HTMLVideoElement;
     if (v) killPlaybackManipulation(v);
     disableYouTubeAdBlocker();
-    return;
+    return false;
   }
 
   const now = Date.now();
-  if (now - lastAdCheckTime < 250) return;
-  if (isProcessingAd) return;
+  if (now - lastAdCheckTime < 250) return false;
+  if (isProcessingAd) return false;
 
   const video = globalThis.document.querySelector("video.video-stream") as HTMLVideoElement;
-  if (!video) return;
+  if (!video) return false;
 
   isProcessingAd = true;
   lastAdCheckTime = now;
+  let adWasDetected = false;
 
   try {
     // 1. AUTHORITATIVE DETECTION (Only speed up if YouTube says it's an ad)
@@ -100,6 +104,7 @@ const runAdCheck = (player: HTMLElement, isHeavy = false) => {
 
     // 3. EXECUTION
     if (officialAdShowing || skipButton) {
+      adWasDetected = true;
       // IF official ad state: Mute + Speed up
       if (officialAdShowing) {
         video.muted = true;
@@ -121,7 +126,10 @@ const runAdCheck = (player: HTMLElement, isHeavy = false) => {
     // Safety: close overlays during heavy pass
     if (isHeavy) {
       const bannerClose = globalThis.document.querySelector(".ytp-ad-overlay-close-button") as HTMLElement | null;
-      if (bannerClose) simulateClick(bannerClose);
+      if (bannerClose) {
+        simulateClick(bannerClose);
+        adWasDetected = true; // Consider closing an overlay as handling an ad element
+      }
     }
   } catch (e) {
     // Fatal error check: kill speed-up just in case
@@ -130,6 +138,7 @@ const runAdCheck = (player: HTMLElement, isHeavy = false) => {
   } finally {
     isProcessingAd = false;
   }
+  return adWasDetected;
 };
 
 export const initYouTubeAdBlocker = () => {
@@ -144,23 +153,61 @@ export const initYouTubeAdBlocker = () => {
 export const disableYouTubeAdBlocker = () => {
   if (youtubeObserver) { youtubeObserver.disconnect(); youtubeObserver = null; }
   if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
+  currentPollingDelay = 500; // Reset delay
+  retryCount = 0; // Reset retry count
 };
 
 export const enableYouTubeAdBlocker = () => {
+  // P3: Context check - ensure we are still on YouTube
   if (!globalThis.location.hostname.includes("youtube.com")) return;
-  const player = globalThis.document.querySelector(".html5-video-player") as HTMLElement;
-  if (!player) { setTimeout(enableYouTubeAdBlocker, 1000); return; }
-  if (youtubeObserver && pollingInterval) return;
 
-  console.log("[YouTube AdBlock] Mode: Absolute Safety (Round 16)");
+  const player = document.querySelector("#movie_player") as HTMLElement;
+  
+  if (!player) {
+    if (retryCount < MAX_RETRIES) {
+      retryCount++;
+      console.debug(`[YouTube] Player not found, retry ${retryCount}/${MAX_RETRIES}`);
+      setTimeout(enableYouTubeAdBlocker, 1000);
+    } else {
+      console.warn("[YouTube] Max retries reached for player discovery. Disabling ad blocker.");
+      disableYouTubeAdBlocker(); // Disable if player can't be found after retries
+    }
+    return;
+  }
+
+  retryCount = 0; // Reset on success
+  
+  if (pollingInterval) clearInterval(pollingInterval);
+
+  const startPolling = (delay: number) => {
+    if (pollingInterval) clearInterval(pollingInterval);
+    // Use any for pollingInterval to avoid cross-platform Timeout/number issues
+    pollingInterval = setInterval(() => {
+      const foundSomething = runAdCheck(player, true);
+      
+      // P2: Exponential Backoff
+      // If we didn't find an ad, slow down polling gradually (500ms -> 2000ms)
+      if (!foundSomething) {
+        if (currentPollingDelay < 2000) {
+          currentPollingDelay = Math.min(2000, currentPollingDelay + 250);
+          startPolling(currentPollingDelay);
+        }
+      } else {
+        // Reset to fast polling if ad detected
+        if (currentPollingDelay > 500) {
+          currentPollingDelay = 500;
+          startPolling(500);
+        }
+      }
+    }, delay) as any;
+  };
+
+  startPolling(currentPollingDelay); // Start with current delay
+  console.log("[YouTube] Ad blocker enabled with dynamic polling.");
 
   if (!youtubeObserver) {
     youtubeObserver = new MutationObserver(() => runAdCheck(player, false));
     youtubeObserver.observe(player, { attributes: true, attributeFilter: ["class"] });
-  }
-
-  if (!pollingInterval) {
-    pollingInterval = setInterval(() => runAdCheck(player, true), 500);
   }
   
   runAdCheck(player, true);

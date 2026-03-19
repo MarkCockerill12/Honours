@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, StatusBar } from 'react-native';
 import { Shield, Lock, Activity, Palette } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import WireGuardVPN from 'react-native-wireguard-vpn';
 import { ProtectionToggles } from './components/ProtectionToggles';
 
 interface ProtectionState {
@@ -28,12 +29,46 @@ export default function App() {
     }));
   }, []);
 
-  const toggleVpn = useCallback(() => {
-    setProtection(prev => ({
-      ...prev,
-      vpnEnabled: !prev.vpnEnabled
-    }));
-  }, []);
+  const toggleVpn = useCallback(async () => {
+    try {
+      if (protection.vpnEnabled) {
+        console.log("[VPN] Disconnecting...");
+        await WireGuardVPN.disconnect();
+        setProtection(prev => ({ ...prev, vpnEnabled: false }));
+      } else {
+        console.log("[VPN] Requesting dynamic config...");
+        // Use the backend URL (replace with your production API URL)
+        const API_URL = "http://localhost:8080"; 
+        
+        const response = await fetch(`${API_URL}/api/vpn/connect`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ serverId: "aws-eu-1" }),
+        });
+
+        if (!response.ok) throw new Error("Backend provisioning failed");
+        
+        const { config } = await response.json();
+        
+        console.log("[VPN] Establishing native tunnel...");
+        await WireGuardVPN.connect(
+          config.Id,
+          config.PrivateKey,
+          config.PublicKey,
+          config.Endpoint,
+          config.Address,
+          config.DNS,
+          config.AllowedIPs,
+          config.MTU || 1420
+        );
+
+        setProtection(prev => ({ ...prev, vpnEnabled: true }));
+      }
+    } catch (error) {
+      console.error("[VPN Error]:", error);
+      alert("VPN Connection Failed: " + (error as Error).message);
+    }
+  }, [protection.vpnEnabled]);
 
   const toggleAdblock = useCallback(() => {
     setProtection(prev => ({

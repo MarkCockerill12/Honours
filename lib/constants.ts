@@ -166,8 +166,24 @@ export const COMPREHENSIVE_DOMAINS = [
   "googletagmanager.com", "googletagservices.com", "quantcast.com",
   "scorecardresearch.com", "zemanta.com", "adroll.com", "moatads.com",
   "adsrvr.org", "rlcdn.com", "adtechus.com", "specificclick.net",
-  "tribalfusion.com", "yieldmanager.com", "clarity.ms", "statcounter.com",
+  "tribalfusion.com", "yieldmanager.com", "yieldmanager.com", "clarity.ms", "statcounter.com",
   "mc.yandex.ru", "metrika.yandex.ru", "yandex.ru/ads", "ad.mail.ru",
   "ad.turn.com", "ad.foxnetworks.com", "s.amazon-adsystem.com",
   "securepubads.g.doubleclick.net"
 ];
+
+/**
+ * A4: Centralized stats computation
+ * Computes saved bandwidth, time, and money based on blocked resource size.
+ */
+export function computeBlockDelta(size: number) {
+  const bandwidthSaved = size; // bytes
+  const timeSaved = size / (1.25 * 1024 * 1024); // seconds (based on 10Mbps / 1.25MB/s avg speed)
+  const moneySaved = (size / (1024 * 1024)) * COST_PER_MB; // GBP
+  
+  return {
+    bandwidthSaved,
+    timeSaved,
+    moneySaved
+  };
+}

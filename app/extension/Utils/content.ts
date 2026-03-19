@@ -11,7 +11,23 @@ let lastAppliedFilterHash = "";
 let pageWarningBypassed = false;
 let pageWarningOverlay: HTMLElement | null = null;
 let filtersActive = false;
-const appliedElements: HTMLElement[] = [];
+const appliedElements: WeakRef<HTMLElement>[] = [];
+const originalContentMap = new WeakMap<HTMLElement, DocumentFragment>();
+
+// A2: Periodic pruning of dead elements from the appliedElements array
+setInterval(() => {
+  if (appliedElements.length > 50) {
+    const initialLength = appliedElements.length;
+    for (let i = appliedElements.length - 1; i >= 0; i--) {
+      if (!appliedElements[i].deref()) {
+        appliedElements.splice(i, 1);
+      }
+    }
+    if (appliedElements.length < initialLength) {
+      console.debug(`[Content] Pruned ${initialLength - appliedElements.length} dead element references.`);
+    }
+  }
+}, 30000); // Every 30 seconds if array is getting large
 // @ts-ignore
 const translatedElements = new Map<HTMLElement, string>();
 // @ts-ignore
@@ -118,7 +134,12 @@ export const blockParagraph = (textNode: Text, method: string) => {
     el.style.backgroundColor = "#000";
     el.style.color = "#000";
   } else if (method === "kitten") {
-     el.dataset.originalHtml = el.innerHTML;
+     // C4: Store children in DocumentFragment instead of innerHTML string to prevent XSS
+     const fragment = globalThis.document.createDocumentFragment();
+     while (el.firstChild) {
+       fragment.appendChild(el.firstChild);
+     }
+     originalContentMap.set(el, fragment);
      el.textContent = "🐱 Paragraph hidden for your safety.";
   } else {
     el.style.filter = "blur(12px)";
@@ -129,8 +150,13 @@ export const blockParagraph = (textNode: Text, method: string) => {
     el.style.filter = "none";
     el.style.backgroundColor = "transparent";
     el.style.color = "inherit";
-    if (method === "kitten" && el.dataset.originalHtml) {
-      el.innerHTML = el.dataset.originalHtml;
+    if (method === "kitten") {
+      const fragment = originalContentMap.get(el);
+      if (fragment) {
+        el.textContent = "";
+        el.appendChild(fragment);
+        originalContentMap.delete(el);
+      }
     }
     el.dataset.userRevealed = "true";
   });
@@ -257,12 +283,12 @@ export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], bl
        if (hasParagraphScope) {
          const added = blockParagraph(textNode, blurMethod);
          if (added) {
-           appliedElements.push(added);
+           appliedElements.push(new WeakRef(added));
            count++;
          }
        } else {
          const added = blockWord(textNode, matches, blurMethod);
-         added.forEach(e => appliedElements.push(e));
+         added.forEach(e => appliedElements.push(new WeakRef(e)));
          if (added.length > 0) count++;
        }
     }
@@ -274,11 +300,22 @@ export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], bl
 };
 
 export const clearBlurContent = () => {
-  appliedElements.forEach(el => {
-    el.style.filter = "none";
-    el.style.background = "transparent";
-    el.style.color = "inherit";
-    delete el.dataset.contentFiltered;
+  appliedElements.forEach(ref => {
+    const el = ref.deref();
+    if (el) {
+      el.style.filter = "none";
+      el.style.background = "transparent";
+      el.style.color = "inherit";
+      delete el.dataset.contentFiltered;
+      
+      // Restore kitten content if cleared via UI toggle
+      const fragment = originalContentMap.get(el);
+      if (fragment) {
+        el.textContent = "";
+        el.appendChild(fragment);
+        originalContentMap.delete(el);
+      }
+    }
   });
   appliedElements.length = 0;
   filtersActive = false;
@@ -386,7 +423,8 @@ if (typeof globalThis.window !== "undefined") {
         isInitialSyncCompleted = true;
         isSyncInProgress = false;
       });
-    } catch (e) {
+    } catch (err) {
+      console.error("[Content] Initial sync fatal error:", err);
       isSyncInProgress = false;
     }
   };

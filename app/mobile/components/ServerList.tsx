@@ -54,46 +54,64 @@ export function ServerList({
       <div
         className={`space-y-2 flex-1 min-h-0 overflow-y-auto pr-2 ${getScrollbarClass()}`}
       >
-        {servers.map((server) => (
-          <button
-            key={server.id}
-            onClick={() => onServerSelect(server)}
-            className={`
-              w-full flex items-center gap-3 p-3 rounded-xl
-              ${selectedServer?.id === server.id ? colors.accent : colors.bgSecondary}
-              ${colors.border} border
-              transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]
-              ${selectedServer?.id === server.id ? "text-white" : colors.text}
-            `}
-          >
-            <span className="text-xl">{server.flag}</span>
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium">{server.name}</p>
-              <p
-                className={`text-xs ${selectedServer?.id === server.id ? "text-white/70" : colors.textSecondary}`}
-              >
-                {server.country}
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <Signal size={14} className={getPingColor(server.ping)} />
-                <span className={`text-xs ${getPingColor(server.ping)}`}>
-                  {server.ping}ms
-                </span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Activity size={14} className={colors.textSecondary} />
-                <div className="w-12 h-1.5 bg-black/20 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full ${getLoadColor(server.load)} transition-all duration-300`}
-                    style={{ width: `${server.load}%` }}
-                  />
+        {servers.map((server) => {
+          const isStarting = server.status === "starting";
+          const isDisabled = servers.some(s => s.status === "starting") && !isStarting;
+          
+          return (
+            <button
+              key={server.id}
+              onClick={() => !isDisabled && onServerSelect(server)}
+              disabled={isDisabled}
+              className={`
+                w-full flex items-center gap-3 p-3 rounded-xl
+                ${selectedServer?.id === server.id ? colors.accent : colors.bgSecondary}
+                ${colors.border} border
+                transition-all duration-200 
+                ${isDisabled ? "opacity-50 cursor-not-allowed" : "hover:scale-[1.02] active:scale-[0.98]"}
+                ${selectedServer?.id === server.id ? "text-white" : colors.text}
+              `}
+            >
+              <span className="text-xl">{server.flag}</span>
+              <div className="flex-1 text-left">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{server.name}</p>
+                  {isStarting && (
+                    <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded animate-pulse">
+                      Warming Up...
+                    </span>
+                  )}
                 </div>
+                <p
+                  className={`text-xs ${selectedServer?.id === server.id ? "text-white/70" : colors.textSecondary}`}
+                >
+                  {server.country}
+                </p>
               </div>
-            </div>
-          </button>
-        ))}
+              <div className="flex items-center gap-3">
+                {!isStarting && (
+                  <>
+                    <div className="flex items-center gap-1">
+                      <Signal size={14} className={getPingColor(server.ping)} />
+                      <span className={`text-xs ${getPingColor(server.ping)}`}>
+                        {server.ping}ms
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Activity size={14} className={colors.textSecondary} />
+                      <div className="w-12 h-1.5 bg-black/20 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${getLoadColor(server.load)} transition-all duration-300`}
+                          style={{ width: `${server.load}%` }}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

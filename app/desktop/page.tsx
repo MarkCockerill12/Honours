@@ -4,6 +4,7 @@ import { DesktopApp } from "./DesktopApp";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { useStats } from "@/components/StatsProvider";
 import type { Theme, ProtectionState } from "@/components/types";
+import { getVpnConfig } from "@/lib/vpn";
 
 // Declare electron global
 declare global {
@@ -29,6 +30,9 @@ declare global {
       };
       system: {
         getDnsInfo: () => Promise<Record<string, string[]>>;
+      };
+      vpn: {
+        toggle: (config: any) => Promise<{ success: boolean; message: string }>;
       };
     };
   }
@@ -96,8 +100,8 @@ export default function DesktopPage() {
     }
   }, [protection.isActive]);
 
-  // VPN is currently in Beta and not supported
-  const isVpnSupported = false;
+  // VPN is currently in Beta but now supported via dynamic provisioning
+  const isVpnSupported = true;
 
   // On mount: check status
   useEffect(() => {
@@ -217,7 +221,23 @@ export default function DesktopPage() {
         }
 
         if (protection.vpnEnabled) {
-          setError("VPN connectivity is currently in Beta.");
+          if (isElectron()) {
+            const api = (globalThis.window as any).electron;
+            try {
+              setStatusMessage("Warming up VPN server... (Starting EC2)");
+              const config = await getVpnConfig("aws-eu-1"); // Default to Germany for now
+              const vpnResult = await api.vpn.toggle(config);
+              if (vpnResult.success) {
+                setStatusMessage("VPN Active: Secure tunnel established via AWS.");
+              } else {
+                setError(`VPN Error: ${vpnResult.message}`);
+              }
+            } catch (err: any) {
+              setError(`VPN Provisioning Failed: ${err.message}`);
+            }
+          } else {
+            setStatusMessage("VPN Simulation Mode Active.");
+          }
         }
 
         const canActivate =

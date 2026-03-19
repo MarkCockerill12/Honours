@@ -14,6 +14,7 @@ import type {
 import ExtensionApp from "./extension/ExtensionApp";
 import { MobileApp } from "./mobile/MobileApp";
 import { DesktopApp } from "./desktop/DesktopApp";
+import { getVpnConfig } from "@/lib/vpn";
 
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -78,8 +79,27 @@ export default function Home() {
     persistProtection({ ...protection, isActive: !protection.isActive });
   };
 
-  const handleVpnToggle = () => {
-    persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
+  const handleVpnToggle = async () => {
+    const nextVpnEnabled = !protection.vpnEnabled;
+
+    if (
+      nextVpnEnabled &&
+      platform === "extension" &&
+      typeof chrome !== "undefined" &&
+      chrome.storage?.local
+    ) {
+      try {
+        const config = await getVpnConfig("aws-eu-1");
+        await chrome.storage.local.set({
+          vpnConfig: { publicIp: config.publicIp },
+        });
+      } catch (err: any) {
+        console.error("VPN Provisioning failed for extension:", err.message);
+        return;
+      }
+    }
+
+    persistProtection({ ...protection, vpnEnabled: nextVpnEnabled });
   };
 
   const handleAdblockToggle = () => {

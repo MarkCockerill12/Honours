@@ -1,6 +1,7 @@
 "use client";
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from "react";
 import type { TrackerStats } from "./types";
+import { computeBlockDelta } from "@/lib/constants";
 
 interface StatsContextType {
   stats: TrackerStats;
@@ -45,8 +46,8 @@ export function StatsProvider({ children }: { readonly children: React.ReactNode
              moneySaved: s.moneySaved || 0,
           });
         }
-      } catch (e) {
-        // Ignore error
+      } catch (err) {
+        console.debug("[Stats] LocalStorage stats recovery failed:", err);
       }
     }
   }, []);
@@ -59,11 +60,12 @@ export function StatsProvider({ children }: { readonly children: React.ReactNode
     } else {
       // Manual update for dev mode
       setStats(prev => {
+        const delta = computeBlockDelta(size);
         const newStats = {
           totalBlocked: prev.totalBlocked + 1,
           bandwidthSaved: prev.bandwidthSaved + size,
-          timeSaved: prev.timeSaved + (size / (1.25 * 1024 * 1024)),
-          moneySaved: prev.moneySaved + ((size / (1024 * 1024)) * 0.0048),
+          timeSaved: prev.timeSaved + delta.timeSaved,
+          moneySaved: prev.moneySaved + delta.moneySaved,
         };
         // Also save to localStorage for persistence in dev
         localStorage.setItem("blockStats", JSON.stringify(newStats));

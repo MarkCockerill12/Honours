@@ -35,6 +35,26 @@ export interface BlockStats extends TrackerStats {
   lastUpdated: number;
 }
 
+export type MessageAction = 
+  | "GET_PROTECTION_STATE"
+  | "SET_PROTECTION_STATE"
+  | "GET_FILTERS"
+  | "SET_FILTERS"
+  | "INIT_ENGINE"
+  | "RECORD_STATS"
+  | "TRANSLATE_TEXT"
+  | "SCAN_PAGE_LINKS"
+  | "PROXY_COMMAND"
+  | "GET_PDF_ALLOWED"
+  | "ALLOW_PDF_ONCE"
+  | "CHECK_PAGE_WARNING";
+
+export interface BackgroundMessage {
+  action: MessageAction;
+  requestId?: number;
+  [key: string]: any;
+}
+
 export interface SmartFilter {
   id: string;
   name?: string;
@@ -53,6 +73,7 @@ export interface ServerLocation {
   load: number;
   x: number;
   y: number;
+  status?: "off" | "starting" | "active";
 }
 
 export interface ProtectionState {

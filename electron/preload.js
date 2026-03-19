@@ -16,4 +16,7 @@ contextBridge.exposeInMainWorld("electron", {
   system: {
     getDnsInfo: () => ipcRenderer.invoke("system:get-dns-info"),
   },
+  vpn: {
+    toggle: (config) => ipcRenderer.invoke("vpn:toggle", config),
+  },
 });
