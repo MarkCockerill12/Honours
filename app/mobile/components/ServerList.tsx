@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Signal, Activity } from "lucide-react";
+import { Signal, Activity, Loader2 } from "lucide-react";
 import { useTheme } from "@/components/ThemeProvider";
 import type { ServerLocation } from "@/components/types";
 
@@ -77,9 +77,12 @@ export function ServerList({
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium">{server.name}</p>
                   {isStarting && (
-                    <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded animate-pulse">
-                      Warming Up...
-                    </span>
+                    <div className="flex items-center gap-1.5 ml-2">
+                       <Loader2 size={12} className="animate-spin text-amber-500" />
+                       <span className="text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded animate-pulse">
+                        Warming Up...
+                      </span>
+                    </div>
                   )}
                 </div>
                 <p

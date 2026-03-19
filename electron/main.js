@@ -190,8 +190,8 @@ async function safeResetDNS() {
       console.debug(`[AdBlock] Silent reset failed for ${adapter}, attempting elevated reset.`, err);
       try {
         await execAsync(String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command Set-DnsClientServerAddress -InterfaceAlias \"${adapter}\" -ResetServerAddresses'"`);
-      } catch (elevateErr) {
-        console.warn("[AdBlock] Forced UAC reset failed during exit:", elevateErr.message);
+      } catch (error_) {
+        console.warn("[AdBlock] Forced UAC reset failed during exit:", error_.message);
       }
     }
   }
@@ -265,19 +265,23 @@ ipcMain.handle("vpn:toggle", async (event, config) => {
       return { success: true, message: "VPN Tunnel Disconnected." };
     } else {
       // Activate new tunnel
-      if (!config || !config.PrivateKey) throw new Error("Invalid WireGuard configuration received.");
+      if (!config || !config.PublicIp || !config.PublicKey) {
+        throw new Error("Invalid WireGuard configuration received (v2.0). Missing IP or Key.");
+      }
 
+      // v2.0 Client-Side Profile Generation
+      const clientPrivateKey = process.env.WG_CLIENT_PRIVATE_KEY || "CLIENT_PRIVATE_KEY_PLACEHOLDER";
       const confContent = `
 [Interface]
-PrivateKey = ${config.PrivateKey}
-Address = ${config.Address}
-DNS = ${config.DNS}
-MTU = ${config.MTU}
+PrivateKey = ${clientPrivateKey}
+Address = 10.0.0.2/32
+DNS = 1.1.1.1
+MTU = 1420
 
 [Peer]
 PublicKey = ${config.PublicKey}
-Endpoint = ${config.Endpoint}
-AllowedIPs = ${config.AllowedIPs}
+Endpoint = ${config.PublicIp}:${config.Port || 51820}
+AllowedIPs = 0.0.0.0/0
 `.trim();
 
       const tempPath = path.join(app.getPath("temp"), `honours-vpn-${config.Id || 'default'}.conf`);
@@ -344,7 +348,14 @@ async function initConfig() {
   createWindow();
 }
 
-initConfig().catch(() => process.exit(1));
+(async () => {
+  try {
+    await initConfig();
+  } catch (err) {
+    console.error("Initialization failed:", err);
+    process.exit(1);
+  }
+})();
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

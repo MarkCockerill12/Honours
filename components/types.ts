@@ -74,6 +74,9 @@ export interface ServerLocation {
   x: number;
   y: number;
   status?: "off" | "starting" | "active";
+  ip?: string;
+  publicKey?: string;
+  proxyPort?: number;
 }
 
 export interface ProtectionState {

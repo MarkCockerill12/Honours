@@ -4,6 +4,8 @@ import { Shield, Lock, Activity, Palette } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import WireGuardVPN from 'react-native-wireguard-vpn';
 import { ProtectionToggles } from './components/ProtectionToggles';
+import { VPN_SERVERS } from '../lib/vpn';
+import type { ServerLocation } from '../components/types';
 
 interface ProtectionState {
   isActive: boolean;
@@ -21,6 +23,8 @@ export default function App() {
   });
 
   const [activeTab, setActiveTab] = useState<'shield' | 'vpn' | 'stats'>('shield');
+  const [selectedServer, setSelectedServer] = useState<ServerLocation>(VPN_SERVERS[0]);
+  const [isStarting, setIsStarting] = useState(false);
 
   const toggleProtection = useCallback(() => {
     setProtection(prev => ({
@@ -37,38 +41,62 @@ export default function App() {
         setProtection(prev => ({ ...prev, vpnEnabled: false }));
       } else {
         console.log("[VPN] Requesting dynamic config...");
+        setIsStarting(true);
         // Use the backend URL (replace with your production API URL)
         const API_URL = "http://localhost:8080"; 
         
         const response = await fetch(`${API_URL}/api/vpn/connect`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ serverId: "aws-eu-1" }),
+          body: JSON.stringify({ serverId: selectedServer.id }),
         });
 
         if (!response.ok) throw new Error("Backend provisioning failed");
         
         const { config } = await response.json();
         
-        console.log("[VPN] Establishing native tunnel...");
-        await WireGuardVPN.connect(
-          config.Id,
-          config.PrivateKey,
-          config.PublicKey,
-          config.Endpoint,
-          config.Address,
-          config.DNS,
-          config.AllowedIPs,
-          config.MTU || 1420
-        );
+        // v2.0 Native Profile Generation
+        const clientPrivateKey = "CLIENT_PRIVATE_KEY_PLACEHOLDER";
+        const configString = `
+[Interface]
+PrivateKey = ${clientPrivateKey}
+Address = 10.0.0.2/32
+DNS = 1.1.1.1
+MTU = 1420
+
+[Peer]
+PublicKey = ${config.PublicKey}
+Endpoint = ${config.PublicIp}:${config.Port || 51820}
+AllowedIPs = 0.0.0.0/0
+`.trim();
+
+        console.log("[VPN] Activating native tunnel...");
+        // Assuming WireGuardVPN.activate is the correct method for a config string
+        if (typeof (WireGuardVPN as any).activate === 'function') {
+          await (WireGuardVPN as any).activate(configString, "HonoursVPN");
+        } else {
+          // Fallback to connect if activate is not available
+          await WireGuardVPN.connect(
+            config.Id,
+            clientPrivateKey,
+            config.PublicKey,
+            `${config.PublicIp}:${config.Port || 51820}`,
+            "10.0.0.2/32",
+            "1.1.1.1",
+            "0.0.0.0/0",
+            1420
+          );
+        }
 
         setProtection(prev => ({ ...prev, vpnEnabled: true }));
       }
     } catch (error) {
       console.error("[VPN Error]:", error);
       alert("VPN Connection Failed: " + (error as Error).message);
+    } finally {
+      setIsStarting(false);
     }
-  }, [protection.vpnEnabled]);
+  }, [protection.vpnEnabled, selectedServer]);
 
   const toggleAdblock = useCallback(() => {
     setProtection(prev => ({
@@ -134,9 +162,45 @@ export default function App() {
           )}
 
           {activeTab === 'vpn' && (
-            <View style={styles.tabPlaceholder}>
-              <Lock size={48} color="#a1a1aa" />
-              <Text style={styles.placeholderText}>VPN Settings Coming Soon</Text>
+            <View style={styles.vpnContainer}>
+              <Text style={styles.sectionTitle}>VPN SERVERS</Text>
+              {VPN_SERVERS.map((server) => (
+                <TouchableOpacity
+                  key={server.id}
+                  style={[
+                    styles.serverButton,
+                    selectedServer.id === server.id && styles.serverButtonSelected
+                  ]}
+                  onPress={() => setSelectedServer(server)}
+                  disabled={isStarting || protection.vpnEnabled}
+                >
+                  <Text style={styles.serverFlag}>{server.flag}</Text>
+                  <View style={styles.serverInfo}>
+                    <Text style={styles.serverName}>{server.name}</Text>
+                    <Text style={styles.serverCountry}>{server.country}</Text>
+                  </View>
+                  {selectedServer.id === server.id && (
+                    <View style={styles.selectedIndicator} />
+                  )}
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                onPress={toggleVpn}
+                disabled={isStarting}
+                style={[
+                  styles.connectButton,
+                  protection.vpnEnabled ? styles.disconnectButton : styles.connectButtonPrimary
+                ]}
+              >
+                {isStarting ? (
+                  <Text style={styles.buttonText}>PROVISIONING...</Text>
+                ) : (
+                  <Text style={styles.buttonText}>
+                    {protection.vpnEnabled ? "DISCONNECT" : "CONNECT NOW"}
+                  </Text>
+                )}
+              </TouchableOpacity>
             </View>
           )}
 
@@ -295,5 +359,73 @@ const styles = StyleSheet.create({
     height: 3,
     backgroundColor: '#ffffff',
     borderRadius: 1.5,
+  },
+  vpnContainer: {
+    paddingVertical: 20,
+    gap: 15,
+  },
+  sectionTitle: {
+    color: '#a1a1aa',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginBottom: 5,
+  },
+  serverButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 15,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  serverButtonSelected: {
+    borderColor: 'rgba(16, 185, 129, 0.5)',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+  },
+  serverFlag: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  serverInfo: {
+    flex: 1,
+  },
+  serverName: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  serverCountry: {
+    color: '#a1a1aa',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  selectedIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#10b981',
+  },
+  connectButton: {
+    marginTop: 20,
+    padding: 18,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectButtonPrimary: {
+    backgroundColor: '#10b981',
+  },
+  disconnectButton: {
+    backgroundColor: 'rgba(239, 68, 68, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.5)',
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
 });

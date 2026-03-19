@@ -3,8 +3,8 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { DesktopApp } from "./DesktopApp";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { useStats } from "@/components/StatsProvider";
-import type { Theme, ProtectionState } from "@/components/types";
-import { getVpnConfig } from "@/lib/vpn";
+import type { Theme, ProtectionState, ServerLocation } from "@/components/types";
+import { getVpnConfig, VPN_SERVERS } from "@/lib/vpn";
 
 // Declare electron global
 declare global {
@@ -55,6 +55,8 @@ export default function DesktopPage() {
   const [error, setError] = useState<string | null>(null);
   const [currentDns, setCurrentDns] = useState<Record<string, string[]>>({});
   const [, setInitialDns] = useState<Record<string, string[]>>({});
+  const [servers, setServers] = useState<ServerLocation[]>(VPN_SERVERS);
+  const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(VPN_SERVERS[0]);
   const [isToggling, setIsToggling] = useState(false);
   const isTogglingRef = useRef(false);
 
@@ -89,7 +91,7 @@ export default function DesktopPage() {
     try {
       const api = (globalThis.window as any).electron;
       // Using direct channel if exposed or specific method
-      if (api.systemAdBlock && api.systemAdBlock.testDns) {
+      if (api.systemAdBlock?.testDns) {
         return await api.systemAdBlock.testDns();
       }
       // Fallback
@@ -223,16 +225,24 @@ export default function DesktopPage() {
         if (protection.vpnEnabled) {
           if (isElectron()) {
             const api = (globalThis.window as any).electron;
+            if (!selectedServer) throw new Error("No VPN server selected");
+            
             try {
-              setStatusMessage("Warming up VPN server... (Starting EC2)");
-              const config = await getVpnConfig("aws-eu-1"); // Default to Germany for now
+              setStatusMessage(`Provisioning VPN node in ${selectedServer.country}...`);
+              setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "starting" } : s));
+              
+              const config = await getVpnConfig(selectedServer.id);
               const vpnResult = await api.vpn.toggle(config);
+              
               if (vpnResult.success) {
-                setStatusMessage("VPN Active: Secure tunnel established via AWS.");
+                setStatusMessage(`VPN Active: Secure tunnel via ${selectedServer.name}.`);
+                setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "active" } : s));
               } else {
+                setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "off" } : s));
                 setError(`VPN Error: ${vpnResult.message}`);
               }
             } catch (err: any) {
+              setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "off" } : s));
               setError(`VPN Provisioning Failed: ${err.message}`);
             }
           } else {
@@ -352,6 +362,9 @@ export default function DesktopPage() {
           loading={isToggling}
           dnsInfo={currentDns}
           setTheme={setTheme}
+          servers={servers}
+          selectedServer={selectedServer}
+          onServerSelect={setSelectedServer}
         />
       </div>
     </ThemeProvider>

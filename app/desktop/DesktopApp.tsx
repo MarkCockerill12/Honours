@@ -13,8 +13,9 @@ import anime from "animejs";
 import { useTheme } from "@/components/ThemeProvider";
 import { ActivationButton } from "@/components/ActivationButton";
 import { TrackerCard } from "@/components/TrackerCard";
-import type { ProtectionState, TrackerStats, Theme } from "@/components/types";
+import type { ProtectionState, TrackerStats, Theme, ServerLocation } from "@/components/types";
 import { SystemToggles } from "./components/SystemToggles";
+import { ServerList } from "./components/ServerList";
 
 interface DesktopAppProps {
   protection: ProtectionState;
@@ -29,6 +30,9 @@ interface DesktopAppProps {
   dnsInfo?: Record<string, string[]>;
   initialDns?: Record<string, string[]>;
   setTheme?: (theme: Theme) => void;
+  servers: ServerLocation[];
+  selectedServer: ServerLocation | null;
+  onServerSelect: (server: ServerLocation) => void;
 }
 
 export function DesktopApp({
@@ -44,6 +48,9 @@ export function DesktopApp({
   dnsInfo = {},
   initialDns = {},
   setTheme,
+  servers,
+  selectedServer,
+  onServerSelect,
 }: Readonly<DesktopAppProps>) {
   const { colors, theme } = useTheme();
   const [testing, setTesting] = useState(false);
@@ -185,6 +192,14 @@ export function DesktopApp({
                     testResult={testResult}
                     dnsInfo={dnsInfo}
                     initialDns={initialDns}
+                  />
+                </div>
+                
+                <div className="dashboard-anim-item">
+                  <ServerList
+                    servers={servers}
+                    selectedServer={selectedServer}
+                    onServerSelect={onServerSelect}
                   />
                 </div>
                 

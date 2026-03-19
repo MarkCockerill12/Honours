@@ -1,17 +1,14 @@
-export interface VpnServer {
-  id: string;
-  country: string;
-  ip: string;
-  publicKey: string; // For WireGuard
-  proxyPort: number; // For Extension (SOCKS5)
-  status: "off" | "starting" | "active";
-}
+import { ServerLocation } from "../components/types";
 
-// Fixed list of supported locations (dynamic provisioning IDs)
-export const VPN_SERVERS: Omit<VpnServer, "ip" | "publicKey" | "proxyPort" | "status">[] = [
-  { id: "uk", country: "United Kingdom" },
-  { id: "us", country: "United States" },
-  { id: "aws-eu-1", country: "Germany" },
+export type VpnServer = ServerLocation;
+
+// Fixed list of supported locations (dynamic provisioning IDs) - v2.0 Verified
+export const VPN_SERVERS: ServerLocation[] = [
+  { id: "us", name: "New York", country: "United States", flag: "🇺🇸", ping: 78, load: 45, x: 25, y: 30, status: "off", ip: "", publicKey: "", proxyPort: 1080 },
+  { id: "uk", name: "London", country: "United Kingdom", flag: "🇬🇧", ping: 12, load: 32, x: 48, y: 28, status: "off", ip: "", publicKey: "", proxyPort: 1080 },
+  { id: "aws-eu-1", name: "Frankfurt", country: "Germany", flag: "🇩🇪", ping: 24, load: 55, x: 52, y: 27, status: "off", ip: "", publicKey: "", proxyPort: 1080 },
+  { id: "jp", name: "Tokyo", country: "Japan", flag: "🇯🇵", ping: 180, load: 28, x: 82, y: 30, status: "off", ip: "", publicKey: "", proxyPort: 1080 },
+  { id: "au", name: "Sydney", country: "Australia", flag: "🇦🇺", ping: 220, load: 18, x: 85, y: 70, status: "off", ip: "", publicKey: "", proxyPort: 1080 },
 ];
 
 export const getVpnConfig = async (serverId: string) => {
