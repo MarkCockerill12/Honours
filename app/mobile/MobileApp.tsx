@@ -14,18 +14,17 @@ import type {
   TrackerStats,
   ServerLocation,
 } from "@/components/types";
+import { getVpnConfig } from "@/lib/vpn";
 import { ServerMap } from "./components/ServerMap";
+import { ServerList } from "./components/ServerList";
 
-// VPN Server locations
+// VPN Server locations - Aligned with AWS Backend v2.0
 const VPN_SERVERS: ServerLocation[] = [
-  { id: "uk-1", name: "London", country: "United Kingdom", flag: "🇬🇧", ping: 12, load: 32, x: 48, y: 28 },
-  { id: "us-1", name: "New York", country: "United States", flag: "🇺🇸", ping: 78, load: 45, x: 25, y: 30 },
-  { id: "de-1", name: "Frankfurt", country: "Germany", flag: "🇩🇪", ping: 24, load: 55, x: 52, y: 27 },
-  { id: "jp-1", name: "Tokyo", country: "Japan", flag: "🇯🇵", ping: 180, load: 28, x: 82, y: 30 },
-  { id: "au-1", name: "Sydney", country: "Australia", flag: "🇦🇺", ping: 220, load: 18, x: 85, y: 70 },
-  { id: "ca-1", name: "Toronto", country: "Canada", flag: "🇨🇦", ping: 92, load: 38, x: 22, y: 25 },
-  { id: "sg-1", name: "Singapore", country: "Singapore", flag: "🇸🇬", ping: 160, load: 22, x: 76, y: 52 },
-  { id: "br-1", name: "São Paulo", country: "Brazil", flag: "🇧🇷", ping: 180, load: 15, x: 32, y: 62 },
+  { id: "us", name: "New York", country: "United States", flag: "🇺🇸", ping: 78, load: 45, x: 25, y: 30, status: "off" },
+  { id: "uk", name: "London", country: "United Kingdom", flag: "🇬🇧", ping: 12, load: 32, x: 48, y: 28, status: "off" },
+  { id: "aws-eu-1", name: "Frankfurt", country: "Germany", flag: "🇩🇪", ping: 24, load: 55, x: 52, y: 27, status: "off" },
+  { id: "jp", name: "Tokyo", country: "Japan", flag: "🇯🇵", ping: 180, load: 28, x: 82, y: 30, status: "off" },
+  { id: "au", name: "Sydney", country: "Australia", flag: "🇦🇺", ping: 220, load: 18, x: 85, y: 70, status: "off" },
 ];
 
 interface MobileAppProps {
@@ -49,6 +48,7 @@ export function MobileApp({
 }: Readonly<MobileAppProps>) {
   const { theme, setTheme, colors } = useTheme();
   const [activeTab, setActiveTab] = useState<MobileTab>("shield");
+  const [servers, setServers] = useState<ServerLocation[]>(VPN_SERVERS);
   const [selectedServer, setSelectedServer] = useState<ServerLocation | null>(VPN_SERVERS[0]);
   const [isVpnConnected, setIsVpnConnected] = useState(false);
   const [userLocation] = useState({ x: 48, y: 28 }); // Default to London for demo
@@ -157,9 +157,38 @@ export function MobileApp({
           <VpnTab
             colors={colors}
             glassCardClass={glassCardClass}
+            servers={servers}
             selectedServer={selectedServer}
             isVpnConnected={isVpnConnected}
-            onVpnConnectToggle={() => setIsVpnConnected(!isVpnConnected)}
+            onVpnConnectToggle={async () => {
+              if (!selectedServer) return;
+              
+              if (isVpnConnected) {
+                // Disconnect logic
+                setIsVpnConnected(false);
+                setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "off" } : s));
+                return;
+              }
+
+              // Start Connection
+              setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "starting" } : s));
+              
+              try {
+                const config = await getVpnConfig(selectedServer.id);
+                // In a real mobile app, we'd call the native module here
+                console.log("VPN Config Received:", config);
+                
+                // Simulate polling/waiting for "active"
+                // The backend already waits for "running" before returning, 
+                // but we might want to show "active" in the UI now.
+                setIsVpnConnected(true);
+                setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "active" } : s));
+              } catch (err) {
+                console.error("VPN Connection failed:", err);
+                setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "off" } : s));
+                alert("Failed to start VPN: " + (err as Error).message);
+              }
+            }}
             onServerSelect={setSelectedServer}
             userLocation={userLocation}
           />
@@ -250,6 +279,7 @@ function ShieldTab({
 interface VpnTabProps {
   colors: any;
   glassCardClass: string;
+  servers: ServerLocation[];
   selectedServer: ServerLocation | null;
   isVpnConnected: boolean;
   onVpnConnectToggle: () => void;
@@ -260,12 +290,15 @@ interface VpnTabProps {
 function VpnTab({
   colors,
   glassCardClass,
+  servers,
   selectedServer,
   isVpnConnected,
   onVpnConnectToggle,
   onServerSelect,
   userLocation,
 }: Readonly<VpnTabProps>) {
+  const currentServer = servers.find(s => s.id === selectedServer?.id) || selectedServer;
+  const isStarting = currentServer?.status === "starting";
   return (
     <div className="flex-1 flex flex-col gap-5 pt-2">
       <div className={`p-5 rounded-2xl transition-all duration-500 ${glassCardClass} ${isVpnConnected ? "border-emerald-500/30 bg-emerald-500/5 shadow-[0_0_30px_rgba(16,185,129,0.1)]" : "border-zinc-800/50"}`}>
@@ -288,7 +321,7 @@ function VpnTab({
 
       <div className={`flex-1 rounded-2xl overflow-hidden border border-zinc-800/30 relative min-h-62.5 ${glassCardClass}`}>
         <ServerMap
-          servers={VPN_SERVERS}
+          servers={servers}
           selectedServer={selectedServer}
           onServerSelect={onServerSelect}
           isConnected={isVpnConnected}
@@ -296,12 +329,23 @@ function VpnTab({
         />
       </div>
 
+      <div className="flex-1 mt-4">
+        <ServerList 
+          servers={servers}
+          selectedServer={selectedServer}
+          onServerSelect={onServerSelect}
+        />
+      </div>
+
       <button
         onClick={onVpnConnectToggle}
+        disabled={isStarting}
         className={`w-full py-5 rounded-2xl font-black tracking-[0.2em] transition-all duration-500 shadow-xl
-          ${isVpnConnected ? "bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20" : "bg-emerald-500 text-emerald-950 hover:bg-emerald-400 hover:scale-[1.02] active:scale-[0.98]"}`}
+          ${isStarting ? "bg-amber-500/20 text-amber-500 cursor-wait" : 
+            isVpnConnected ? "bg-red-500/10 text-red-500 border border-red-500/30 hover:bg-red-500/20" : 
+            "bg-emerald-500 text-emerald-950 hover:bg-emerald-400 hover:scale-[1.02] active:scale-[0.98]"}`}
       >
-        {isVpnConnected ? "DISCONNECT VPN" : "CONNECT NOW"}
+        {isStarting ? "PROVISIONING..." : isVpnConnected ? "DISCONNECT VPN" : "CONNECT NOW"}
       </button>
     </div>
   );
