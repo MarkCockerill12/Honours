@@ -10,11 +10,12 @@ import type {
   Theme,
   Platform,
   ProtectionState,
+  ServerLocation,
 } from "@/components/types";
 import ExtensionApp from "./extension/ExtensionApp";
 import { MobileApp } from "./mobile/MobileApp";
 import { DesktopApp } from "./desktop/DesktopApp";
-import { getVpnConfig } from "@/lib/vpn";
+import { getVpnConfig, VPN_SERVERS } from "@/lib/vpn";
 
 export default function Home() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -25,6 +26,8 @@ export default function Home() {
     adblockEnabled: false,
     filteringEnabled: false,
   });
+  const [servers] = useState<ServerLocation[]>(VPN_SERVERS);
+  const [selectedServer, setSelectedServer] = useState<ServerLocation>(VPN_SERVERS[0]);
   const { stats } = useStats();
 
   // Load initial state from Chrome storage if available
@@ -79,7 +82,7 @@ export default function Home() {
     persistProtection({ ...protection, isActive: !protection.isActive });
   };
 
-  const handleVpnToggle = async () => {
+  const handleVpnToggle = async (selectedServerId?: string) => {
     const nextVpnEnabled = !protection.vpnEnabled;
 
     if (
@@ -89,9 +92,10 @@ export default function Home() {
       chrome.storage?.local
     ) {
       try {
-        const config = await getVpnConfig("aws-eu-1");
+        const targetId = selectedServerId || selectedServer.id || "us";
+        const config = await getVpnConfig(targetId);
         await chrome.storage.local.set({
-          vpnConfig: { publicIp: config.publicIp },
+          vpnConfig: { publicIp: config.PublicIp },
         });
       } catch (err: any) {
         console.error("VPN Provisioning failed for extension:", err.message);
@@ -180,12 +184,15 @@ export default function Home() {
               <DesktopApp
                 protection={protection}
                 onProtectionToggle={handleProtectionToggle}
-                onVpnToggle={handleVpnToggle}
+                onVpnToggle={() => handleVpnToggle(selectedServer.id)}
                 onAdblockToggle={handleAdblockToggle}
                 onFilteringToggle={handleProtectionToggle}
                 stats={{ ...stats, moneySaved: stats.moneySaved || 0, totalBlocked: stats.totalBlocked || 0 }}
                 onTest={async () => ({ isBlocked: true, output: "Mock Test" })}
                 onReset={async () => console.log("Reset clicked")}
+                servers={servers}
+                selectedServer={selectedServer}
+                onServerSelect={setSelectedServer}
               />
             </div>
           )}
