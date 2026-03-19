@@ -21,6 +21,7 @@ let adblockStats = {
   moneySaved: 0,
 };
 const STATS_PATH = path.join(app.getPath("userData"), "adblock-stats.json");
+let activeVpnFile = null;
 
 // Helper to get public IP
 async function getPublicIP() {
@@ -38,21 +39,29 @@ async function getPublicIP() {
 // System AdBlock now relies exclusively on internal @ghostery filters for Electron stability.
 // The hosts file is no longer touched to prevent performance degradation.
 
-function loadStats() {
-  try {
-    if (fs.existsSync(STATS_PATH)) {
-      adblockStats = JSON.parse(fs.readFileSync(STATS_PATH, "utf8"));
-    }
-  } catch (err) {
-    console.error("Failed to load stats:", err);
-  }
-}
-
+// Stats persistence
 function saveStats() {
   try {
     fs.writeFileSync(STATS_PATH, JSON.stringify(adblockStats, null, 2));
   } catch (err) {
-    console.error("Failed to save stats:", err);
+    console.warn("[AdBlock] Failed to save stats:", err);
+  }
+}
+
+function loadStats() {
+  try {
+    if (fs.existsSync(STATS_PATH)) {
+      const data = fs.readFileSync(STATS_PATH, "utf8");
+      adblockStats = JSON.parse(data);
+    }
+  } catch (err) {
+    console.debug("[AdBlock] No stats found or failed to load, using defaults.", err);
+    adblockStats = {
+      totalBlocked: 0,
+      bandwidthSaved: 0,
+      timeSaved: 0,
+      moneySaved: 0,
+    };
   }
 }
 
@@ -94,10 +103,17 @@ ipcMain.handle("adblock:check-status", async () => {
 ipcMain.handle("adblock:get-stats", () => adblockStats);
 
 ipcMain.handle("adblock:record-block", (event, { size, category }) => {
+  // T2: Input validation - ensure size is a finite positive number
+  const validSize = (typeof size === 'number' && Number.isFinite(size) && size > 0) ? size : 50000;
+  
   adblockStats.totalBlocked++;
-  adblockStats.bandwidthSaved += size || 50000;
-  adblockStats.timeSaved += (size || 50000) / (1.25 * 1024 * 1024);
-  adblockStats.moneySaved += ((size || 50000) / (1024 * 1024)) * 0.0048;
+  adblockStats.bandwidthSaved += validSize;
+  
+  // A4: Consistency - using precise 0.0048828125 (£5/GB)
+  const COST_PER_MB_SHIELD = 0.0048828125;
+  adblockStats.timeSaved += validSize / (1.25 * 1024 * 1024);
+  adblockStats.moneySaved += (validSize / (1024 * 1024)) * COST_PER_MB_SHIELD;
+  
   saveStats();
   return adblockStats;
 });
@@ -125,7 +141,9 @@ ipcMain.handle("adblock:test-dns", async () => {
 ipcMain.handle("adblock:force-reset", async () => {
   try {
     await cleanupLegacyHosts();
-    await execAsync("ipconfig /flushdns", { windowsHide: true }).catch(() => {});
+    await execAsync(String.raw`ipconfig /flushdns`, { windowsHide: true }).catch((err) => {
+      console.debug("[AdBlock] DNS flush failed during force-reset:", err);
+    });
     return { success: true, message: "System cleaned and DNS flushed." };
   } catch (err) {
     return { success: false, message: err.message };
@@ -153,9 +171,10 @@ async function getActiveAdapter() {
 
 async function getDNS(adapter) {
   try {
-    const { stdout } = await execAsync(`powershell -Command "(Get-DnsClientServerAddress -InterfaceAlias '${adapter}').ServerAddresses"`);
+    const { stdout } = await execAsync(String.raw`powershell -Command "(Get-DnsClientServerAddress -InterfaceAlias '${adapter}').ServerAddresses"`);
     return stdout.trim().split("\n").map(l => l.trim()).filter(Boolean);
   } catch (err) {
+    console.debug("[AdBlock] Failed to get DNS addresses for adapter:", adapter, err);
     return [];
   }
 }
@@ -166,11 +185,11 @@ async function safeResetDNS() {
   if (adapter) {
     console.log(`[AdBlock] Restoring native generic DNS for ${adapter}...`);
     try {
-      await execAsync(`powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses"`);
+      await execAsync(String.raw`powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses"`);
     } catch (err) {
-      console.log(`[AdBlock] Silent reset failed, utilizing elevated PowerShell reset string...`);
+      console.debug(`[AdBlock] Silent reset failed for ${adapter}, attempting elevated reset.`, err);
       try {
-        await execAsync(`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList \\"-Command Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses\\""`);
+        await execAsync(String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command Set-DnsClientServerAddress -InterfaceAlias \"${adapter}\" -ResetServerAddresses'"`);
       } catch (elevateErr) {
         console.warn("[AdBlock] Forced UAC reset failed during exit:", elevateErr.message);
       }
@@ -196,8 +215,8 @@ ipcMain.handle("adblock:enable", async () => {
 
     try {
       // Set to AdGuard Default DNS (IPv4 + IPv6) using pure Windows UAC Elevation
-      const innerCmd = `Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ServerAddresses '94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'; ipconfig /flushdns`;
-      const psCmd = `powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList \\"-Command ${innerCmd}\\""`;
+      const innerCmd = String.raw`Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ServerAddresses '94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'; ipconfig /flushdns`;
+      const psCmd = String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`;
       
       await execAsync(psCmd);
       console.log(`[AdBlock] Successfully bound ${adapter} system-wide to AdGuard!`);
@@ -235,6 +254,48 @@ ipcMain.handle("system:get-dns-info", async () => {
   return { status: "Inactive / Scanning Failed" };
 });
 
+ipcMain.handle("vpn:toggle", async (event, config) => {
+  try {
+    if (activeVpnFile) {
+      // Deactivate existing tunnel
+      console.log("[VPN] Deactivating tunnel...");
+      await execAsync(`wg-quick down "${activeVpnFile}"`).catch(e => console.warn("wg-quick down failed:", e.message));
+      if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
+      activeVpnFile = null;
+      return { success: true, message: "VPN Tunnel Disconnected." };
+    } else {
+      // Activate new tunnel
+      if (!config || !config.PrivateKey) throw new Error("Invalid WireGuard configuration received.");
+
+      const confContent = `
+[Interface]
+PrivateKey = ${config.PrivateKey}
+Address = ${config.Address}
+DNS = ${config.DNS}
+MTU = ${config.MTU}
+
+[Peer]
+PublicKey = ${config.PublicKey}
+Endpoint = ${config.Endpoint}
+AllowedIPs = ${config.AllowedIPs}
+`.trim();
+
+      const tempPath = path.join(app.getPath("temp"), `honours-vpn-${config.Id || 'default'}.conf`);
+      fs.writeFileSync(tempPath, confContent);
+      activeVpnFile = tempPath;
+
+      console.log(`[VPN] Activating tunnel via ${tempPath}...`);
+      // Note: wg-quick requires admin/root privileges on most systems
+      await execAsync(`wg-quick up "${tempPath}"`);
+      return { success: true, message: "VPN Tunnel Active." };
+    }
+  } catch (err) {
+    console.error("[VPN IPC Error]:", err.message);
+    activeVpnFile = null; // Reset on failure
+    return { success: false, message: `VPN Error: ${err.message}` };
+  }
+});
+
 let mainWindow;
 
 function createWindow() {
@@ -258,9 +319,20 @@ function createWindow() {
 }
 
 app.on("before-quit", async (e) => {
-  console.log("[QUIT] App closing, forcefully resetting adapter DNS back to normal network.");
-  // Block app killing briefly to ensure the DNS is reset seamlessly so the user isn't bricked
+  console.log("[QUIT] App closing, cleaning up system services...");
+  // Block app killing briefly to ensure transitions are seamless
   e.preventDefault();
+  
+  if (activeVpnFile) {
+    try {
+      console.log("[QUIT] Shutting down active VPN...");
+      await execAsync(`wg-quick down "${activeVpnFile}"`);
+      if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
+    } catch (err) {
+      console.warn("[QUIT] VPN cleanup failed:", err.message);
+    }
+  }
+
   await safeResetDNS();
   app.exit();
 });

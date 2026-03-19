@@ -4,14 +4,16 @@
 
 let _bridgeReady = false;
 let _extensionId: string | null = null;
-let _isInExtensionIframe =
-  typeof window !== "undefined" && window.self !== window.top;
+let _isInExtensionIframe = false; // Initialized to false, will be detected later
+
+// Removed unused imports BackgroundMessage, MessageAction as they are not used in this file but exported from types.ts
 
 export const env = {
   requestIdCounter: 0,
   pendingRequests: new Map<number, (response: any) => void>(),
+  isLocalhost: false,
   get bridgeReady() {
-    return _bridgeReady || (typeof window !== "undefined" && !!_extensionId);
+    return _bridgeReady || (typeof globalThis.window !== "undefined" && !!_extensionId);
   },
   set bridgeReady(v) {
     _bridgeReady = v;
@@ -27,13 +29,29 @@ export const env = {
   },
 };
 
+// Detect environment on load
+if (globalThis !== undefined && globalThis.window !== undefined) {
+  // Check if we are in an iframe
+  try {
+    env.isInExtensionIframe = globalThis.window !== globalThis.top;
+  } catch (e) {
+    // If accessing globalThis.top throws an error (e.g., cross-origin iframe),
+    // we assume it's an iframe.
+    env.isInExtensionIframe = true;
+  }
+
+  // Check if running on localhost
+  const url = globalThis.window.location.href;
+  env.isLocalhost = url.includes("localhost") || url.includes("127.0.0.1");
+}
+
 export const setIsInExtensionIframe = (inIframe: boolean) => {
   _isInExtensionIframe = inIframe;
 };
 
 // Listen for messages from parent or from content script discovery
-if (typeof window !== "undefined") {
-  window.addEventListener("message", (event) => {
+if (typeof globalThis.window !== "undefined") {
+  globalThis.window.addEventListener("message", (event) => {
     if (!event.data || typeof event.data !== "object") return;
 
     // 0. Security: Origin Validation
@@ -95,44 +113,61 @@ const waitForBridge = (): Promise<void> => {
 async function callBackground(action: string, data: any = {}): Promise<any> {
   const requestId = env.requestIdCounter++;
 
-  return new Promise(async (resolve, reject) => {
+  return new Promise((resolve) => {
+    // P1: Add 10-second timeout to prevent orphaned promises
+    const timeoutId = setTimeout(() => {
+      if (env.pendingRequests.has(requestId)) {
+        console.warn(`[Chrome Bridge] Request ${requestId} (${action}) timed out after 10s.`);
+        env.pendingRequests.delete(requestId);
+        resolve({ success: false, error: "timeout" });
+      }
+    }, 10000);
+
+    // Wrapper resolve to clear timeout
+    const wrappedResolve = (response: any) => {
+      clearTimeout(timeoutId);
+      resolve(response);
+    };
+
     // Track callback
-    env.pendingRequests.set(requestId, resolve);
+    env.pendingRequests.set(requestId, wrappedResolve);
 
     // a) If direct external sendMessage is available (Dev Mode on localhost)
     if (
       _extensionId &&
-      typeof chrome !== "undefined" &&
+      chrome !== undefined &&
       chrome.runtime?.sendMessage
     ) {
-      try {
-        const response = await (chrome.runtime.sendMessage(_extensionId, {
-          action,
-          ...data,
-        }) as Promise<any>).catch((err) => {
-          console.debug("[Chrome Bridge] callBackground caught async error:", err.message);
-          return { success: false, error: err.message };
-        });
-        env.pendingRequests.delete(requestId);
-        resolve(response);
-        return;
-      } catch (e: any) {
-        console.warn(
-          "[Chrome Bridge] External sendMessage failed, falling back...",
-          e.message
-        );
-      }
+      chrome.runtime.sendMessage(_extensionId, {
+        action,
+        ...data,
+      }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.debug("[Chrome Bridge] callBackground caught runtime error:", chrome.runtime.lastError.message);
+          env.pendingRequests.delete(requestId);
+          wrappedResolve({ success: false, error: chrome.runtime.lastError.message });
+        } else {
+          env.pendingRequests.delete(requestId);
+          wrappedResolve(response);
+        }
+      });
+      return;
     }
 
     // b) If in Iframe, use postMessage to parent
-    if (env.isInExtensionIframe && window.parent) {
-      // Security: Use specific target origin if known, otherwise fallback to "*" only if strictly necessary for discovery
-      const targetOrigin = _extensionId ? `chrome-extension://${_extensionId}` : (window.location.origin === "http://localhost:3000" ? "*" : window.location.origin);
-      window.parent.postMessage({ action, requestId, data }, targetOrigin);
+    if (env.isInExtensionIframe && globalThis?.parent) {
+      // Security: Use specific target origin if known
+      let targetOrigin = "*";
+      if (_extensionId) {
+        targetOrigin = `chrome-extension://${_extensionId}`;
+      } else if (!env.isLocalhost) {
+        targetOrigin = globalThis?.location?.origin ?? "*";
+      }
+      globalThis?.parent?.postMessage({ action, requestId, data }, targetOrigin);
     } else {
       // No bridge available
       env.pendingRequests.delete(requestId);
-      resolve({ success: false, error: "No bridge available", mock: true });
+      wrappedResolve({ success: false, error: "No bridge available", mock: true });
     }
   });
 }
@@ -140,9 +175,13 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
 export const chromeBridge = {
   isAvailable(): boolean {
     // 1. Native extension environment (popup/options)
-    if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.id) return true;
+    if (chrome?.runtime?.id) {
+      return true;
+    }
     // 2. Iframe Dev environment
-    if (env.isInExtensionIframe || _extensionId) return true;
+    if (env.isInExtensionIframe || _extensionId) {
+      return true;
+    }
     return false;
   },
 
@@ -150,7 +189,7 @@ export const chromeBridge = {
     console.log("[Chrome Bridge] queryTabs called");
 
     // 1. Native Extension Context
-    if (typeof chrome !== "undefined" && chrome?.tabs?.query && !env.isInExtensionIframe) {
+    if (chrome?.tabs?.query && !env.isInExtensionIframe) {
       return new Promise((r) => {
         chrome.tabs.query(query, (tabs) => {
           if (chrome.runtime.lastError) {
