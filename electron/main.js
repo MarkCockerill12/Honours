@@ -276,7 +276,7 @@ ipcMain.handle("vpn:toggle", async (event, config) => {
 PrivateKey = ${clientPrivateKey}
 Address = 10.0.0.2/32
 DNS = 1.1.1.1
-MTU = 1420
+MTU = ${config.MTU || 1280}
 
 [Peer]
 PublicKey = ${config.PublicKey}

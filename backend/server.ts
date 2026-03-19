@@ -216,7 +216,7 @@ app.post("/api/vpn/connect", async (req, res) => {
       }
     }, 60 * 60 * 1000); // 1 Hour
 
-    // 4. Return Dynamic Payload (v2.0)
+    // 4. Return Dynamic Payload (v2.1)
     res.json({
       success: true,
       config: {
@@ -224,7 +224,7 @@ app.post("/api/vpn/connect", async (req, res) => {
         PublicIp: publicIp,
         PublicKey: WG_PUBLIC_KEYS[serverId],
         Port: 51820,
-        MTU: 1280,
+        MTU: 1280, // Essential for the "Double Tunnel" setup
       }
     });
   } catch (error: any) {

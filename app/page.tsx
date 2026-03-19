@@ -92,7 +92,7 @@ export default function Home() {
       chrome.storage?.local
     ) {
       try {
-        const targetId = selectedServerId || selectedServer.id || "us";
+        const targetId = selectedServerId || selectedServer.id;
         const config = await getVpnConfig(targetId);
         await chrome.storage.local.set({
           vpnConfig: { publicIp: config.PublicIp },
