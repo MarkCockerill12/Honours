@@ -1,9 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ScrollView, StatusBar } from 'react-native';
-import { Shield, Lock, Activity, Palette } from 'lucide-react-native';
+import { Shield, Activity, Palette } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Constants from 'expo-constants';
 import WireGuardVPN from 'react-native-wireguard-vpn';
-import { ProtectionToggles } from './components/ProtectionToggles';
+import { ProtectionToggles } from '../components/ProtectionToggles';
 import { VPN_SERVERS } from '../lib/vpn';
 import type { ServerLocation } from '../components/types';
 
@@ -42,8 +43,9 @@ export default function App() {
       } else {
         console.log("[VPN] Requesting dynamic config...");
         setIsStarting(true);
-        // Use the backend URL (replace with your production API URL)
-        const API_URL = "http://localhost:8080"; 
+        // Find the machine's local IP dynamically so physical phone can connect
+        const IP = Constants.expoConfig?.hostUri?.split(':').shift() || 'localhost';
+        const API_URL = `http://${IP}:8080`; 
         
         const response = await fetch(`${API_URL}/api/vpn/connect`, {
           method: "POST",
@@ -76,16 +78,16 @@ AllowedIPs = 0.0.0.0/0
           await (WireGuardVPN as any).activate(configString, "HonoursVPN");
         } else {
           // Fallback to connect if activate is not available
-          await WireGuardVPN.connect(
-            config.Id,
-            clientPrivateKey,
-            config.PublicKey,
-            `${config.PublicIp}:${config.Port || 51820}`,
-            "10.0.0.2/32",
-            "1.1.1.1",
-            "0.0.0.0/0",
-            1420
-          );
+          await WireGuardVPN.connect({
+            privateKey: clientPrivateKey,
+            publicKey: config.PublicKey,
+            serverAddress: config.PublicIp,
+            serverPort: config.Port || 51820,
+            address: "10.0.0.2/32",
+            dns: ["1.1.1.1"],
+            allowedIPs: ["0.0.0.0/0"],
+            mtu: config.MTU || 1280
+          });
         }
 
         setProtection(prev => ({ ...prev, vpnEnabled: true }));

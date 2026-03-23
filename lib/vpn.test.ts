@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { VPN_SERVERS, getVpnConfig } from "./vpn";
 
 describe("VPN_SERVERS", () => {
@@ -20,16 +20,43 @@ describe("VPN_SERVERS", () => {
   });
 
   it("includes the Germany (AWS) server", () => {
-    const ger = VPN_SERVERS.find(s => s.id === "aws-eu-1");
+    const ger = VPN_SERVERS.find(s => s.id === "de");
     expect(ger).toBeDefined();
     expect(ger?.country).toBe("Germany");
   });
 });
 
 describe("getVpnConfig", () => {
-  it("is an async function", () => {
-    expect(typeof getVpnConfig).toBe("function");
+  it("successfully fetches config", async () => {
+    const mockConfig = { PublicIp: "1.2.3.4" };
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ config: mockConfig }),
+    });
+
+    const config = await getVpnConfig("us");
+    expect(config).toEqual(mockConfig);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/vpn/connect"),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ serverId: "us" }),
+      })
+    );
   });
 
-  // Note: Actual API call tests would require mocking fetch
+  it("throws error when response is not ok", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      statusText: "Internal Server Error",
+    });
+
+    await expect(getVpnConfig("us")).rejects.toThrow("Failed to fetch VPN config: Internal Server Error");
+  });
+
+  it("throws error on network failure", async () => {
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network Error"));
+
+    await expect(getVpnConfig("us")).rejects.toThrow("Network Error");
+  });
 });

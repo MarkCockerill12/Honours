@@ -15,17 +15,18 @@ describe("chromeBridge", () => {
       top: { name: "top" },
       parent: {
         postMessage: vi.fn((payload) => {
-          setTimeout(() => {
+          // Sync response: immediately trigger the callback if it exists
+          if (payload.requestId !== undefined) {
             const callback = bridgeModule.env.pendingRequests.get(payload.requestId);
             if (callback) {
               if (payload.action === 'QUERY_TABS') {
                 callback({ tabs: [{ id: 1, url: 'http://localhost' }] });
               } else {
-                callback({ response: { success: false, mock: true } });
+                callback({ response: { success: false } });
               }
               bridgeModule.env.pendingRequests.delete(payload.requestId);
             }
-          }, 10);
+          }
         }),
       },
       addEventListener: vi.fn(),
@@ -35,6 +36,7 @@ describe("chromeBridge", () => {
       },
     };
     vi.stubGlobal("window", mockWindow);
+    vi.stubGlobal("parent", mockWindow.parent);
   });
 
   it("detects API availability correctly", () => {
@@ -82,11 +84,10 @@ describe("chromeBridge", () => {
   });
 
   describe("sendMessage", () => {
-    it("uses mock failure when bridge is missing", async () => {
+    it("uses failure when bridge is missing", async () => {
       setIsInExtensionIframe(true);
       const result = await chromeBridge.sendMessage(1, { action: "TEST" });
       expect(result.success).toBe(false);
-      expect(result.mock).toBe(true);
     });
 
     it("uses direct chrome.tabs.sendMessage when available", async () => {

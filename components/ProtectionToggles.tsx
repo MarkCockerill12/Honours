@@ -89,7 +89,7 @@ export function ProtectionToggles({
         <Switch
           checked={protection.vpnEnabled}
           onCheckedChange={protection.isActive ? undefined : onVpnToggle}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
           disabled={isVpnLocked}
         />
       </div>
@@ -113,7 +113,7 @@ export function ProtectionToggles({
         <Switch
           checked={protection.adblockEnabled}
           onCheckedChange={onAdblockToggle}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
         />
       </div>
       <div
@@ -135,7 +135,7 @@ export function ProtectionToggles({
         <Switch
           checked={protection.filteringEnabled}
           onCheckedChange={onFilteringToggle}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e: React.MouseEvent) => e.stopPropagation()}
         />
       </div>
     </div>

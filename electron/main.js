@@ -212,18 +212,26 @@ ipcMain.handle("adblock:enable", async () => {
     // System-Wide DNS Overrides using PowerShell + prompt
     const adapter = await getActiveAdapter();
     if (!adapter) throw new Error("Could not find an active physical network adapter to protect.");
+    const innerCmd = String.raw`Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ServerAddresses '94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'; ipconfig /flushdns`;
 
     try {
-      // Set to AdGuard Default DNS (IPv4 + IPv6) using pure Windows UAC Elevation
-      const innerCmd = String.raw`Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ServerAddresses '94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'; ipconfig /flushdns`;
-      const psCmd = String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`;
-      
-      await execAsync(psCmd);
-      console.log(`[AdBlock] Successfully bound ${adapter} system-wide to AdGuard!`);
+      // 1. Try silent/direct set first (works if already elevated)
+      console.log(`[AdBlock] Attempting silent DNS bind for ${adapter}...`);
+      await execAsync(`powershell -Command "${innerCmd}"`);
+      console.log(`[AdBlock] Successfully bound ${adapter} system-wide (direct).`);
       return { success: true, message: "System-wide network layer protection active." };
-    } catch (error) {
-      console.error("[AdBlock] Privilege override rejected:", error);
-      return { success: false, message: `System-wide protection requires elevated permissions. User cancelled UAC.` };
+    } catch (err) {
+      console.log("[AdBlock] Direct set failed, attempting elevated bind via UAC prompt...");
+      // 2. Try with UAC prompt
+      const psCmd = String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`;
+      try {
+        await execAsync(psCmd);
+        console.log(`[AdBlock] Successfully bound ${adapter} system-wide (elevated).`);
+        return { success: true, message: "System-wide network layer protection active." };
+      } catch (uacError) {
+        console.error("[AdBlock] Privilege override rejected:", uacError);
+        return { success: false, message: "System-wide protection requires elevated permissions. User cancelled UAC." };
+      }
     }
 
   } catch (err) {

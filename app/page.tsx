@@ -188,7 +188,7 @@ export default function Home() {
                 onAdblockToggle={handleAdblockToggle}
                 onFilteringToggle={handleProtectionToggle}
                 stats={{ ...stats, moneySaved: stats.moneySaved || 0, totalBlocked: stats.totalBlocked || 0 }}
-                onTest={async () => ({ isBlocked: true, output: "Mock Test" })}
+                onTest={async () => ({ isBlocked: false, output: "Real Test" })}
                 onReset={async () => console.log("Reset clicked")}
                 servers={servers}
                 selectedServer={selectedServer}

@@ -176,7 +176,7 @@ export function DesktopApp({
 
         {/* Main Dashboard */}
         <div ref={dashboardRef} className="flex-1 flex flex-col overflow-hidden items-center perspective-[1000px]">
-          <div className="w-full max-w-7xl px-8 py-8 lg:px-12 flex-1 overflow-y-auto custom-scrollbar">
+          <div className="w-full max-w-full px-8 py-8 lg:px-24 flex-1 overflow-y-auto custom-scrollbar">
             <div className="grid grid-cols-1 md:grid-cols-12 gap-10 items-start py-4">
               
               {/* Left Side: System Integrity & Stats */}
@@ -378,7 +378,7 @@ function ActivationArea({
     <div className={`h-full rounded-4xl ${glassCardClass} p-8 lg:p-10 relative overflow-hidden flex flex-col items-center justify-center transition-all duration-700 hover-lift ${protection.isActive ? "border-emerald-500/30 shadow-[0_0_80px_rgba(16,185,129,0.1)]" : "border-red-500/20"}`}>
       <div className={`absolute inset-0 transition-opacity duration-1000 ${protection.isActive ? "opacity-10 animate-pulse" : "opacity-0"} pointer-events-none bg-emerald-500 blur-[120px]`} />
 
-      <div className="relative z-10 flex flex-col items-center text-center w-full max-w-lg">
+      <div className="relative z-10 flex flex-col items-center text-center w-full">
         <div className="mb-6">
           <h2 className={`text-3xl lg:text-4xl font-black ${colors.text} mb-2 tracking-tighter ${protection.isActive ? "drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]" : ""} transition-all duration-500`}>
             {statusHeading}

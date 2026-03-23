@@ -135,7 +135,7 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
     // a) If direct external sendMessage is available (Dev Mode on localhost)
     if (
       _extensionId &&
-      chrome !== undefined &&
+      typeof chrome !== "undefined" &&
       chrome.runtime?.sendMessage
     ) {
       chrome.runtime.sendMessage(_extensionId, {
@@ -167,7 +167,7 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
     } else {
       // No bridge available
       env.pendingRequests.delete(requestId);
-      wrappedResolve({ success: false, error: "No bridge available", mock: true });
+      wrappedResolve({ success: false, error: "No bridge available" });
     }
   });
 }
@@ -175,7 +175,7 @@ async function callBackground(action: string, data: any = {}): Promise<any> {
 export const chromeBridge = {
   isAvailable(): boolean {
     // 1. Native extension environment (popup/options)
-    if (chrome?.runtime?.id) {
+    if (typeof chrome !== "undefined" && chrome?.runtime?.id) {
       return true;
     }
     // 2. Iframe Dev environment
@@ -189,7 +189,7 @@ export const chromeBridge = {
     console.log("[Chrome Bridge] queryTabs called");
 
     // 1. Native Extension Context
-    if (chrome?.tabs?.query && !env.isInExtensionIframe) {
+    if (typeof chrome !== "undefined" && chrome?.tabs?.query && !env.isInExtensionIframe) {
       return new Promise((r) => {
         chrome.tabs.query(query, (tabs) => {
           if (chrome.runtime.lastError) {
@@ -205,12 +205,7 @@ export const chromeBridge = {
     // 2. Dev Bridge/External Mode
     await waitForBridge();
     const result = await callBackground("QUERY_TABS", { query });
-    return (
-      result.tabs ||
-      (result.success
-        ? []
-        : [{ id: 1, url: "http://localhost", active: true } as any])
-    );
+    return result.tabs || [];
   },
 
   async sendMessage(tabId: number, message: any): Promise<any> {

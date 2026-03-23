@@ -42,11 +42,11 @@ export function SystemToggles({
     {
       id: "vpn",
       icon: Lock,
-      label: "Encrypted VPN (BETA)",
+      label: "Encrypted VPN",
       description: "Route traffic via secure tunnel",
       enabled: vpn,
       onToggle: onVpnToggle,
-      isBeta: true
+      isBeta: false
     },
   ], [systemAdblock, vpn, onSystemAdblockToggle, onVpnToggle]);
 

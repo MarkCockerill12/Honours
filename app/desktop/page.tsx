@@ -102,7 +102,7 @@ export default function DesktopPage() {
     }
   }, [protection.isActive]);
 
-  // VPN is currently in Beta but now supported via dynamic provisioning
+  // VPN is fully supported via dynamic provisioning
   const isVpnSupported = true;
 
   // On mount: check status
@@ -266,7 +266,7 @@ export default function DesktopPage() {
     setProtection((prev) => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
     if (protection.isActive) {
       setError(
-        "VPN connectivity is currently in Beta and cannot be toggled while active.",
+        "VPN connectivity cannot be toggled while active.",
       );
     }
   }, [protection.isActive]);
