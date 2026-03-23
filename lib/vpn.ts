@@ -25,7 +25,11 @@ export const getVpnConfig = async (serverId: string) => {
 
     const data = await response.json();
     return data.config;
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message === 'Failed to fetch') {
+      console.error("[VPN Client Error] Backend orchestrator unreachable. Ensure 'npm run backend' is active on port 8080.");
+      throw new Error("Backend orchestrator unreachable. Please ensure the backend service is running.");
+    }
     console.error("[VPN Client Error]:", error);
     throw error;
   }
