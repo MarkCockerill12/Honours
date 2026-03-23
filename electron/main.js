@@ -22,6 +22,12 @@ let adblockStats = {
 };
 const STATS_PATH = path.join(app.getPath("userData"), "adblock-stats.json");
 let activeVpnFile = null;
+let activeVpnConfig = null;
+let adBlocker = null;
+
+// Graceful termination handlers for Ctrl+C and terminal close
+process.on("SIGINT", () => app.quit());
+process.on("SIGTERM", () => app.quit());
 
 // Helper to get public IP
 async function getPublicIP() {
@@ -179,6 +185,18 @@ async function getDNS(adapter) {
   }
 }
 
+// Helper to restart VPN if active to apply new DNS settings
+async function restartVpnIfActive() {
+  if (activeVpnFile && activeVpnConfig) {
+    console.log("[VPN] AdBlock state changed. Restarting VPN to sync DNS...");
+    const currentConfig = activeVpnConfig;
+    // Toggle off
+    await execAsync(`wg-quick down "${activeVpnFile}"`).catch(() => {});
+    // Toggle back on (re-generates file with new DNS)
+    await ipcMain.emit("vpn:toggle", {}, currentConfig);
+  }
+}
+
 // Ensure the DNS resets safely!
 async function safeResetDNS() {
   const adapter = await getActiveAdapter();
@@ -202,11 +220,24 @@ ipcMain.handle("adblock:enable", async () => {
     const { ElectronBlocker } = require('@ghostery/adblocker-electron');
     const crossFetch = require('cross-fetch');
     
-    // Ghostery Engine
-    const blocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(crossFetch);
+    // Ghostery Engine (Singleton Pattern)
+    if (!adBlocker) {
+      console.log("[AdBlock] Initializing Ghostery engine...");
+      adBlocker = await ElectronBlocker.fromPrebuiltAdsAndTracking(crossFetch);
+    }
+    
     if (app.isReady() && require('electron').session.defaultSession) {
-      blocker.enableBlockingInSession(require('electron').session.defaultSession);
-      console.log("[AdBlock] Ghostery engine enabled in App session.");
+      // Only enable if not already active in session to prevent "second handler" error
+      try {
+        adBlocker.enableBlockingInSession(require('electron').session.defaultSession);
+        console.log("[AdBlock] Ghostery engine active in App session.");
+      } catch (err) {
+        if (err.message?.includes("second handler")) {
+          console.log("[AdBlock] Engine already active in session, skipping re-registration.");
+        } else {
+          throw err;
+        }
+      }
     }
 
     // System-Wide DNS Overrides using PowerShell + prompt
@@ -226,7 +257,8 @@ ipcMain.handle("adblock:enable", async () => {
       const psCmd = String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`;
       try {
         await execAsync(psCmd);
-        console.log(`[AdBlock] Successfully bound ${adapter} system-wide (elevated).`);
+      console.log(`[AdBlock] Successfully bound ${adapter} system-wide (elevated).`);
+        await restartVpnIfActive();
         return { success: true, message: "System-wide network layer protection active." };
       } catch (uacError) {
         console.error("[AdBlock] Privilege override rejected:", uacError);
@@ -241,6 +273,7 @@ ipcMain.handle("adblock:enable", async () => {
 
 ipcMain.handle("adblock:disable", async () => {
   await safeResetDNS();
+  await restartVpnIfActive();
   return { success: true, message: "Protection session detached and DNS restored natively." };
 });
 
@@ -270,12 +303,19 @@ ipcMain.handle("vpn:toggle", async (event, config) => {
       await execAsync(`wg-quick down "${activeVpnFile}"`).catch(e => console.warn("wg-quick down failed:", e.message));
       if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
       activeVpnFile = null;
+      activeVpnConfig = null;
       return { success: true, message: "VPN Tunnel Disconnected." };
     } else {
       // Activate new tunnel
       if (!config || !config.PublicIp || !config.PublicKey) {
         throw new Error("Invalid WireGuard configuration received (v2.0). Missing IP or Key.");
       }
+      
+      activeVpnConfig = config;
+
+      // AdBlock Sync: Check if system-wide AdBlock is active
+      const adState = await getAdBlockStatus();
+      const dnsServers = adState.active ? "94.140.14.14, 94.140.15.15" : "1.1.1.1";
 
       // v2.0 Client-Side Profile Generation
       const clientPrivateKey = process.env.WG_CLIENT_PRIVATE_KEY || "CLIENT_PRIVATE_KEY_PLACEHOLDER";
@@ -283,7 +323,7 @@ ipcMain.handle("vpn:toggle", async (event, config) => {
 [Interface]
 PrivateKey = ${clientPrivateKey}
 Address = 10.0.0.2/32
-DNS = 1.1.1.1
+DNS = ${dnsServers}
 MTU = ${config.MTU || 1280}
 
 [Peer]
@@ -335,18 +375,42 @@ app.on("before-quit", async (e) => {
   // Block app killing briefly to ensure transitions are seamless
   e.preventDefault();
   
-  if (activeVpnFile) {
-    try {
+  try {
+    if (activeVpnFile) {
       console.log("[QUIT] Shutting down active VPN...");
-      await execAsync(`wg-quick down "${activeVpnFile}"`);
-      if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
-    } catch (err) {
-      console.warn("[QUIT] VPN cleanup failed:", err.message);
+      // Use synchronous exec to ensure it finishes before process ends if needed,
+      // but wg-quick down is usually fast.
+      const { execSync } = require("node:child_process");
+      try {
+        execSync(`wg-quick down "${activeVpnFile}"`, { windowsHide: true });
+        if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
+      } catch (vErr) {
+        console.warn("[QUIT] VPN cleanup failed:", vErr.message);
+      }
     }
-  }
 
-  await safeResetDNS();
-  app.exit();
+    // FINAL ROBUST DNS RESET
+    const adapter = await getActiveAdapter();
+    if (adapter) {
+      console.log(`[QUIT] Restoring native DNS for ${adapter} (Final)...`);
+      const { execSync } = require("node:child_process");
+      try {
+        // Try direct reset first
+        execSync(String.raw`powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses"`, { windowsHide: true });
+      } catch (dnsErr) {
+        // If direct fails (not elevated), we attempt the UAC prompt one last time, 
+        // but this might be interrupted by OS shutdown if forced.
+        console.warn("[QUIT] Silent reset failed, attempting final elevated reset.");
+        const innerCmd = `Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses`;
+        execSync(String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`, { windowsHide: true });
+      }
+    }
+  } catch (err) {
+    console.error("[QUIT] Critical cleanup error:", err);
+  } finally {
+    console.log("[QUIT] Cleanup complete. Exiting.");
+    app.exit();
+  }
 });
 
 async function initConfig() {

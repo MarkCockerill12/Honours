@@ -26,6 +26,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'shield' | 'vpn' | 'stats'>('shield');
   const [selectedServer, setSelectedServer] = useState<ServerLocation>(VPN_SERVERS[0]);
   const [isStarting, setIsStarting] = useState(false);
+  const [lastVpnConfig, setLastVpnConfig] = useState<any>(null);
 
   const toggleProtection = useCallback(() => {
     setProtection(prev => ({
@@ -56,14 +57,17 @@ export default function App() {
         if (!response.ok) throw new Error("Backend provisioning failed");
         
         const { config } = await response.json();
-        
+        setLastVpnConfig(config);
+
+        const dnsServers = protection.adblockEnabled ? ["94.140.14.14", "94.140.15.15"] : ["1.1.1.1"];
+
         // v2.0 Native Profile Generation
         const clientPrivateKey = "CLIENT_PRIVATE_KEY_PLACEHOLDER";
         const configString = `
 [Interface]
 PrivateKey = ${clientPrivateKey}
 Address = 10.0.0.2/32
-DNS = 1.1.1.1
+DNS = ${dnsServers.join(', ')}
 MTU = ${config.MTU || 1280}
 
 [Peer]
@@ -84,7 +88,7 @@ AllowedIPs = 0.0.0.0/0
             serverAddress: config.PublicIp,
             serverPort: config.Port || 51820,
             address: "10.0.0.2/32",
-            dns: ["1.1.1.1"],
+            dns: dnsServers,
             allowedIPs: ["0.0.0.0/0"],
             mtu: config.MTU || 1280
           });
@@ -98,14 +102,42 @@ AllowedIPs = 0.0.0.0/0
     } finally {
       setIsStarting(false);
     }
-  }, [protection.vpnEnabled, selectedServer]);
+  }, [protection.vpnEnabled, protection.adblockEnabled, selectedServer]);
 
-  const toggleAdblock = useCallback(() => {
+  const toggleAdblock = useCallback(async () => {
+    const newState = !protection.adblockEnabled;
     setProtection(prev => ({
       ...prev,
-      adblockEnabled: !prev.adblockEnabled
+      adblockEnabled: newState
     }));
-  }, []);
+
+    // If VPN is active, we MUST re-connect to apply the updated DNS
+    if (protection.vpnEnabled && lastVpnConfig) {
+      console.log("[VPN] AdBlock state changed. Syncing VPN DNS...");
+      
+      // Perform a silent re-connection
+      try {
+        await WireGuardVPN.disconnect();
+        
+        const dnsServers = newState ? ["94.140.14.14", "94.140.15.15"] : ["1.1.1.1"];
+        const clientPrivateKey = "CLIENT_PRIVATE_KEY_PLACEHOLDER";
+        
+        // Re-connect with same peer but updated DNS
+        await WireGuardVPN.connect({
+          privateKey: clientPrivateKey,
+          publicKey: lastVpnConfig.PublicKey,
+          serverAddress: lastVpnConfig.PublicIp,
+          serverPort: lastVpnConfig.Port || 51820,
+          address: "10.0.0.2/32",
+          dns: dnsServers,
+          allowedIPs: ["0.0.0.0/0"],
+          mtu: lastVpnConfig.MTU || 1280
+        });
+      } catch (err) {
+        console.warn("[VPN] Sync failed during AdBlock toggle:", err);
+      }
+    }
+  }, [protection.adblockEnabled, protection.vpnEnabled, lastVpnConfig]);
 
   return (
     <View style={styles.container}>

@@ -28,13 +28,13 @@ const ec2Client = new EC2Client({
   },
 });
 
-// Regional Instance Registry (v2.1 Verified)
-const SERVER_INSTANCE_MAP: Record<string, string> = {
-  "us": process.env.EC2_INSTANCE_ID_US || "i-02f17a665289ae5f7",
-  "uk": process.env.EC2_INSTANCE_ID_UK || "i-06dcee259d573a2ed",
-  "de": process.env.EC2_INSTANCE_ID_GERMANY || "i-027c360c443bb3c0d",
-  "jp": process.env.EC2_INSTANCE_ID_JAPAN || "i-090d2a528447141a3",
-  "au": process.env.EC2_INSTANCE_ID_AUSTRALIA || "i-07a82efdf8c908ac1",
+// Regional Config (v2.2 Dynamic AWS)
+const SERVER_REGION_MAP: Record<string, string> = {
+  "us": "us-east-1",
+  "uk": "eu-west-2",
+  "de": "eu-central-1",
+  "jp": "ap-northeast-1",
+  "au": "ap-southeast-2",
 };
 
 const WG_PUBLIC_KEYS: Record<string, string> = {
@@ -44,6 +44,27 @@ const WG_PUBLIC_KEYS: Record<string, string> = {
   "jp": "oi7o2tSdayG36iXdOpC1euaTczVnPKosT/V9r4Ioy0s=",
   "au": "VSE/OJ4XyjBsa/nedLRdo8ZMP0jnAoKzg5aOpmnrDhs=",
 };
+
+const ec2Clients: Record<string, EC2Client> = {};
+function getEC2Client(region: string) {
+  if (!ec2Clients[region]) {
+    ec2Clients[region] = new EC2Client({
+      region,
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+      },
+    });
+  }
+  return ec2Clients[region];
+}
+
+async function findInstanceIdByTagName(client: EC2Client, tagName: string) {
+  const result = await client.send(new DescribeInstancesCommand({
+    Filters: [{ Name: "tag:Name", Values: [tagName] }]
+  }));
+  return result.Reservations?.[0]?.Instances?.[0]?.InstanceId;
+}
 
 // Auto-shutdown timers map
 const shutdownTimers: Record<string, NodeJS.Timeout> = {};
@@ -164,16 +185,21 @@ app.post("/api/vpn/connect", async (req, res) => {
     }
 
     const { serverId } = result.data;
-    const instanceId = SERVER_INSTANCE_MAP[serverId];
+    const region = SERVER_REGION_MAP[serverId];
+    if (!region) return res.status(404).json({ error: "Server region not configured" });
+
+    const client = getEC2Client(region);
+    const tagName = `VPN-${serverId.toUpperCase()}`;
+    const instanceId = await findInstanceIdByTagName(client, tagName);
 
     if (!instanceId) {
-      return res.status(404).json({ error: "Server configuration not found" });
+      return res.status(404).json({ error: `Instance with tag ${tagName} not found in ${region}` });
     }
 
-    console.log(`[VPN] Starting instance ${instanceId} for server ${serverId}...`);
+    console.log(`[VPN] Starting instance ${instanceId} (${tagName}) in ${region}...`);
 
     // 1. Start Instance
-    await ec2Client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }));
+    await client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }));
 
     // 2. Poll for Status & IP
     let publicIp = "";
@@ -181,7 +207,7 @@ app.post("/api/vpn/connect", async (req, res) => {
     const maxAttempts = 30; // 5 minutes with 10s intervals
 
     while (attempts < maxAttempts) {
-      const { Reservations } = await ec2Client.send(
+      const { Reservations } = await client.send(
         new DescribeInstancesCommand({ InstanceIds: [instanceId] })
       );
 
@@ -209,7 +235,7 @@ app.post("/api/vpn/connect", async (req, res) => {
     shutdownTimers[instanceId] = setTimeout(async () => {
       console.log(`[Auto-Shutdown] Stopping idle instance: ${instanceId}`);
       try {
-        await ec2Client.send(new StopInstancesCommand({ InstanceIds: [instanceId] }));
+        await client.send(new StopInstancesCommand({ InstanceIds: [instanceId] }));
         delete shutdownTimers[instanceId];
       } catch (err) {
         console.error(`[Auto-Shutdown] Failed to stop ${instanceId}:`, err);
@@ -240,14 +266,19 @@ app.post("/api/vpn/connect", async (req, res) => {
 app.post("/api/vpn/disconnect", async (req, res) => {
   try {
     const { serverId } = req.body;
-    const instanceId = SERVER_INSTANCE_MAP[serverId];
+    const region = SERVER_REGION_MAP[serverId];
+    if (!region) return res.status(400).json({ error: "Invalid serverId" });
+
+    const client = getEC2Client(region);
+    const tagName = `VPN-${serverId.toUpperCase()}`;
+    const instanceId = await findInstanceIdByTagName(client, tagName);
 
     if (!instanceId) {
-      return res.status(400).json({ error: "Invalid serverId" });
+      return res.status(404).json({ error: "Server instance not found" });
     }
 
     console.log(`[VPN] Stopping instance ${instanceId}...`);
-    await ec2Client.send(new StopInstancesCommand({ InstanceIds: [instanceId] }));
+    await client.send(new StopInstancesCommand({ InstanceIds: [instanceId] }));
 
     res.json({ success: true, message: "Disconnecting and shutting down server." });
   } catch (error: any) {

@@ -222,6 +222,7 @@ export default function DesktopPage() {
           }
         }
 
+        let vpnSuccess = false;
         if (protection.vpnEnabled) {
           if (isElectron()) {
             const api = (globalThis.window as any).electron;
@@ -235,6 +236,7 @@ export default function DesktopPage() {
               const vpnResult = await api.vpn.toggle(config);
               
               if (vpnResult.success) {
+                vpnSuccess = true;
                 setStatusMessage(`VPN Active: Secure tunnel via ${selectedServer.name}.`);
                 setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "active" } : s));
               } else {
@@ -246,13 +248,14 @@ export default function DesktopPage() {
               setError(`VPN Provisioning Failed: ${err.message}`);
             }
           } else {
+            vpnSuccess = true;
             setStatusMessage("VPN Simulation Mode Active.");
           }
         }
 
         const canActivate =
           (protection.adblockEnabled && adBlockSuccess) ||
-          (protection.vpnEnabled && isVpnSupported);
+          (protection.vpnEnabled && vpnSuccess);
         setProtection((prev) => ({ ...prev, isActive: canActivate }));
         await updateDnsInfo();
       }
@@ -319,6 +322,44 @@ export default function DesktopPage() {
     }
   }, [protection, updateDnsInfo]);
 
+  const handleServerSelect = useCallback(async (server: ServerLocation) => {
+    const previousServer = selectedServer;
+    setSelectedServer(server);
+
+    if (protection.isActive && protection.vpnEnabled && isElectron()) {
+      if (previousServer?.id === server.id) return;
+      
+      setIsToggling(true);
+      setStatusMessage(`Swapping VPN node to ${server.name}...`);
+      
+      try {
+        const api = (globalThis.window as any).electron;
+        
+        // 1. Drop current tunnel
+        await api.vpn.toggle(null);
+        setServers(prev => prev.map(s => s.id === previousServer?.id ? { ...s, status: "off" } : s));
+
+        // 2. Provision new tunnel
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, status: "starting" } : s));
+        const config = await getVpnConfig(server.id);
+        const result = await api.vpn.toggle(config);
+
+        if (result.success) {
+          setStatusMessage(`VPN Swapped: Secure tunnel now via ${server.name}.`);
+          setServers(prev => prev.map(s => s.id === server.id ? { ...s, status: "active" } : s));
+        } else {
+          setError(`VPN Swap Failed: ${result.message}`);
+          setServers(prev => prev.map(s => s.id === server.id ? { ...s, status: "off" } : s));
+        }
+      } catch (err: any) {
+        setError(`VPN Migration Error: ${err.message}`);
+        setServers(prev => prev.map(s => s.id === server.id ? { ...s, status: "off" } : s));
+      } finally {
+        setIsToggling(false);
+      }
+    }
+  }, [protection.isActive, protection.vpnEnabled, selectedServer, setServers, setStatusMessage, setIsToggling, setError]);
+
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
       <div className="h-screen overflow-hidden bg-zinc-950 flex flex-col">
@@ -364,7 +405,7 @@ export default function DesktopPage() {
           setTheme={setTheme}
           servers={servers}
           selectedServer={selectedServer}
-          onServerSelect={setSelectedServer}
+          onServerSelect={handleServerSelect}
         />
       </div>
     </ThemeProvider>
