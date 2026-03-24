@@ -186,17 +186,28 @@ export default function DesktopPage() {
     try {
       if (protection.isActive) {
         // === DEACTIVATE ===
-        if (protection.adblockEnabled && isElectron()) {
+        if (isElectron()) {
           const api = (globalThis.window as any).electron;
-          const result = await api.systemAdBlock.disable();
-          if (result.success) {
-            setStatusMessage(
-              "Protection Disabled: All system settings restored.",
-            );
-          } else {
-            setError(`Restoration Error: ${result.message}`);
+
+          // 1. Disconnect VPN tunnel + stop EC2
+          if (protection.vpnEnabled) {
+            await api.vpn.toggle(null); // drops WireGuard tunnel
+            if (selectedServer) {
+              await api.vpn.deprovision(selectedServer.id); // stops EC2 instance
+              setServers(prev => prev.map(s => s.id === selectedServer.id ? { ...s, status: "off" } : s));
+            }
           }
-        } else if (!isElectron()) {
+
+          // 2. Disable AdBlock DNS
+          if (protection.adblockEnabled) {
+            const result = await api.systemAdBlock.disable();
+            if (result.success) {
+              setStatusMessage("Protection Disabled: All system settings restored.");
+            } else {
+              setError(`Restoration Error: ${result.message}`);
+            }
+          }
+        } else {
           setStatusMessage("Simulation disabled.");
         }
         setProtection((prev) => ({ ...prev, isActive: false }));

@@ -495,21 +495,43 @@ function createWindow() {
 
 app.on("before-quit", async (e) => {
   console.log("[QUIT] App closing, cleaning up system services...");
-  // Block app killing briefly to ensure transitions are seamless
   e.preventDefault();
   
   try {
     if (activeVpnFile) {
-      console.log("[QUIT] Shutting down active VPN...");
-      // Use synchronous exec to ensure it finishes before process ends if needed,
-      // but wg-quick down is usually fast.
+      console.log("[QUIT] Shutting down active VPN tunnel...");
       const { execSync } = require("node:child_process");
       try {
         execSync(`wg-quick down "${activeVpnFile}"`, { windowsHide: true });
         if (fs.existsSync(activeVpnFile)) fs.unlinkSync(activeVpnFile);
-      } catch (vErr) {
-        console.warn("[QUIT] VPN cleanup failed:", vErr.message);
+      } catch (error_) {
+        console.warn("[QUIT] VPN tunnel cleanup failed:", error_.message);
       }
+
+      // Stop the EC2 instance to prevent ongoing charges
+      if (activeVpnConfig?.Id) {
+        const region = SERVER_REGION_MAP[activeVpnConfig.Id];
+        if (region) {
+          console.log(`[QUIT] Stopping EC2 instance for ${activeVpnConfig.Id}...`);
+          try {
+            const client = getEC2Client(region);
+            const tagName = `VPN-${activeVpnConfig.Id.toUpperCase()}`;
+            const inst = await findInstanceByTag(client, tagName);
+            if (inst?.InstanceId) {
+              await client.send(new StopInstancesCommand({ InstanceIds: [inst.InstanceId] }));
+              console.log(`[QUIT] EC2 stop command sent for ${inst.InstanceId}.`);
+            }
+          } catch (error_) {
+            console.warn("[QUIT] EC2 shutdown failed:", error_.message);
+          }
+        }
+      }
+    }
+
+    // Clear any auto-shutdown timers
+    for (const [id, timer] of Object.entries(shutdownTimers)) {
+      clearTimeout(timer);
+      delete shutdownTimers[id];
     }
 
     // FINAL ROBUST DNS RESET
@@ -518,12 +540,9 @@ app.on("before-quit", async (e) => {
       console.log(`[QUIT] Restoring native DNS for ${adapter} (Final)...`);
       const { execSync } = require("node:child_process");
       try {
-        // Try direct reset first
         execSync(String.raw`powershell -Command "Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses"`, { windowsHide: true });
-      } catch (dnsErr) {
-        // If direct fails (not elevated), we attempt the UAC prompt one last time, 
-        // but this might be interrupted by OS shutdown if forced.
-        console.warn("[QUIT] Silent reset failed, attempting final elevated reset.");
+      } catch (error_) {
+        console.warn("[QUIT] Silent reset failed, attempting elevated reset:", error_.message);
         const innerCmd = `Set-DnsClientServerAddress -InterfaceAlias '${adapter}' -ResetServerAddresses`;
         execSync(String.raw`powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd}'"`, { windowsHide: true });
       }
