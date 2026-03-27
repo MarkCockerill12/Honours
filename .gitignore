@@ -3,6 +3,10 @@
 # dependencies
 node_modules/
 
+packages/ui/node_modules
+.node_modules/
+*/node_modules
+
 /.pnp
 .pnp.*
 .yarn/*
@@ -15,12 +19,12 @@ node_modules/
 /coverage
 
 # next.js
-/.next/
-/out/
-/extension-dist/
+.next/
+out/
+extension-dist/
 
 # production
-/build
+.build/
 
 # misc
 .DS_Store
@@ -44,3 +48,7 @@ next-env.d.ts
 
 .geminiignore
 .report_draft.md
+.turbo/
+dist/
+report_draft.md
+lint_output.txt

@@ -2,7 +2,7 @@ import React from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 
-import { StatsProvider } from "@/components/StatsProvider";
+import { StatsProvider } from "@privacy-shield/core";
 
 
 

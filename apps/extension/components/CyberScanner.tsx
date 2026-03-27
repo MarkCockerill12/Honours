@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
+import { Button } from "@privacy-shield/core";
+import { Switch } from "@privacy-shield/core";
 import { ShieldAlert, ShieldCheck, Scan, FileText, Globe } from "lucide-react";
 import anime from "animejs";
-import { scanUrl, ScanResult } from "../Utils/security";
-import { chromeBridge } from "../Utils/chromeBridge";
+import { scanUrl, ScanResult } from "../utils/security";
+import { chromeBridge } from "../utils/chromeBridge";
 
 export function CyberScanner() {
   const [currentUrl, setCurrentUrl] = useState("");

@@ -4,9 +4,9 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
-      "@privacy-shield/shared": ["../../packages/shared"],
-      "@privacy-shield/ui": ["../../packages/ui"]
-    }
+      "@privacy-shield/core": ["../../packages/core"]
+    },
+    "types": ["node", "react", "react-dom"]
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
   "exclude": ["node_modules"]

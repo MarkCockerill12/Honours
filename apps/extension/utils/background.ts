@@ -1,5 +1,5 @@
 import { scanUrl, checkSafeBrowsing } from "./security";
-import type { ProtectionState } from "@/components/types";
+import type { ProtectionState } from "@privacy-shield/core";
 import {
   setupDeclarativeNetRequestRules,
   isAdOrTracker,
@@ -10,8 +10,8 @@ import {
   addException,
   removeException,
 } from "./adBlockEngine";
-import { isPdfUrl, hasBypassParam } from "@/lib/urlUtils";
-import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@/lib/constants";
+import { isPdfUrl, hasBypassParam } from "@privacy-shield/core";
+import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core";
 
 let adBlockEnabled = false;
 let protectionEnabled = false;
@@ -23,7 +23,7 @@ let adBlockSetupError: string | null = null;
 const allowedPdfs = new Map<number, Set<string>>(); // Tab-session specific allowlist
 
 // HOISTED HELPER FUNCTIONS
-async function setupPdfRule(enabled: boolean) {
+async function setupPdfRule(_enabled: boolean) {
   try {
     const PDF_RULE_ID = 90000;
     if (chrome.declarativeNetRequest) {
@@ -31,7 +31,9 @@ async function setupPdfRule(enabled: boolean) {
         removeRuleIds: [PDF_RULE_ID],
       });
     }
-  } catch (err) {}
+  } catch (error) {
+    console.warn("[Background] PDF rule cleanup failed:", (error as Error).message);
+  }
 }
 
 const syncAdBlockState = async () => {
@@ -75,7 +77,7 @@ const syncAdBlockState = async () => {
   } catch (e: any) {
     console.error("[Background] Sync failed:", e);
     adBlockSetupStatus = "error";
-    adBlockSetupError = e.message;
+    adBlockSetupError = (e as Error).message || String(e);
   } finally {
     isSyncing = false;
   }
@@ -164,7 +166,7 @@ const injectContentScripts = async () => {
         );
       } catch (err: any) {
         console.debug(
-          `[Background] Could not inject into tab ${tab.id}: ${err.message}`,
+          `[Background] Could not inject into tab ${tab.id}: ${(err as Error).message || String(err)}`,
         );
       }
     }
@@ -228,7 +230,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
   if (changeInfo.status === "loading" && tab.url) {
     const isPdf = isPdfUrl(tab.url);
-    const isLocal = tab.url.startsWith("file://");
+    const _isLocal = tab.url.startsWith("file://");
     const tabAllowed = allowedPdfs.get(tabId);
     const bypass = hasBypassParam(tab.url) || tabAllowed?.has(tab.url);
 
@@ -276,8 +278,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
           allowedPdfs.delete(tabId);
         }
       }
-    } catch (e) {
-      console.error("[Background] PDF cleanup sweep failed:", e);
+    } catch (_error) {
+      console.error("[Background] PDF cleanup sweep failed:", _error);
     }
   }
 });
@@ -351,8 +353,8 @@ async function handleContentActions(request: any) {
 
   try {
     return await chrome.tabs.sendMessage(tabs[0].id, request);
-  } catch (e: any) {
-    return { success: false, error: `Content script not ready: ${e.message}` };
+  } catch (error: unknown) {
+    return { success: false, error: `Content script not ready: ${(error as Error).message || String(error)}` };
   }
 }
 
@@ -440,8 +442,8 @@ async function handleSummarizeAction(request: any) {
     const summary =
       data.choices?.[0]?.message?.content || "No summary generated.";
     return { success: true, summary };
-  } catch (e: any) {
-    return { success: false, error: e.message };
+  } catch (error: unknown) {
+    return { success: false, error: (error as Error).message || String(error) };
   }
 }
 
@@ -495,19 +497,19 @@ async function handleRequest(
   sender: chrome.runtime.MessageSender,
 ) {
   const adBlockResult = await handleAdBlockActions(request, sender).catch(
-    (e) => ({ success: false, error: e.message }),
+    (error: Error) => ({ success: false, error: error.message }),
   );
   if (adBlockResult !== null) return adBlockResult;
-  return handleOtherActions(request).catch((e) => ({
+  return handleOtherActions(request).catch((error: Error) => ({
     success: false,
-    error: e.message,
+    error: error.message,
   }));
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   handleRequest(request, sender)
     .then(sendResponse)
-    .catch((error) => sendResponse({ success: false, error: error.message }));
+    .catch((error: Error) => sendResponse({ success: false, error: error.message }));
   return true;
 });
 

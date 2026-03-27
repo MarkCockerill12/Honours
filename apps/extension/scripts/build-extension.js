@@ -28,8 +28,8 @@ const watchMode = process.argv.includes("--watch");
 
 const buildConfig = {
   entryPoints: {
-    "content-script": "./app/extension/Utils/content.ts",
-    background: "./app/extension/Utils/background.ts",
+    "content-script": "./utils/content.ts",
+    background: "./utils/background.ts",
   },
   bundle: true,
   outdir: "extension-dist",
@@ -40,14 +40,16 @@ const buildConfig = {
     "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
     "process.env.GROQ_API_KEY": JSON.stringify(process.env.GROQ_API_KEY || ""),
   },
+  tsconfig: path.resolve(__dirname, "../tsconfig.json"),
 };
 
 if (watchMode) {
   console.log("👁️  Watching for changes in extension files...");
   chokidar
     .watch([
-      "./app/extension/**/*.ts",
-      "./app/extension/**/*.tsx",
+      "./utils/**/*.ts",
+      "./utils/**/*.tsx",
+      "./components/**/*.tsx",
     ])
     .on("change", async (path) => {
       console.log("⚡ File changed:", path);

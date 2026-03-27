@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@privacy-shield/core";
 import { Sparkles, Loader2, ChevronDown, ChevronUp, Settings as SettingsIcon } from "lucide-react";
-import { useTheme } from "@/components/ThemeProvider";
+import { useTheme } from "@privacy-shield/core";
 import anime from "animejs";
-import { chromeBridge } from "../Utils/chromeBridge";
+import { chromeBridge } from "../utils/chromeBridge";
 
 export function AiSummary() {
   const [summary, setSummary] = useState<string | null>(null);

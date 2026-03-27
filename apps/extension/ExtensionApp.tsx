@@ -9,13 +9,13 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useTheme } from "@/components/ThemeProvider";
-import { ActivationButton } from "@/components/ActivationButton";
-import { ProtectionToggles } from "@/components/ProtectionToggles";
-import { ScalableContainer } from "@/components/ScalableContainer";
-import type { ProtectionState, Theme, SmartFilter } from "@/components/types";
+} from "@privacy-shield/core";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@privacy-shield/core";
+import { useTheme } from "@privacy-shield/core";
+import { ActivationButton } from "@privacy-shield/core";
+import { ProtectionToggles } from "@privacy-shield/core";
+import { ScalableContainer } from "@privacy-shield/core";
+import { ProtectionState, BlockStats, Theme, SmartFilter } from "@privacy-shield/core";
 import { SmartFilters } from "./components/SmartFilters";
 import { CyberScanner } from "./components/CyberScanner";
 import { Translator } from "./components/Translator";
@@ -24,8 +24,7 @@ import { AiSummary } from "./components/AiSummary";
 import {
   getBlockStats,
   resetBlockStats,
-  type BlockStats,
-} from "./Utils/adBlockEngine";
+} from "./utils/adBlockEngine";
 
 interface ExtensionAppProps {
   protection: ProtectionState;
@@ -224,7 +223,11 @@ function StatItem({ label, value, unit, unitPrefix, highlight, colors }: Readonl
   return (
     <div className={`p-3 ${colors.bgSecondary} flex flex-col items-center justify-center text-center`}>
       <span className={`text-[10px] uppercase font-bold tracking-wider ${colors.textSecondary} mb-1`}>{label}</span>
-      <span className={`font-black tracking-tight ${highlight ? `text-xl ${colors.success} drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]` : `text-[15px] pt-1 ${colors.text}`}`}>
+      <span className={`font-black tracking-tight ${
+        highlight 
+          ? `text-xl ${colors.success} drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]` 
+          : `text-[15px] pt-1 ${colors.text}`
+      }`}>
         {unitPrefix && <span className={`text-xs ${colors.textSecondary} mr-0.5`}>{unit}</span>}
         {value}
         {!unitPrefix && unit && <span className={`text-xs ${colors.textSecondary} ml-0.5`}>{unit}</span>}

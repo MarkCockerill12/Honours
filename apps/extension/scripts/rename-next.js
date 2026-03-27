@@ -8,6 +8,30 @@ const outDir = path.join(__dirname, '..', 'out');
  * Also removes internal Next.js meta files (.txt) and updates references in code.
  */
 
+// Helper to handle Windows file locking (EPERM) during rename
+function robustMoveSync(src, dest) {
+  if (!fs.existsSync(src)) return;
+  try {
+    // Try rename first (fastest)
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if (err.code === 'EPERM' || err.code === 'EXDEV') {
+      console.warn(`⚠️ Rename failed for ${src} (${err.code}), falling back to copy+delete...`);
+      try {
+        // Copy directory or file
+        fs.cpSync(src, dest, { recursive: true });
+        // Delete original
+        fs.rmSync(src, { recursive: true, force: true });
+      } catch (copyErr) {
+        console.error(`❌ Robust move failed: ${copyErr.message}`);
+        throw copyErr;
+      }
+    } else {
+      throw err;
+    }
+  }
+}
+
 function processDirRecursive(dir) {
   if (!fs.existsSync(dir)) return;
   
@@ -19,9 +43,8 @@ function processDirRecursive(dir) {
     
     // 1. Handle Directories
     if (stat.isDirectory()) {
-      let targetName = item;
       if (item.startsWith('_')) {
-        targetName = item.replace(/^_+/, ''); // Remove all leading underscores
+        const targetName = item.replace(/^_+/, ''); // Remove all leading underscores
         const newPath = path.join(dir, targetName);
         
         // Handle potential collisions (though unlikely in Next.js export)
@@ -29,11 +52,11 @@ function processDirRecursive(dir) {
           console.warn(`⚠️ Collision detected: ${newPath} already exists. Merging...`);
           // Basic merge: move contents and delete old
           fs.readdirSync(fullPath).forEach(sub => {
-            fs.renameSync(path.join(fullPath, sub), path.join(newPath, sub));
+            robustMoveSync(path.join(fullPath, sub), path.join(newPath, sub));
           });
           fs.rmdirSync(fullPath);
         } else {
-          fs.renameSync(fullPath, newPath);
+          robustMoveSync(fullPath, newPath);
         }
         processDirRecursive(newPath);
       } else {
@@ -51,7 +74,7 @@ function processDirRecursive(dir) {
       if (item.startsWith('_')) {
         const targetName = item.replace(/^_+/, '');
         const newPath = path.join(dir, targetName);
-        fs.renameSync(fullPath, newPath);
+        robustMoveSync(fullPath, newPath);
       }
 
       // 3. Update references in relevant file types

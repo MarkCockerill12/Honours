@@ -4,9 +4,7 @@ import { Shield, Activity, Palette } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 import WireGuardVPN from 'react-native-wireguard-vpn';
-import { ProtectionToggles } from '../components/ProtectionToggles';
-import { VPN_SERVERS } from '../lib/vpn';
-import type { ServerLocation } from '../components/types';
+import { ProtectionToggles, VPN_SERVERS, type ServerLocation } from '@privacy-shield/core';
 
 interface ProtectionState {
   isActive: boolean;

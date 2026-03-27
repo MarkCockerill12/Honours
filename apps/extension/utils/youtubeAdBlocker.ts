@@ -131,10 +131,10 @@ const runAdCheck = (player: HTMLElement, isHeavy = false): boolean => {
         adWasDetected = true; // Consider closing an overlay as handling an ad element
       }
     }
-  } catch (e) {
+  } catch (_error) {
     // Fatal error check: kill speed-up just in case
     killPlaybackManipulation(video);
-    console.error("[YouTube AdBlock] Check failed:", e);
+    console.error("[YouTube AdBlock] Check failed:", _error);
   } finally {
     isProcessingAd = false;
   }
@@ -145,7 +145,7 @@ export const initYouTubeAdBlocker = () => {
   if (!globalThis.location.hostname.includes("youtube.com") || !isContextValid()) return;
   chrome.storage.local.get(["protectionState"], (res) => {
     if (!isContextValid()) return;
-    const s = res.protectionState as any;
+    const s = res.protectionState as Record<string, any>;
     if (s?.isActive && s?.adblockEnabled) enableYouTubeAdBlocker();
   });
 };
@@ -199,7 +199,7 @@ export const enableYouTubeAdBlocker = () => {
           startPolling(500);
         }
       }
-    }, delay) as any;
+    }, delay);
   };
 
   startPolling(currentPollingDelay); // Start with current delay

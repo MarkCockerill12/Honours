@@ -1,5 +1,5 @@
 // Uses heuristic analysis, pattern matching, and known threat databases
-import { COMPREHENSIVE_DOMAINS } from "@/lib/constants";
+import { COMPREHENSIVE_DOMAINS } from "@privacy-shield/core";
 
 // Local Threat Database — expanded with comprehensive lists
 const THREAT_DB = {
@@ -329,7 +329,7 @@ export const scanUrl = (urlString: string): ScanResult => {
 
     console.log(`[Security] URL is SAFE (score ${score}/10): ${urlString}`);
     return { url: urlString, isSafe: true, isMalicious: false, threatType: "safe", score };
-  } catch (e) {
+  } catch (_error) {
     console.log(
       `[Security] Invalid URL format, treating as safe: ${urlString}`,
     );
@@ -403,15 +403,15 @@ export const checkSafeBrowsing = async (
 
     if (matches.length > 0) {
       const threats = matches.map(
-        (m: any) => `${m.threatType} (${m.platformType})`,
+        (m: { threatType: string; platformType: string }) => `${m.threatType} (${m.platformType})`,
       );
       console.log(`[Security] Safe Browsing THREAT for ${url}:`, threats);
       return { isMalicious: true, threats, source: "google_safe_browsing" };
     }
 
     return { isMalicious: false, threats: [], source: "google_safe_browsing" };
-  } catch (e) {
-    console.warn("[Security] Safe Browsing API call failed:", e);
+  } catch (error: unknown) {
+    console.warn("[Security] Safe Browsing API call failed:", error);
     return { isMalicious: false, threats: [], source: "google_safe_browsing" };
   }
 };

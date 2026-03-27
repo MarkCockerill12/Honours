@@ -4,30 +4,26 @@
   "private": true,
   "scripts": {
     "dev": "concurrently -k \"next dev\" \"node scripts/build-extension.js --watch\"",
-    "build": "node scripts/clean.js && node scripts/build-extension.js && next build && node scripts/rename-next.js && node scripts/extract-inline-scripts.js",
+    "build": "node scripts/clean.js && node scripts/build-extension.js && next build && node scripts/rename-next.js && node scripts/extract-inline-scripts.js && node scripts/finalize-build.js",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "clean": "rimraf .next out extension-dist .turbo"
   },
   "dependencies": {
-    "@privacy-shield/shared": "workspace:*",
-    "@privacy-shield/ui": "workspace:*",
     "@ghostery/adblocker": "^2.14.1",
     "@ghostery/adblocker-webextension": "^2.14.1",
+    "@privacy-shield/core": "workspace:*",
     "animejs": "^3.2.2",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "google-translate-api-browser": "^5.0.0",
     "lucide-react": "^0.454.0",
     "next": "^16.1.6",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "tailwind-merge": "^3.3.1",
-    "tailwindcss-animate": "^1.0.7"
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
     "@types/animejs": "^3.1.13",
     "@types/chrome": "^0.1.36",
+    "@types/eslint__js": "^9.14.0",
     "@types/node": "^22",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -36,6 +32,7 @@
     "esbuild": "^0.27.3",
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
-    "tw-animate-css": "1.3.3"
+    "tw-animate-css": "1.3.3",
+    "vitest": "^4.1.1"
   }
 }

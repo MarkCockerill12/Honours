@@ -10,7 +10,7 @@ let _isInExtensionIframe = false; // Initialized to false, will be detected late
 
 export const env = {
   requestIdCounter: 0,
-  pendingRequests: new Map<number, (response: any) => void>(),
+  pendingRequests: new Map<number, (response: any) => void>(), // Keep any for bridge responses as they vary wildly
   isLocalhost: false,
   get bridgeReady() {
     return _bridgeReady || (typeof globalThis.window !== "undefined" && !!_extensionId);
@@ -34,7 +34,7 @@ if (globalThis !== undefined && globalThis.window !== undefined) {
   // Check if we are in an iframe
   try {
     env.isInExtensionIframe = globalThis.window !== globalThis.top;
-  } catch (e) {
+  } catch (_error) {
     // If accessing globalThis.top throws an error (e.g., cross-origin iframe),
     // we assume it's an iframe.
     env.isInExtensionIframe = true;
@@ -69,7 +69,7 @@ if (typeof globalThis.window !== "undefined") {
       return;
     }
 
-    const { action, requestId, tabs, response, error, available } = event.data;
+    const { action, requestId, tabs, response, error, available: _available } = event.data;
 
     // 2. Iframe Bridge Ready
     if (action === "CHROME_BRIDGE_READY") {
@@ -239,8 +239,8 @@ export const chromeBridge = {
                   r(response);
                 }
             });
-          } catch (e) {
-            console.warn(`[Chrome Bridge] sendMessage(${message.action}) failed:`, e);
+          } catch (error) {
+            console.warn(`[Chrome Bridge] sendMessage(${message.action}) failed:`, error);
             r({ success: false, error: "context_invalidated" });
           }
         });
@@ -261,8 +261,8 @@ export const chromeBridge = {
                 r(response);
               }
             });
-          } catch (e) {
-            console.warn("[Chrome Bridge] runtime.sendMessage failed:", e);
+          } catch (error) {
+            console.warn("[Chrome Bridge] runtime.sendMessage failed:", error);
             r({ success: false, error: "context_invalidated" });
           }
         });

@@ -2,9 +2,9 @@
 // Multi-layer approach: declarativeNetRequest + Element Hiding + YouTube Specific
 import { WebExtensionBlocker } from "@ghostery/adblocker-webextension";
 import { Request } from "@ghostery/adblocker";
-import type { ProtectionState, BlockStats } from "@/components/types";
-import { AD_SELECTORS, COMPREHENSIVE_DOMAINS, computeBlockDelta } from "@/lib/constants";
-import { isPdfUrl, hasBypassParam } from "@/lib/urlUtils";
+import type { ProtectionState, BlockStats } from "@privacy-shield/core";
+export type { BlockStats };
+import { COMPREHENSIVE_DOMAINS, computeBlockDelta } from "@privacy-shield/core";
 
 let blocker: WebExtensionBlocker | null = null;
 let engineReady = false;
@@ -23,7 +23,7 @@ export const initAdBlocker = async () => {
   }
 };
 
-export type { BlockStats };
+export type AdCategory = "ads" | "trackers" | "analytics" | "social" | "youtube";
 
 // Average sizes for different request types (in bytes)
 const AVG_SIZES = {
@@ -115,12 +115,12 @@ export const initBlockStats = async (): Promise<BlockStats> => {
 };
 
 let memoryStats: BlockStats | null = null;
-let saveTimeout: any = null;
+let saveTimeout: NodeJS.Timeout | null = null;
 
 export const recordBlockedRequest = async (
   resourceType: string,
   url: string,
-  category: "ads" | "trackers" | "analytics" | "social" | "youtube",
+  category: AdCategory,
 ) => {
   memoryStats ??= await initBlockStats();
 
@@ -137,25 +137,26 @@ export const recordBlockedRequest = async (
 
   console.log(`[AdBlock] Blocked ${category}: ${url.substring(0, 50)}... (${(size / 1024).toFixed(1)}KB saved)`);
 
-  if (saveTimeout) clearTimeout(saveTimeout);
-  saveTimeout = setTimeout(async () => {
-    if (isChromeStorageAvailable()) {
-      await chrome.storage.local.set({ blockStats: memoryStats });
-    } else {
-      saveStatsToLocalStorage(memoryStats!);
-    }
-
-    const api = (globalThis as any).window?.electron;
-    if (api?.systemAdBlock?.recordBlock) {
-      try {
-        await api.systemAdBlock.recordBlock({ size, category });
-      } catch (err) {
-        console.debug("[AdBlock] Failed to record block to Electron:", err);
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+      if (isChromeStorageAvailable()) {
+        await chrome.storage.local.set({ blockStats: memoryStats });
+      } else {
+        saveStatsToLocalStorage(memoryStats!);
       }
-    }
-    
-    saveTimeout = null;
-  }, 2000);
+
+      // @ts-expect-error - electron API is injected at runtime
+      const api = globalThis.window?.electron;
+      if (api?.systemAdBlock?.recordBlock) {
+        try {
+          await api.systemAdBlock.recordBlock({ size, category });
+        } catch (err) {
+          console.debug("[AdBlock] Failed to record block to Electron:", err);
+        }
+      }
+      
+      saveTimeout = null;
+    }, 2000);
 
   return memoryStats;
 };
@@ -179,13 +180,13 @@ export const isAdOrTracker = (
   sourceUrl: string = ""
 ): {
   isAd: boolean;
-  category: "ads" | "trackers" | "analytics" | "social" | "youtube" | null;
+  category: AdCategory | null;
 } => {
   if (blocker && engineReady) {
     const request = Request.fromRawDetails({ url, sourceUrl });
     const match = (blocker as any).match(request);
     if (match?.match) {
-      let category: "ads" | "trackers" | "analytics" | "social" | "youtube" = "ads";
+      let category: AdCategory = "ads";
       if (url.includes("youtube.com")) category = "youtube";
       const filterSpecs = match.getFilters?.() || [];
       if (filterSpecs.some((f: any) => f.getSpec().includes("social"))) category = "social";
@@ -195,6 +196,10 @@ export const isAdOrTracker = (
     }
   }
 
+  return checkFallbackMatch(url);
+};
+
+const checkFallbackMatch = (url: string): { isAd: boolean, category: AdCategory | null } => {
   const urlLower = url.toLowerCase();
   const isFallbackMatch = [
     "doubleclick.net", "googlesyndication.com", "googleadservices.com",
@@ -203,7 +208,7 @@ export const isAdOrTracker = (
   ].some(d => urlLower.includes(d));
 
   if (isFallbackMatch) {
-    let category: "ads" | "trackers" | "analytics" | "social" | "youtube" = "ads";
+    let category: AdCategory = "ads";
     if (urlLower.includes("facebook") || urlLower.includes("fbcdn")) category = "social";
     else if (urlLower.includes("analytics")) category = "analytics";
     else if (urlLower.includes("youtube")) category = "youtube";
@@ -290,7 +295,7 @@ export const setupDeclarativeNetRequestRules = async (): Promise<boolean> => {
     const chunkSize = 500;
     for (let i = 0; i < allRules.length; i += chunkSize) {
       const chunk = allRules.slice(i, i + chunkSize);
-      await chrome.declarativeNetRequest.updateDynamicRules({ addRules: chunk as any });
+      await chrome.declarativeNetRequest.updateDynamicRules({ addRules: chunk as chrome.declarativeNetRequest.Rule[] });
     }
     console.log(`[AdBlock] Injected ${allRules.length} manual declarativeNetRequest rules.`);
 
@@ -322,7 +327,7 @@ export const clearDeclarativeNetRequestRules = async (): Promise<boolean> => {
     const existingDynamic = await chrome.declarativeNetRequest.getDynamicRules();
     const dynamicIds = existingDynamic.map((r) => r.id);
 
-    const existingSession = await (chrome.declarativeNetRequest as any).getSessionRules?.() || [];
+    const existingSession = await (chrome.declarativeNetRequest).getSessionRules?.() || [];
     const sessionIds = existingSession.map((r: any) => r.id);
 
     if (dynamicIds.length > 0) {

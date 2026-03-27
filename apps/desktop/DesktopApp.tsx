@@ -8,13 +8,11 @@ import {
   AlertCircle,
   Activity,
   ShieldCheck,
+  Lock,
 } from "lucide-react";
 import anime from "animejs";
-import { useTheme } from "@/components/ThemeProvider";
-import { ActivationButton } from "@/components/ActivationButton";
-import { TrackerCard } from "@/components/TrackerCard";
-import type { ProtectionState, TrackerStats, Theme, ServerLocation } from "@/components/types";
-import { SystemToggles } from "./components/SystemToggles";
+import { useTheme, ActivationButton, TrackerCard, ProtectionToggles, APP_VERSION } from "@privacy-shield/core";
+import type { ProtectionState, TrackerStats, Theme, ServerLocation, ThemeColors } from "@privacy-shield/core";
 import { ServerList } from "./components/ServerList";
 
 interface DesktopAppProps {
@@ -22,7 +20,6 @@ interface DesktopAppProps {
   onProtectionToggle: () => void;
   onVpnToggle: () => void;
   onAdblockToggle: () => void;
-  onFilteringToggle: () => void;
   onTest: () => Promise<{ isBlocked: boolean; output: string } | null>;
   onReset: () => Promise<void>;
   stats: TrackerStats;
@@ -33,6 +30,7 @@ interface DesktopAppProps {
   servers: ServerLocation[];
   selectedServer: ServerLocation | null;
   onServerSelect: (server: ServerLocation) => void;
+  isAdmin?: boolean;
 }
 
 export function DesktopApp({
@@ -40,7 +38,6 @@ export function DesktopApp({
   onProtectionToggle,
   onVpnToggle,
   onAdblockToggle,
-  onFilteringToggle,
   onTest,
   onReset,
   stats,
@@ -51,6 +48,7 @@ export function DesktopApp({
   servers,
   selectedServer,
   onServerSelect,
+  isAdmin = true,
 }: Readonly<DesktopAppProps>) {
   const { colors, theme } = useTheme();
   const [testing, setTesting] = useState(false);
@@ -129,6 +127,20 @@ export function DesktopApp({
   const primaryAdapter = adapterNames.find((name) => dnsInfo[name].length > 0) || adapterNames[0] || "SCANNING";
   const activeDns = dnsInfo[primaryAdapter] || ["DEFAULT"];
 
+  const getGlow1Color = () => {
+    if (!protection.isActive) return "bg-red-500";
+    return theme === "cyberpunk" ? "bg-cyan-500" : "bg-emerald-500";
+  };
+
+  const getGlow2Color = () => {
+    if (!protection.isActive) return "bg-orange-600";
+    switch (theme) {
+      case "vaporwave": return "bg-pink-500";
+      case "cyberpunk": return "bg-yellow-400";
+      default: return "bg-blue-500";
+    }
+  };
+
   return (
     <div 
       className="w-full h-screen mx-auto overflow-hidden text-zinc-100 selection:bg-emerald-500/30"
@@ -138,11 +150,11 @@ export function DesktopApp({
         {/* Ambient Glows */}
         <div
           ref={glow1Ref}
-          className={`absolute -top-40 -left-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${protection.isActive ? (theme === "cyberpunk" ? "bg-cyan-500" : "bg-emerald-500") : "bg-red-500"}`}
+          className={`absolute -top-40 -left-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${getGlow1Color()}`}
         />
         <div
           ref={glow2Ref}
-          className={`absolute -bottom-40 -right-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${protection.isActive ? (theme === "vaporwave" ? "bg-pink-500" : theme === "cyberpunk" ? "bg-yellow-400" : "bg-blue-500") : "bg-orange-600"}`}
+          className={`absolute -bottom-40 -right-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${getGlow2Color()}`}
         />
 
         {/* Top Header Strip */}
@@ -169,7 +181,7 @@ export function DesktopApp({
               <Activity className="w-4 h-4" />
             </button>
             <div className={`text-[9px] font-mono px-3 py-1 rounded-full border ${colors.border} ${colors.textSecondary} opacity-60 bg-black/20`}>
-              BUILD v1.0.42 [STABLE]
+              BUILD {APP_VERSION}
             </div>
           </div>
         </div>
@@ -192,6 +204,7 @@ export function DesktopApp({
                     testResult={testResult}
                     dnsInfo={dnsInfo}
                     initialDns={initialDns}
+                    isAdmin={isAdmin}
                   />
                 </div>
                 
@@ -217,8 +230,8 @@ export function DesktopApp({
                   onProtectionToggle={onProtectionToggle}
                   onAdblockToggle={onAdblockToggle}
                   onVpnToggle={onVpnToggle}
-                  onFilteringToggle={onFilteringToggle}
                   loading={loading}
+                  isAdmin={isAdmin}
                 />
               </div>
             </div>
@@ -238,7 +251,7 @@ export function DesktopApp({
             </div>
             <div className="flex items-center gap-6 opacity-60">
               <span>PROTOCOL: AES-256-GCM</span>
-              <span>VERSION: 5.4.1-STABLE</span>
+              <span>VERSION: {APP_VERSION}</span>
             </div>
           </div>
         </div>
@@ -252,25 +265,26 @@ export function DesktopApp({
 interface IntegrityCardProps {
   protection: ProtectionState;
   glassCardClass: string;
-  colors: any;
+  colors: ThemeColors;
   onTest: () => void;
   onReset: () => void;
   testing: boolean;
   testResult: { isBlocked: boolean; output: string; summary?: string } | null;
   dnsInfo: Record<string, string[]>;
   initialDns: Record<string, string[]>;
+  isAdmin: boolean;
 }
 
 function IntegrityCard({ 
   protection, 
   glassCardClass, 
-  colors, 
   onTest, 
   onReset,
   testing,
   testResult,
   dnsInfo,
-  initialDns
+  initialDns,
+  isAdmin
 }: Readonly<IntegrityCardProps>) {
   const testButtonContent = useMemo(() => {
     if (testing) return { text: "VALIDATING...", icon: <div className="w-5 h-5 border-3 border-current border-t-transparent rounded-full animate-spin" /> };
@@ -308,6 +322,12 @@ function IntegrityCard({
             <span className="text-sm tracking-wide text-zinc-300 font-bold">DNS Node</span>
             <span className={`text-[10px] font-black px-3 py-1 rounded-full ${protection.isActive ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
               {protection.isActive ? "ADGUARD-PRIVATE" : "UNFILTERED"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
+            <span className="text-sm tracking-wide text-zinc-300 font-bold">Admin Privileges</span>
+            <span className={`text-[10px] font-black px-3 py-1 rounded-full ${isAdmin ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
+              {isAdmin ? "AUTHORIZED" : "UNPRIVILEGED"}
             </span>
           </div>
           <div className="flex items-center justify-between">
@@ -351,12 +371,12 @@ function IntegrityCard({
 interface ActivationAreaProps {
   protection: ProtectionState;
   glassCardClass: string;
-  colors: any;
+  colors: ThemeColors;
   onProtectionToggle: () => void;
   onVpnToggle: () => void;
   onAdblockToggle: () => void;
-  onFilteringToggle: () => void;
   loading: boolean;
+  isAdmin: boolean;
 }
 
 function ActivationArea({
@@ -366,8 +386,8 @@ function ActivationArea({
   onProtectionToggle,
   onVpnToggle,
   onAdblockToggle,
-  onFilteringToggle,
-  loading
+  loading,
+  isAdmin
 }: Readonly<ActivationAreaProps>) {
   const statusHeading = protection.isActive ? "SYSTEM SECURED" : "PROTECTION PAUSED";
   const statusSubtext = protection.isActive 
@@ -397,15 +417,32 @@ function ActivationArea({
             onToggle={onProtectionToggle}
             size="lg"
             loading={loading}
+            isAdmin={isAdmin}
           />
         </div>
 
         <div className="mt-10 w-full max-w-sm">
-          <SystemToggles
-            systemAdblock={protection.adblockEnabled}
-            onSystemAdblockToggle={onAdblockToggle}
-            vpn={protection.vpnEnabled}
-            onVpnToggle={onVpnToggle}
+          <ProtectionToggles
+            layout="vertical"
+            items={[
+              {
+                id: "adblock",
+                icon: Shield,
+                label: "System AdBlock",
+                description: isAdmin ? "Zero-lag network layer protection" : "Admin privileges required",
+                enabled: protection.adblockEnabled,
+                onToggle: onAdblockToggle,
+                disabled: !isAdmin
+              },
+              {
+                id: "vpn",
+                icon: Lock,
+                label: "Encrypted VPN",
+                description: "Route traffic via secure tunnel",
+                enabled: protection.vpnEnabled,
+                onToggle: onVpnToggle
+              }
+            ]}
           />
         </div>
       </div>

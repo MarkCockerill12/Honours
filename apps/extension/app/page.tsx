@@ -1,11 +1,11 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import ExtensionApp from "./ExtensionApp";
-import { ThemeProvider } from "@/components/ThemeProvider";
-import type { Theme, ProtectionState, SmartFilter } from "@/components/types";
-import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@/lib/constants";
-import { blurContent, clearBlurContent } from "./Utils/content";
-import { chromeBridge } from "./Utils/chromeBridge";
+import ExtensionApp from "../ExtensionApp";
+import { ThemeProvider } from "@privacy-shield/core";
+import type { Theme, ProtectionState, SmartFilter } from "@privacy-shield/core";
+import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core";
+import { blurContent, clearBlurContent } from "../utils/content";
+import { chromeBridge } from "../utils/chromeBridge";
 
 export default function ExtensionPage() {
   const [theme, setTheme] = useState<Theme>("dark");
@@ -147,7 +147,7 @@ export default function ExtensionPage() {
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
-      <div className="w-[400px] h-[600px] bg-zinc-950 overflow-y-auto">
+      <div className="w-100 h-150 bg-zinc-950 overflow-y-auto">
         <ExtensionApp
           protection={protection}
           onProtectionToggle={handleMasterToggle}

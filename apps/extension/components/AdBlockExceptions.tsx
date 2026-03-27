@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
+import { Label } from "@privacy-shield/core";
+import { Button } from "@privacy-shield/core";
 import {
   Globe,
   Trash2,
   Shield,
 } from "lucide-react";
-import { chromeBridge } from "../Utils/chromeBridge";
+import { chromeBridge } from "../utils/chromeBridge";
 import anime from "animejs";
 
 

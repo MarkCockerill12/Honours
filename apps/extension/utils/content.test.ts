@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { blurContent, clearBlurContent } from "./content";
-import { SmartFilter } from "../../../packages/ui/types";
+import { SmartFilter } from "@privacy-shield/core";
 
 describe("Content Filter (blurContent)", () => {
   let container: HTMLElement;
@@ -16,7 +16,7 @@ describe("Content Filter (blurContent)", () => {
   });
 
   afterEach(() => {
-    document.body.removeChild(container);
+    container.remove();
     clearBlurContent();
   });
 

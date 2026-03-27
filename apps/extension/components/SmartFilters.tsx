@@ -1,25 +1,24 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Switch } from "@privacy-shield/core";
+import { Label } from "@privacy-shield/core";
+import { Input } from "@privacy-shield/core";
+import { Button } from "@privacy-shield/core";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { useTheme } from "@/components/ThemeProvider";
+} from "@privacy-shield/core";
+import { useTheme } from "@privacy-shield/core";
 import {
   EyeOff,
   Shield,
   X,
 } from "lucide-react";
-import { SmartFilter, BlurMethod, BlockScope } from "@/components/types";
-import { chromeBridge } from "../Utils/chromeBridge";
+import { SmartFilter, BlurMethod, BlockScope } from "@privacy-shield/core";
 import anime from "animejs";
 
 interface SmartFiltersProps {
@@ -33,7 +32,7 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
   const [newExceptWhen, setNewExceptWhen] = useState("");
   const [newBlockScope, setNewBlockScope] = useState<BlockScope>("word");
   const [blurMethod, setBlurMethod] = useState<BlurMethod>("blur");
-  const [isTabReady, setIsTabReady] = useState<boolean | null>(null);
+  const [isTabReady, _setIsTabReady] = useState<boolean | null>(null);
   const { theme, colors } = useTheme();
 
   const glassCardClass = useMemo(() => {

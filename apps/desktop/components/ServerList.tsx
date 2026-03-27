@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { Signal, Activity, Loader2 } from "lucide-react";
-import { useTheme } from "@/components/ThemeProvider";
-import type { ServerLocation } from "@/components/types";
+import { Signal, Loader2 } from "lucide-react";
+import { useTheme } from "@privacy-shield/core";
+import type { ServerLocation } from "@privacy-shield/core";
 
 interface ServerListProps {
   servers: ServerLocation[];
@@ -15,25 +15,19 @@ export function ServerList({
   servers = [],
   selectedServer,
   onServerSelect,
-}: ServerListProps) {
+}: Readonly<ServerListProps>) {
   const { colors, theme } = useTheme();
 
-  const getPingColor = (ping: number) => {
-    if (ping < 50) return "text-emerald-400";
-    if (ping < 100) return "text-amber-400";
-    return "text-red-400";
+  const getGlassCardClass = () => {
+    switch (theme) {
+      case "dark": return "glass-card";
+      case "vaporwave": return "glass-card-vaporwave";
+      case "frutiger-aero": return "glass-card-frutiger";
+      default: return "glass-card-light";
+    }
   };
 
-  const getLoadColor = (load: number) => {
-    if (load < 40) return "bg-emerald-400";
-    if (load < 70) return "bg-amber-400";
-    return "bg-red-400";
-  };
-
-  const glassCardClass = 
-    theme === "dark" ? "glass-card" : 
-    theme === "vaporwave" ? "glass-card-vaporwave" : 
-    theme === "frutiger-aero" ? "glass-card-frutiger" : "glass-card-light";
+  const glassCardClass = getGlassCardClass();
 
   return (
     <div className={`space-y-4 flex flex-col min-h-0 p-6 rounded-3xl ${glassCardClass} border ${colors.border}`}>
@@ -86,7 +80,7 @@ export function ServerList({
                   )}
                   {isActive && isSelected && (
                     <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-widest">
-                      Active
+                      Connected
                     </span>
                   )}
                 </div>
@@ -97,22 +91,14 @@ export function ServerList({
 
               <div className="flex items-center gap-4">
                 {!isStarting && (
-                  <>
-                    <div className="flex flex-col items-end gap-1">
-                      <div className="flex items-center gap-1.5">
-                        <Signal size={12} className={getPingColor(server.ping)} />
-                        <span className={`text-[10px] font-mono font-bold ${getPingColor(server.ping)}`}>
-                          {server.ping}ms
-                        </span>
-                      </div>
-                      <div className="w-16 h-1 bg-white/5 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full ${getLoadColor(server.load)} transition-all duration-500`}
-                          style={{ width: `${server.load}%` }}
-                        />
-                      </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <Signal size={12} className={isActive && isSelected ? "text-emerald-400" : "text-zinc-500"} />
+                      <span className={`text-[10px] font-mono font-bold ${isActive && isSelected ? "text-emerald-400" : "text-zinc-500"}`}>
+                        {isActive && isSelected ? "Active" : "Ready"}
+                      </span>
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </button>

@@ -5,6 +5,9 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["../*"]
-    }
-  }
+    },
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
 }

@@ -1,18 +1,18 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@privacy-shield/core";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "@privacy-shield/core";
 import { Languages, RefreshCw, CheckCircle2, X } from "lucide-react";
-import { useTheme } from "@/components/ThemeProvider";
+import { useTheme } from "@privacy-shield/core";
 import anime from "animejs";
-import { chromeBridge } from "../Utils/chromeBridge";
+import { chromeBridge } from "../utils/chromeBridge";
 
 const SUPPORTED_LANGUAGES = [
   { code: "en", name: "English", flag: "🇬🇧" },

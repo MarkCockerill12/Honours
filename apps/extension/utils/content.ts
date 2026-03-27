@@ -1,7 +1,6 @@
-import { SmartFilter } from "@/components/types";
+import { SmartFilter, DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core";
 import { initYouTubeAdBlocker, enableYouTubeAdBlocker, disableYouTubeAdBlocker } from "./youtubeAdBlocker";
 import { scanUrl } from "./security";
-import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@/lib/constants";
 
 // --- INTERNAL STATE ---
 let currentProtectionState: any = null;
@@ -10,7 +9,7 @@ let currentBlurMethod: string = "blur";
 let lastAppliedFilterHash = "";
 let pageWarningBypassed = false;
 let pageWarningOverlay: HTMLElement | null = null;
-let filtersActive = false;
+let _filtersActive = false;
 const appliedElements: WeakRef<HTMLElement>[] = [];
 const originalContentMap = new WeakMap<HTMLElement, DocumentFragment>();
 
@@ -28,15 +27,13 @@ setInterval(() => {
     }
   }
 }, 30000); // Every 30 seconds if array is getting large
-// @ts-ignore
 const translatedElements = new Map<HTMLElement, string>();
-// @ts-ignore
-let isTranslationActive = false;
+let _isTranslationActive = false;
 let domObserver: MutationObserver | null = null;
 
 // --- SHARED UTILS ---
 const isContextValid = () => {
-    try { return !!chrome.runtime?.id; } catch (e) { return false; }
+    try { return !!chrome.runtime?.id; } catch { return false; }
 };
 
 const safeSendMessage = (message: any): Promise<any> => {
@@ -50,15 +47,15 @@ const safeSendMessage = (message: any): Promise<any> => {
           resolve(response || { success: false });
         }
       });
-    } catch (e) {
-      resolve({ success: false });
-    }
+      } catch (error) { 
+        console.warn("[Content] Style cleanup failed:", (error as Error).message); 
+      }
   });
 };
 
 // --- FILTERING ENGINE ---
 
-export const blockWord = (textNode: Text, filters: SmartFilter[], method: string) => {
+const blockWord = (textNode: Text, filters: SmartFilter[], method: string) => {
   const parent = textNode.parentElement;
   if (!parent || parent.closest('[data-content-filtered]')) return [];
   
@@ -70,7 +67,7 @@ export const blockWord = (textNode: Text, filters: SmartFilter[], method: string
   const fragment = globalThis.document.createDocumentFragment();
   let lastIndex = 0;
 
-  const terms = sortedFilters.map(f => f.blockTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const terms = sortedFilters.map(f => f.blockTerm.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)).join('|');
   const regex = new RegExp(`(${terms})`, 'gi');
   
   let match;
@@ -123,7 +120,7 @@ export const blockWord = (textNode: Text, filters: SmartFilter[], method: string
   return [];
 };
 
-export const blockParagraph = (textNode: Text, method: string) => {
+const blockParagraph = (textNode: Text, method: string) => {
   const el = textNode.parentElement;
   if (!el || el.closest('[data-content-filtered]')) return null;
   
@@ -163,7 +160,7 @@ export const blockParagraph = (textNode: Text, method: string) => {
   return el;
 };
 
-export const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
+const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
   if (globalThis.document.getElementById("content-filter-page-warning")) return 0;
   if (pageWarningBypassed) return 0;
   
@@ -233,69 +230,78 @@ export const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
   return 1;
 };
 
-export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], blurMethod: string = "blur") => {
-  if (!filters || filters.length === 0) return 0;
-  const active = filters.filter(f => f.enabled);
-  if (active.length === 0) return 0;
-
-  const pageText = (rootElement.textContent || "").toLowerCase();
-  const hasMatches = active.some(f => pageText.includes(f.blockTerm.toLowerCase()));
-  if (!hasMatches) return 0;
-
+const checkPageWarnings = (rootElement: HTMLElement, active: SmartFilter[], pageText: string, blurMethod: string) => {
   const pageFilters = active.filter(f => f.blockScope === "page-warning");
-  const wordFilters = active.filter(f => f.blockScope === "word" || f.blockScope === "paragraph" || !f.blockScope);
-
   if (pageFilters.length > 0 && !pageWarningBypassed && rootElement === globalThis.document.body) {
     const matched = pageFilters.filter(f => pageText.includes(f.blockTerm.toLowerCase())).map(f => f.blockTerm);
     if (matched.length > 0) {
       showPageWarning(matched, blurMethod);
-      // We continue so word-level filters (if any) can still be prepared
     }
   }
+};
 
-  // If no word-level filters exist, we can stop here as there's nothing to blur
-  if (wordFilters.length === 0) return 0;
-
+const collectTextNodes = (rootElement: HTMLElement): Text[] => {
   const walker = globalThis.document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, null);
   const textNodes: Text[] = [];
   let node;
   while ((node = walker.nextNode())) {
     textNodes.push(node as Text);
   }
+  return textNodes;
+};
 
+const processTextNode = (textNode: Text, wordFilters: SmartFilter[], blurMethod: string) => {
+  const content = textNode.textContent?.toLowerCase() || "";
+  const matches = wordFilters.filter(f => {
+    const isMatch = content.includes(f.blockTerm.toLowerCase());
+    if (isMatch && f.exceptWhen && content.includes(f.exceptWhen.toLowerCase())) {
+      return false;
+    }
+    return isMatch;
+  });
+
+  if (matches.length > 0) {
+    const hasParagraphScope = matches.some(f => f.blockScope === "paragraph");
+    if (hasParagraphScope) {
+      const added = blockParagraph(textNode, blurMethod);
+      if (added) {
+        appliedElements.push(new WeakRef(added));
+        return true;
+      }
+    } else {
+      const added = blockWord(textNode, matches, blurMethod);
+      added.forEach(e => appliedElements.push(new WeakRef(e)));
+      return added.length > 0;
+    }
+  }
+  return false;
+};
+
+export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], blurMethod: string = "blur") => {
+  if (!filters?.length) return 0;
+  const active = filters.filter(f => f.enabled);
+  if (!active.length) return 0;
+
+  const pageText = (rootElement.textContent || "").toLowerCase();
+  const hasMatches = active.some(f => pageText.includes(f.blockTerm.toLowerCase()));
+  if (!hasMatches) return 0;
+
+  checkPageWarnings(rootElement, active, pageText, blurMethod);
+
+  const wordFilters = active.filter(f => f.blockScope === "word" || f.blockScope === "paragraph" || !f.blockScope);
+  if (wordFilters.length === 0) return 0;
+
+  const textNodes = collectTextNodes(rootElement);
   let count = 0;
   for (const textNode of textNodes) {
-    const parent = textNode.parentElement;
-    if (parent && parent.closest('[data-content-filtered]')) continue;
-
-    const content = textNode.textContent?.toLowerCase() || "";
-    const matches = wordFilters.filter(f => {
-      const isMatch = content.includes(f.blockTerm.toLowerCase());
-      if (isMatch && f.exceptWhen && content.includes(f.exceptWhen.toLowerCase())) {
-        return false;
-      }
-      return isMatch;
-    });
-
-    if (matches.length > 0) {
-       // If any match is "paragraph" scope, we block the whole paragraph
-       const hasParagraphScope = matches.some(f => f.blockScope === "paragraph");
-       if (hasParagraphScope) {
-         const added = blockParagraph(textNode, blurMethod);
-         if (added) {
-           appliedElements.push(new WeakRef(added));
-           count++;
-         }
-       } else {
-         const added = blockWord(textNode, matches, blurMethod);
-         added.forEach(e => appliedElements.push(new WeakRef(e)));
-         if (added.length > 0) count++;
-       }
+    if (textNode.parentElement?.closest('[data-content-filtered]')) continue;
+    if (processTextNode(textNode, wordFilters, blurMethod)) {
+      count++;
     }
   }
   
   console.log(`[Content] blurContent: scanned ${textNodes.length} nodes, modified ${count}. (Bypassed: ${pageWarningBypassed})`);
-  filtersActive = true;
+  _filtersActive = true;
   return count;
 };
 
@@ -318,7 +324,7 @@ export const clearBlurContent = () => {
     }
   });
   appliedElements.length = 0;
-  filtersActive = false;
+  _filtersActive = false;
 };
 
 export const deactivateFiltering = () => {
@@ -331,7 +337,7 @@ export const deactivateFiltering = () => {
 };
 
 export const syncState = (protection: any, filters: SmartFilter[], method: string) => {
-  if (typeof globalThis.window === "undefined" || globalThis.location.protocol === "chrome-extension:") return;
+  if (globalThis.window === undefined || globalThis.location.protocol === "chrome-extension:") return;
   
   const activeFiltering = (protection?.isActive ?? false) && (protection?.filteringEnabled !== false);
   const filterHash = JSON.stringify({ 
@@ -346,20 +352,18 @@ export const syncState = (protection: any, filters: SmartFilter[], method: strin
     if (filterHash !== lastAppliedFilterHash) {
       console.log("[Content] syncState: applying filters...");
       clearBlurContent();
-      blurContent(globalThis.document.body, filters, method as any);
+      blurContent(globalThis.document.body, filters, method);
       lastAppliedFilterHash = filterHash;
       startDomObserver();
     }
-  } else {
-    if (lastAppliedFilterHash !== "") {
-        deactivateFiltering();
-        stopDomObserver();
-    }
+  } else if (lastAppliedFilterHash !== "") {
+    deactivateFiltering();
+    stopDomObserver();
   }
 };
 
 const startDomObserver = () => {
-    if (domObserver || typeof globalThis.window === "undefined") return;
+    if (domObserver !== undefined || globalThis.window === undefined) return;
     
     domObserver = new MutationObserver((mutations) => {
         if (!isContextValid() || !currentProtectionState?.isActive || currentProtectionState?.filteringEnabled === false) return;
@@ -389,7 +393,7 @@ const stopDomObserver = () => {
 };
 
 // --- INITIALIZATION ---
-if (typeof globalThis.window !== "undefined") {
+if (globalThis.window !== undefined) {
   let isInitialSyncCompleted = false;
   let isSyncInProgress = false;
 
@@ -423,8 +427,8 @@ if (typeof globalThis.window !== "undefined") {
         isInitialSyncCompleted = true;
         isSyncInProgress = false;
       });
-    } catch (err) {
-      console.error("[Content] Initial sync fatal error:", err);
+    } catch (error) {
+      console.error("[Content] Initial sync fatal error:", error);
       isSyncInProgress = false;
     }
   };
@@ -467,123 +471,115 @@ if (typeof globalThis.window !== "undefined") {
       });
   }
 
-  if (chrome.runtime?.onMessage) {
-    chrome.runtime.onMessage.addListener((req, sender, resp) => {
-      if (req.action === "PING") {
+  const handleMessage = (req: any, _sender: chrome.runtime.MessageSender, resp: (response?: any) => void) => {
+    switch (req.action) {
+      case "PING":
         resp({ success: true, pong: true });
-        return true;
-      }
-
-      if (req.action === "APPLY_FILTERS") {
-        console.log("[Content] Message: APPLY_FILTERS received.");
-        const protection = {
-          isActive: req.isActive !== undefined ? req.isActive : (req.protectionState?.isActive ?? currentProtectionState?.isActive),
-          filteringEnabled: req.filteringEnabled !== undefined ? req.filteringEnabled : (req.protectionState?.filteringEnabled ?? currentProtectionState?.filteringEnabled)
-        };
-        currentProtectionState = protection;
-        currentFilters = req.filters || currentFilters;
-        currentBlurMethod = req.blurMethod || currentBlurMethod;
-
-        lastAppliedFilterHash = ""; // Force re-sync
-        syncState(protection, currentFilters, currentBlurMethod);
-        resp({ success: true });
-        return true;
-      }
-
-      if (req.action === "ENABLE_ADBLOCK") {
+        break;
+      case "APPLY_FILTERS":
+        handleApplyFilters(req, resp);
+        break;
+      case "ENABLE_ADBLOCK":
         enableYouTubeAdBlocker();
         resp({ success: true });
-        return true;
-      }
-
-      if (req.action === "DISABLE_ADBLOCK") {
+        break;
+      case "DISABLE_ADBLOCK":
         disableYouTubeAdBlocker();
         resp({ success: true });
-        return true;
-      }
-
-      if (req.action === "CLEAR_FILTERS") {
+        break;
+      case "CLEAR_FILTERS":
         deactivateFiltering();
         resp({ success: true });
-        return true;
-      }
-
-      if (req.action === "GET_PAGE_TEXT") {
+        break;
+      case "GET_PAGE_TEXT":
         resp({ success: true, text: globalThis.document.body.innerText });
-        return true;
-      }
+        break;
+      case "SCAN_PAGE_LINKS":
+        handleScanLinks(resp);
+        break;
+      case "TRANSLATE_PAGE":
+        handleTranslatePage(req, resp);
+        break;
+      case "CLEAR_TRANSLATIONS":
+        handleClearTranslations(resp);
+        break;
+      default:
+        return false;
+    }
+    return true;
+  };
 
-      if (req.action === "SCAN_PAGE_LINKS") {
-        const links = Array.from(globalThis.document.querySelectorAll("a"));
-        const results = links.map(a => scanUrl(a.href));
-        const malicious = results.filter(r => !r.isSafe);
-        const safe = results.filter(r => r.isSafe);
+  const handleApplyFilters = (req: any, resp: (response?: any) => void) => {
+    console.log("[Content] Message: APPLY_FILTERS received.");
+    const isActive = req.isActive ?? req.protectionState?.isActive ?? currentProtectionState?.isActive;
+    const filteringEnabled = req.filteringEnabled ?? req.protectionState?.filteringEnabled ?? currentProtectionState?.filteringEnabled;
+    
+    const protection = { isActive, filteringEnabled };
+    currentProtectionState = protection;
+    currentFilters = req.filters || currentFilters;
+    currentBlurMethod = req.blurMethod || currentBlurMethod;
 
-        resp({
-          success: true,
-          type: "WEB",
-          linkCount: results.length,
-          maliciousCount: malicious.length,
-          maliciousLinks: malicious,
-          safeLinks: safe
-        });
-        return true;
-      }
+    lastAppliedFilterHash = ""; // Force re-sync
+    syncState(protection, currentFilters, currentBlurMethod);
+    resp({ success: true });
+  };
 
-      if (req.action === "TRANSLATE_PAGE") {
-        const walker = globalThis.document.createTreeWalker(globalThis.document.body, NodeFilter.SHOW_TEXT, null);
-        const textNodes: Text[] = [];
-        let node;
-        while ((node = walker.nextNode())) {
-          const text = node.textContent?.trim();
-          if (text && text.length > 3) {
-            textNodes.push(node as Text);
-          }
-        }
-
-        const batchSize = 10;
-        let translatedCount = 0;
-
-        const processTranslation = async () => {
-          for (let i = 0; i < textNodes.length; i += batchSize) {
-            const batch = textNodes.slice(i, i + batchSize);
-            const textsToTranslate = batch.map(n => n.textContent || "");
-            
-            const response = await safeSendMessage({
-              action: "TRANSLATE_TEXT",
-              text: textsToTranslate,
-              targetLang: req.targetLang
-            });
-
-            if (response?.success && response.translatedTexts) {
-              batch.forEach((node, index) => {
-                if (response.translatedTexts[index]) {
-                  if (!translatedElements.has(node.parentElement!)) {
-                    translatedElements.set(node.parentElement!, node.textContent || "");
-                  }
-                  node.textContent = response.translatedTexts[index];
-                  translatedCount++;
-                }
-              });
-            }
-          }
-          isTranslationActive = true;
-          resp({ success: true, count: translatedCount });
-        };
-
-        processTranslation();
-        return true; // Keep channel open for async
-      }
-
-      if (req.action === "CLEAR_TRANSLATIONS") {
-        translatedElements.forEach((originalText, element) => {
-          element.textContent = originalText;
-        });
-        translatedElements.clear();
-        isTranslationActive = false;
-        resp({ success: true });
-        return true;
-      }
+  const handleScanLinks = (resp: (response?: any) => void) => {
+    const links = Array.from(globalThis.document.querySelectorAll("a"));
+    const results = links.map(a => scanUrl(a.href));
+    const malicious = results.filter(r => !r.isSafe);
+    resp({
+      success: true,
+      type: "WEB",
+      linkCount: results.length,
+      maliciousCount: malicious.length,
+      maliciousLinks: malicious,
+      safeLinks: results.filter(r => r.isSafe)
     });
+  };
+
+  const handleTranslatePage = (req: any, resp: (response?: any) => void) => {
+    const walker = globalThis.document.createTreeWalker(globalThis.document.body, NodeFilter.SHOW_TEXT, null);
+    const textNodes: Text[] = [];
+    let node;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent?.trim();
+      if (text && text.length > 3) textNodes.push(node as Text);
+    }
+
+    const batchSize = 10;
+    let translatedCount = 0;
+
+    const processTranslation = async () => {
+      for (let i = 0; i < textNodes.length; i += batchSize) {
+        const batch = textNodes.slice(i, i + batchSize);
+        const texts = batch.map(n => n.textContent || "");
+        const response = await safeSendMessage({ action: "TRANSLATE_TEXT", text: texts, targetLang: req.targetLang });
+
+        if (response?.success && response.translatedTexts) {
+          batch.forEach((node, idx) => {
+            if (response.translatedTexts[idx]) {
+              if (!translatedElements.has(node.parentElement!)) translatedElements.set(node.parentElement!, node.textContent || "");
+              node.textContent = response.translatedTexts[idx];
+              translatedCount++;
+            }
+          });
+        }
+      }
+      _isTranslationActive = true;
+      resp({ success: true, count: translatedCount });
+    };
+    processTranslation();
+  };
+
+  const handleClearTranslations = (resp: (response?: any) => void) => {
+    translatedElements.forEach((originalText, element) => { element.textContent = originalText; });
+    translatedElements.clear();
+    _isTranslationActive = false;
+    resp({ success: true });
+  };
+
+  if (chrome.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener(handleMessage);
   }
 }
