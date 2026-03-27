@@ -2,6 +2,11 @@
 
 # dependencies
 node_modules/
+apps/desktop/bin/
+.vscode/
+.idea/
+*.swp
+*.swo
 
 packages/ui/node_modules
 .node_modules/
