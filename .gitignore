@@ -40,9 +40,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -57,3 +59,9 @@ next-env.d.ts
 dist/
 report_draft.md
 lint_output.txt
+
+# local / tmp
+tmp/
+.gemini/
+bin/
+*.conf

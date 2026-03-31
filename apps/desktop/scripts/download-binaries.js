@@ -60,6 +60,11 @@ async function downloadFile(urls, dest) {
 }
 
 async function main() {
+  if (process.platform !== 'win32') {
+    console.log("ℹ️ Skipping WireGuard binary download on Non-Windows platform. Ensure 'wg-quick' is installed via package manager.");
+    return;
+  }
+
   if (!fs.existsSync(BIN_DIR)) {
     fs.mkdirSync(BIN_DIR, { recursive: true });
   }
@@ -79,8 +84,8 @@ async function main() {
       try {
         await downloadFile(file.urls, file.path);
         console.log(`✅ ${file.name} downloaded successfully.`);
-      } catch (_err) {
-        console.warn(`⚠️ Automatic download failed for ${file.name}.`);
+      } catch (error) {
+        console.warn(`⚠️ Automatic download failed for ${file.name}: ${error.message}`);
       }
     }
   }
@@ -92,4 +97,8 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+try {
+  await main();
+} catch (error) {
+  console.error(error);
+}

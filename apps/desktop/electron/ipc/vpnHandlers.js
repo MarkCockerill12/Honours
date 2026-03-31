@@ -25,11 +25,11 @@ const EC2_TAG_NAMES = {
 };
 
 const WG_PUBLIC_KEYS = {
-  us: "IUu0LjkWt3/C63v74f0FXi8FTMowDAe2Vxa01v90SmE=",
-  uk: "saAonkWpEUg5jMGIu4bTsmAd/+h8+dG5R+IlwzV+n1Q=",
-  de: "CxLUtihiFIuwZk5f/aMfbUAKua1KdGe9Wbj9gJTiIxA=",
-  jp: "oi7o2tSdayG36iXdOpC1euaTczVnPKosT/V9r4Ioy0s=",
-  au: "VSE/OJ4XyjBsa/nedLRdo8ZMP0jnAoKzg5aOpmnrDhs=",
+  us: process.env.WG_US_PUBLIC_KEY || "",
+  uk: process.env.WG_UK_PUBLIC_KEY || "",
+  de: process.env.WG_DE_PUBLIC_KEY || "",
+  jp: process.env.WG_JP_PUBLIC_KEY || "",
+  au: process.env.WG_AU_PUBLIC_KEY || "",
 };
 
 const ec2Clients = {};
@@ -53,6 +53,10 @@ async function findInstanceByTag(client, tagName) {
   return result.Reservations?.[0]?.Instances?.[0];
 }
 
+const MAIN_HUB_TAG = "AwesomeVPN";
+const HUB_REGION = "us-east-1"; 
+const HUB_PUBLIC_KEY = process.env.WG_HUB_PUBLIC_KEY || "";
+
 const shutdownTimers = {};
 
 function setupVpnHandlers(state, handleVpnToggle) {
@@ -61,60 +65,108 @@ function setupVpnHandlers(state, handleVpnToggle) {
     console.log(`[VPN Provision] Requested server: ${serverId}`);
     try {
       const region = SERVER_REGION_MAP[serverId];
-      if (!region) return { success: false, error: `Unknown server: ${serverId}` };
+      if (!region) {
+        console.error(`[VPN Provision] ❌ Unknown serverId: ${serverId}`);
+        return { success: false, error: `Unknown server: ${serverId}` };
+      }
 
       if (!process.env.AWS_ACCESS_KEY_ID || !process.env.AWS_SECRET_ACCESS_KEY) {
+        console.error(`[VPN Provision] ❌ AWS Credentials missing.`);
         return { success: false, error: "AWS credentials not configured." };
       }
 
-      const client = getEC2Client(region);
-      const tagName = EC2_TAG_NAMES[serverId];
-      const existing = await findInstanceByTag(client, tagName);
-      const instanceId = existing?.InstanceId;
-
-      if (!instanceId) return { success: false, error: `Instance "${tagName}" not found in ${region}` };
-
-      if (existing?.State?.Name === "running" && existing.PublicIpAddress) {
-        return {
-          success: true,
-          config: { Id: serverId, PublicIp: existing.PublicIpAddress, PublicKey: WG_PUBLIC_KEYS[serverId], Port: 51820, MTU: 1280 },
-        };
+      // 1. Provision Main Hub (AwesomeVPN)
+      console.log(`[VPN Provision] Orchestrating Hub: ${MAIN_HUB_TAG} in ${HUB_REGION}`);
+      const hubClient = getEC2Client(HUB_REGION);
+      const hubInstance = await findInstanceByTag(hubClient, MAIN_HUB_TAG);
+      if (!hubInstance) {
+        console.error(`[VPN Provision] ❌ Hub instance "${MAIN_HUB_TAG}" not found!`);
+        return { success: false, error: "Hub management failed." };
       }
 
-      await client.send(new StartInstancesCommand({ InstanceIds: [instanceId] }));
-      await client.send(new ModifyInstanceAttributeCommand({
-        InstanceId: instanceId,
-        SourceDestCheck: { Value: false }
-      })).catch(err => console.warn(`[VPN Provision] Warning: Failed to disable SourceDestCheck: ${err.message}`));
+      if (hubInstance.State?.Name !== "running") {
+        console.log(`[VPN Provision] Starting Hub instance: ${hubInstance.InstanceId}`);
+        await hubClient.send(new StartInstancesCommand({ InstanceIds: [hubInstance.InstanceId] }));
+      }
+      
+      // 2. Provision Spoke (Regional Server)
+      console.log(`[VPN Provision] Orchestrating Spoke: ${serverId} in ${region}`);
+      const spokeClient = getEC2Client(region);
+      const spokeTagName = EC2_TAG_NAMES[serverId];
+      const spokeInstance = await findInstanceByTag(spokeClient, spokeTagName);
+      if (!spokeInstance) {
+        console.error(`[VPN Provision] ❌ Spoke instance "${spokeTagName}" not found in ${region}`);
+        return { success: false, error: `Region ${serverId} not available.` };
+      }
 
-      let publicIp = "";
+      if (spokeInstance.State?.Name !== "running") {
+        console.log(`[VPN Provision] Starting Spoke instance: ${spokeInstance.InstanceId}`);
+        await spokeClient.send(new StartInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+      }
+
+      // 3. Wait for IPs (Hub and Spoke)
+      console.log(`[VPN Provision] Waiting for Hub/Spoke IP allocation...`);
+      let hubIp = "", spokeIp = "";
       for (let i = 0; i < 30; i++) {
-        const desc = await client.send(new DescribeInstancesCommand({ InstanceIds: [instanceId] }));
-        const inst = desc.Reservations?.[0]?.Instances?.[0];
-        if (inst?.State?.Name === "running" && inst?.PublicIpAddress) {
-          publicIp = inst.PublicIpAddress;
-          break;
-        }
-        await new Promise(r => setTimeout(r, 10000));
+        const hubDesc = await hubClient.send(new DescribeInstancesCommand({ InstanceIds: [hubInstance.InstanceId] }));
+        const spokeDesc = await spokeClient.send(new DescribeInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+        
+        const h = hubDesc.Reservations?.[0]?.Instances?.[0];
+        const s = spokeDesc.Reservations?.[0]?.Instances?.[0];
+
+        if (h?.State?.Name === "running" && h?.PublicIpAddress) hubIp = h.PublicIpAddress;
+        if (s?.State?.Name === "running" && s?.PublicIpAddress) spokeIp = s.PublicIpAddress;
+
+        if (hubIp && spokeIp) break;
+        console.log(`[VPN Provision] Waiting... attempt ${i+1}/30`);
+        await new Promise(r => setTimeout(r, 5000));
       }
 
-      if (!publicIp) return { success: false, error: "Timed out waiting for IP allocation." };
+      if (!hubIp || !spokeIp) {
+        console.error(`[VPN Provision] ❌ IP Timeout. Hub: ${hubIp}, Spoke: ${spokeIp}`);
+        return { success: false, error: "Timed out waiting for server ready state." };
+      }
 
-      if (shutdownTimers[instanceId]) clearTimeout(shutdownTimers[instanceId]);
-      shutdownTimers[instanceId] = setTimeout(async () => {
-        await client.send(new StopInstancesCommand({ InstanceIds: [instanceId] })).catch(console.error);
-        delete shutdownTimers[instanceId];
-      }, 60 * 60 * 1000);
+      console.log(`[VPN Provision] ✅ Ready! Hub: ${hubIp}, Spoke: ${spokeIp}`);
 
-      const config = { Id: serverId, PublicIp: publicIp, PublicKey: WG_PUBLIC_KEYS[serverId], Port: 51820, MTU: 1280 };
+      // 4. Set Lifecycle Timers (30 minutes) & Disable SourceDestCheck
+      for (const inst of [hubInstance, spokeInstance]) {
+        const id = inst.InstanceId;
+        const client = inst === hubInstance ? hubClient : spokeClient;
+        
+        // Disable SourceDestCheck (Essential for VPN NAT/Routing)
+        await client.send(new ModifyInstanceAttributeCommand({
+          InstanceId: id,
+          SourceDestCheck: { Value: false }
+        })).catch(err => console.warn(`[VPN Provision] Warning: Failed to disable SourceDestCheck on ${id}: ${err.message}`));
+
+        if (shutdownTimers[id]) clearTimeout(shutdownTimers[id]);
+        shutdownTimers[id] = setTimeout(async () => {
+          console.log(`[Lifecycle] ⏰ Shutting down idle instance: ${id}`);
+          await client.send(new StopInstancesCommand({ InstanceIds: [id] })).catch(console.error);
+          delete shutdownTimers[id];
+        }, 30 * 60 * 1000); // 30 minutes
+      }
+
+      // 5. Build Config (Connect to HUB)
+      const config = { 
+        Id: serverId, 
+        PublicIp: hubIp, // Client connects to HUB
+        PublicKey: HUB_PUBLIC_KEY, // Use the Hub's public key for the handshake
+        Port: 51820, 
+        MTU: 1280 
+      };
+      
       return { success: true, config };
     } catch (err) {
+      console.error(`[VPN Provision] ❌ Fatal error: ${err.message}`);
       return { success: false, error: err.message };
     }
   });
 
   // IPC: VPN Deprovision
   ipcMain.handle("vpn:deprovision", async (_event, serverId) => {
+    console.log(`[VPN Deprovision] Tearing down region: ${serverId}`);
     try {
       const region = SERVER_REGION_MAP[serverId];
       if (!region) return { success: false, error: "Invalid serverId" };
@@ -122,9 +174,14 @@ function setupVpnHandlers(state, handleVpnToggle) {
       const client = getEC2Client(region);
       const tagName = EC2_TAG_NAMES[serverId];
       const existing = await findInstanceByTag(client, tagName);
-      if (!existing?.InstanceId) return { success: false, error: "Instance not found" };
-
-      await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
+      if (existing?.InstanceId) {
+        await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
+        console.log(`[VPN Deprovision] ✅ Spoke ${existing.InstanceId} stopping.`);
+      }
+      
+      // Optionally stop Hub if no other spokes are active? 
+      // For now, keep Hub running or let it timeout.
+      
       return { success: true, message: "Server shutting down." };
     } catch (err) {
       return { success: false, error: err.message };
@@ -141,6 +198,7 @@ function setupVpnHandlers(state, handleVpnToggle) {
   });
 
   ipcMain.handle("vpn:toggle", async (_event, config) => {
+    console.log(`[VPN Toggle IPC] Executing toggle...`);
     return await handleVpnToggle(config);
   });
 }
