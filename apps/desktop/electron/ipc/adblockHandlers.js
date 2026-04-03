@@ -116,10 +116,17 @@ function setupAdblockHandlers(state, restartVpnIfActive) {
 
   ipcMain.handle("adblock:force-reset", async () => {
     try {
+      await safeResetDNS();
       await execAsync(String.raw`ipconfig /flushdns`, { windowsHide: true }).catch((err) => {
         console.debug("[AdBlock] DNS flush failed during force-reset:", err);
       });
-      return { success: true, message: "System cleaned and DNS flushed." };
+      if (state.adBlocker) {
+        try {
+          state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession);
+        } catch { /* ignore */ }
+        state.adBlocker = null;
+      }
+      return { success: true, message: "System cleaned, DNS reset and flushed." };
     } catch (err) {
       return { success: false, message: err.message };
     }

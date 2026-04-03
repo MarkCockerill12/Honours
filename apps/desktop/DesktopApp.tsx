@@ -63,7 +63,7 @@ export function DesktopApp({
       case "dark": return "glass-card";
       case "vaporwave": return "glass-card-vaporwave";
       case "frutiger-aero": return "glass-card-frutiger";
-      case "cyberpunk": return "glass-card-cyberpunk border border-zinc-900 bg-zinc-950/90";
+      case "cyberpunk": return "glass-card-cyberpunk";
       default: return "glass-card-light";
     }
   }, [theme]);
@@ -171,7 +171,7 @@ export function DesktopApp({
           <div className="flex items-center gap-4">
             <button
               onClick={() => {
-                const themes: Theme[] = ["dark", "light", "vaporwave", "frutiger-aero"];
+                const themes: Theme[] = ["dark", "light", "vaporwave", "frutiger-aero", "cyberpunk"];
                 const idx = themes.indexOf(theme);
                 if (setTheme) setTheme(themes[(idx + 1) % themes.length]);
               }}

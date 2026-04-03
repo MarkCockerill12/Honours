@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext } from "react";
+import React, { createContext, useContext, useEffect } from "react";
 import type { Theme, ThemeColors } from "@privacy-shield/core";
 
 const themeConfigs: Record<Theme, ThemeColors> = {
@@ -89,6 +89,14 @@ export function ThemeProvider({
   theme: Theme;
   setTheme: (theme: Theme) => void;
 }) {
+  // Toggle .dark class on root element so CSS variables (--popover, --accent, etc.)
+  // resolve correctly for shadcn/radix components like Select, Tabs, etc.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const isDark = theme !== "light" && theme !== "frutiger-aero";
+    document.documentElement.classList.toggle("dark", isDark);
+  }, [theme]);
+
   return (
     <ThemeContext.Provider
       value={{ theme, colors: themeConfigs[theme], setTheme }}

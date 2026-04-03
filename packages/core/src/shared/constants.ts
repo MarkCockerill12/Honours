@@ -60,7 +60,6 @@ export const ADGUARD_DNS = {
 
 // UK mobile data cost: ~£5 per GB = £0.0048828125 per MB
 export const COST_PER_MB = 0.0048828125;
-export const COST_PER_GB = 7.5; // Average UK mobile data cost in GBP
 
 export const AD_SELECTORS = [
   // Generic ad containers

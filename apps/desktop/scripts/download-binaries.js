@@ -97,8 +97,7 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (error) {
+main().catch((error) => {
   console.error(error);
-}
+  process.exit(1);
+});

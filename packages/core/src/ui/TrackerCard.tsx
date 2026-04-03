@@ -78,6 +78,8 @@ export function TrackerCard({
         return "glass-card-vaporwave";
       case "frutiger-aero":
         return "glass-card-frutiger";
+      case "cyberpunk":
+        return "glass-card-cyberpunk";
       default:
         return "glass-card-light";
     }

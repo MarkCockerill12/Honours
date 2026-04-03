@@ -12,9 +12,11 @@
   },
   "dependencies": {
     "expo": "~55.0.6",
+    "@aws-sdk/client-ec2": "^3.600.0",
     "@privacy-shield/core": "workspace:*",
     "expo-constants": "~55.0.9",
     "expo-linear-gradient": "^55.0.8",
+    "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~55.0.4",
     "lucide-react-native": "^0.577.0",
     "react": "19.2.0",

@@ -2,7 +2,7 @@
 const { EC2Client, StartInstancesCommand, DescribeInstancesCommand } = require("@aws-sdk/client-ec2");
 const fs = require("node:fs");
 
-const envPath = "C:\\Users\\Mark\\OneDrive - University of Dundee\\yr4\\Honours\\CODE\\Honours\\.env.local";
+const envPath = require("node:path").resolve(__dirname, "../../../.env.local");
 if (fs.existsSync(envPath)) {
   require("dotenv").config({ path: envPath });
 } else {

@@ -44,7 +44,6 @@ export type MessageAction =
   | "RECORD_STATS"
   | "TRANSLATE_TEXT"
   | "SCAN_PAGE_LINKS"
-  | "PROXY_COMMAND"
   | "GET_PDF_ALLOWED"
   | "ALLOW_PDF_ONCE"
   | "CHECK_PAGE_WARNING";

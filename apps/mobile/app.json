@@ -25,6 +25,16 @@
       },
       "predictiveBackGestureEnabled": false
     },
+    "extra": {
+      "awsAccessKeyId": "",
+      "awsSecretAccessKey": "",
+      "wgClientPrivateKey": "",
+      "wgUsPublicKey": "",
+      "wgUkPublicKey": "",
+      "wgDePublicKey": "",
+      "wgJpPublicKey": "",
+      "wgAuPublicKey": ""
+    },
     "web": {
       "favicon": "./assets/favicon.png"
     }

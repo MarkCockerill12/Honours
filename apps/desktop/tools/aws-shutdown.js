@@ -3,7 +3,7 @@ const { EC2Client, StopInstancesCommand, DescribeInstancesCommand } = require("@
 const path = require("node:path");
 const fs = require("node:fs");
 
-const envPath = "C:\\Users\\Mark\\OneDrive - University of Dundee\\yr4\\Honours\\CODE\\Honours\\.env.local";
+const envPath = require("node:path").resolve(__dirname, "../../../.env.local");
 if (fs.existsSync(envPath)) {
   require("dotenv").config({ path: envPath });
 } else {

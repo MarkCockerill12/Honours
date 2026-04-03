@@ -124,7 +124,7 @@ export function AdBlockExceptions() {
 
 
   return (
-    <div ref={cardRef} className="w-full text-zinc-100 space-y-5">
+    <div ref={cardRef} className="w-full space-y-5">
       <div className={`p-4 rounded-2xl border transition-all duration-500 bg-zinc-950 border-zinc-800`}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex flex-col">

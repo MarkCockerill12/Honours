@@ -40,6 +40,7 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
       case "dark": return "glass-card";
       case "vaporwave": return "glass-card-vaporwave";
       case "frutiger-aero": return "glass-card-frutiger";
+      case "cyberpunk": return "glass-card-cyberpunk";
       default: return "glass-card-light";
     }
   }, [theme]);
@@ -111,7 +112,7 @@ export function SmartFilters({ filters, onFiltersChange, isActive }: SmartFilter
   };
 
   return (
-    <div ref={cardRef} className="w-full text-zinc-100 space-y-5">
+    <div ref={cardRef} className="w-full space-y-5">
       {isTabReady === false && (
         <div className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[9px] font-bold text-amber-500 uppercase tracking-widest text-center">
           ⚠️ Content script not detected. Refresh the page to enable filters.

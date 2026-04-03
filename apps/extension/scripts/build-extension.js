@@ -26,6 +26,25 @@ try {
 
 const watchMode = process.argv.includes("--watch");
 
+// Groq Key Obfuscation
+function obfuscateKey(key) {
+  if (!key) return { cipher: '', nonce: '' };
+  const nonce = [];
+  for (let i = 0; i < key.length; i++) {
+    nonce.push((i * 37 + 42) % 256);
+  }
+  const cipher = [];
+  for (let i = 0; i < key.length; i++) {
+    cipher.push(key.charCodeAt(i) ^ nonce[i]);
+  }
+  return {
+    cipher: Buffer.from(cipher).toString('base64'),
+    nonce: Buffer.from(nonce).toString('base64'),
+  };
+}
+
+const groqObf = obfuscateKey(process.env.GROQ_API_KEY || "");
+
 const buildConfig = {
   entryPoints: {
     "content-script": "./utils/content.ts",
@@ -38,7 +57,9 @@ const buildConfig = {
   logLevel: "info",
   define: {
     "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
-    "process.env.GROQ_API_KEY": JSON.stringify(process.env.GROQ_API_KEY || ""),
+    "process.env.GROQ_API_KEY": "undefined",
+    "process.env.GROQ_CIPHER": JSON.stringify(groqObf.cipher),
+    "process.env.GROQ_NONCE": JSON.stringify(groqObf.nonce),
   },
   tsconfig: path.resolve(__dirname, "../tsconfig.json"),
 };

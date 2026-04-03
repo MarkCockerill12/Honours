@@ -23,6 +23,21 @@ let adBlockSetupError: string | null = null;
 const allowedPdfs = new Map<number, Set<string>>(); // Tab-session specific allowlist
 
 // HOISTED HELPER FUNCTIONS
+function deobfuscateGroqKey(): string {
+  try {
+    const cipher = process.env.GROQ_CIPHER || '';
+    const nonce = process.env.GROQ_NONCE || '';
+    if (!cipher || !nonce) return '';
+    const c = atob(cipher);
+    const n = atob(nonce);
+    return Array.from(c).map((ch, i) => 
+      String.fromCharCode(ch.charCodeAt(0) ^ n.charCodeAt(i))
+    ).join('');
+  } catch {
+    return '';
+  }
+}
+
 async function setupPdfRule(_enabled: boolean) {
   try {
     const PDF_RULE_ID = 90000;
@@ -385,7 +400,7 @@ async function handleSummarizeAction(request: any) {
   try {
     const storage = await chrome.storage.local.get(["groqApiKey"]);
     const apiKey =
-      (storage.groqApiKey as string) || process.env.GROQ_API_KEY || "";
+      (storage.groqApiKey as string) || deobfuscateGroqKey() || "";
     if (!apiKey)
       return { success: false, error: "No Groq API key configured." };
 

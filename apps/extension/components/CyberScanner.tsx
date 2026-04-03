@@ -194,7 +194,7 @@ export function CyberScanner() {
   };
 
   return (
-    <div className="w-full text-zinc-100 space-y-4">
+    <div className="w-full space-y-4">
       <StatusBanner
         statusRef={statusRef}
         radarRef={radarRef}

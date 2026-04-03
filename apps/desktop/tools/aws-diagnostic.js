@@ -4,8 +4,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 
 // Use an absolute path if possible or re-verify. 
-// Root is C:\Users\Mark\OneDrive - University of Dundee\yr4\Honours\CODE\Honours
-const envPath = "C:\\Users\\Mark\\OneDrive - University of Dundee\\yr4\\Honours\\CODE\\Honours\\.env.local";
+const envPath = require("node:path").resolve(__dirname, "../../../.env.local");
 if (fs.existsSync(envPath)) {
   require("dotenv").config({ path: envPath });
 } else {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
-import { Search, LayoutDashboard, Filter } from "lucide-react";
+import { Search, LayoutDashboard, Filter, Globe, Shield } from "lucide-react";
 import anime from "animejs";
 import {
   Select,
@@ -175,10 +175,32 @@ export default function ExtensionApp({
 
                 <div className={`p-1 rounded-2xl ${glassCardClass} relative overflow-hidden group`}>
                    <ProtectionToggles 
-                     protection={protection} 
-                     onVpnToggle={onVpnToggle} 
-                     onAdblockToggle={onAdblockToggle} 
-                     onFilteringToggle={onFilteringToggle}
+                     items={[
+                       {
+                         id: "vpn",
+                         icon: Globe,
+                         label: "VPN",
+                         description: "Encrypted Tunnel",
+                         enabled: protection.vpnEnabled,
+                         onToggle: onVpnToggle,
+                       },
+                       {
+                         id: "adblock",
+                         icon: Shield,
+                         label: "Ad Block",
+                         description: "Content Filtering",
+                         enabled: protection.adblockEnabled,
+                         onToggle: onAdblockToggle,
+                       },
+                       {
+                         id: "filtering",
+                         icon: Filter,
+                         label: "Smart Filter",
+                         description: "Word Blocking",
+                         enabled: protection.filteringEnabled,
+                         onToggle: onFilteringToggle,
+                       },
+                     ]}
                      layout="horizontal" 
                    />
                 </div>

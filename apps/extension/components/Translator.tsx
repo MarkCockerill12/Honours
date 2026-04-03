@@ -64,6 +64,7 @@ export function Translator() {
       case "dark": return "glass-card";
       case "vaporwave": return "glass-card-vaporwave";
       case "frutiger-aero": return "glass-card-frutiger";
+      case "cyberpunk": return "glass-card-cyberpunk";
       default: return "glass-card-light";
     }
   }, [theme]);
