@@ -18,7 +18,7 @@ export const shouldBlockYouTubeRequest = (url: string): boolean => {
 };
 
 let youtubeObserver: MutationObserver | null = null;
-let pollingInterval: NodeJS.Timeout | null = null;
+let pollingInterval: any = null;
 let isProcessingAd = false;
 let lastAdCheckTime = 0;
 let currentPollingDelay = 500;

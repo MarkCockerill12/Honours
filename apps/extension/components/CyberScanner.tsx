@@ -24,7 +24,7 @@ export function CyberScanner() {
 
   const [showDetails, setShowDetails] = useState<"safe" | "threats" | null>(null);
 
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const timeoutRef = useRef<number | null>(null);
   const scanningRef = useRef<boolean>(false);
   const radarRef = useRef<HTMLDivElement>(null);
   const statusRef = useRef<HTMLDivElement>(null);
@@ -145,15 +145,15 @@ export function CyberScanner() {
     const cleanup = () => {
       setIsScanning(false);
       scanningRef.current = false;
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
     };
 
-    timeoutRef.current = setTimeout(() => {
+    timeoutRef.current = window.setTimeout(() => {
       if (scanningRef.current) {
         setErrorMessage("Scan timed out. Reload and try again.");
         cleanup();
       }
-    }, 10000);
+    }, 10000) as unknown as number;
 
     if (!chromeBridge.isAvailable()) {
       cleanup();

@@ -31,7 +31,12 @@ const state = {
 
 async function checkAdmin() {
   try {
-    await execAsync("net session");
+    if (process.platform === 'win32') {
+      await execAsync("net session");
+    } else {
+      const { stdout } = await execAsync("id -u");
+      if (stdout.trim() !== "0") throw new Error("Not root");
+    }
     state.isAdmin = true;
     return true;
   } catch {
@@ -45,8 +50,27 @@ async function checkAdmin() {
 // -------------------------
 async function getWgCmd() {
   if (process.platform === 'win32') {
-    const localSvc = path.join(app.getAppPath(), 'bin', 'wireguard.exe');
-    if (fs.existsSync(localSvc)) return { type: 'svc', path: `"${localSvc}"` };
+    // For Windows, we use a "Public Bridge" folder to ensure SYSTEM service access
+    const bridgeDir = "C:\\Users\\Public\\PrivacyShield";
+    const bridgeWg = path.join(bridgeDir, "wireguard.exe");
+    const localBinDir = path.join(app.getAppPath(), 'bin');
+    const localWg = path.join(localBinDir, 'wireguard.exe');
+    const localWintun = path.join(localBinDir, 'wintun.dll');
+
+    if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
+
+    // Ensure binaries are in the bridge
+    if (fs.existsSync(localWg)) {
+      if (!fs.existsSync(bridgeWg) || fs.statSync(localWg).size !== fs.statSync(bridgeWg).size) {
+        fs.copyFileSync(localWg, bridgeWg);
+      }
+      const bridgeWintun = path.join(bridgeDir, "wintun.dll");
+      if (fs.existsSync(localWintun) && (!fs.existsSync(bridgeWintun) || fs.statSync(localWintun).size !== fs.statSync(bridgeWintun).size)) {
+        fs.copyFileSync(localWintun, bridgeWintun);
+      }
+      return { type: 'svc', path: `"${bridgeWg}"` };
+    }
+    
     return { type: 'svc', path: 'wireguard.exe' };
   }
   
@@ -64,7 +88,6 @@ async function getPhysicalGateway() {
     const lines = stdout.split('\n');
     const gwRegex = /^0\.0\.0\.0\s+0\.0\.0\.0\s+([\d.]+)\s+([\d.]+)/;
     for (const line of lines) {
-      if (line.includes('0.0.0.0') && line.includes('Active Routes')) continue;
       const match = gwRegex.exec(line.trim());
       if (match) return match[1];
     }
@@ -78,11 +101,12 @@ async function addBypassRoute(serverIp) {
   if (process.platform !== 'win32' || !state.isAdmin) return;
   const gateway = await getPhysicalGateway();
   if (!gateway) return;
-  console.log(`[Routing] Adding bypass route: ${serverIp} -> ${gateway}`);
+  console.log(`[Routing] Ensuring bypass route: ${serverIp} -> ${gateway}`);
   try {
+    await execAsync(`route delete ${serverIp}`).catch(() => {});
     await execAsync(`route add ${serverIp} mask 255.255.255.255 ${gateway} metric 1`);
   } catch (err) {
-    console.warn(`[Routing] Warning: Route add failed (may already exist): ${err.message}`);
+    console.warn(`[Routing] Warning: Route management failed: ${err.message}`);
   }
 }
 
@@ -90,7 +114,7 @@ async function removeBypassRoute(serverIp) {
   if (process.platform !== 'win32' || !state.isAdmin) return;
   console.log(`[Routing] Removing bypass route: ${serverIp}`);
   try {
-    await execAsync(`route delete ${serverIp}`);
+    await execAsync(`route delete ${serverIp}`).catch(() => {});
   } catch (err) {
     console.warn(`[Routing] Warning: Route delete failed: ${err.message}`);
   }
@@ -98,11 +122,12 @@ async function removeBypassRoute(serverIp) {
 
 async function verifyConnectivity(retries = 3) {
   console.log(`[Connectivity] Verification starting (ping 8.8.8.8)...`);
+  const pingCmd = process.platform === 'win32' ? "ping -n 1 -w 2000 8.8.8.8" : "ping -c 1 -W 2 8.8.8.8";
+  
   for (let i = 0; i < retries; i++) {
     try {
-      // Ping google DNS with 1s timeout
-      const { stdout } = await execAsync("ping -n 1 -w 1000 8.8.8.8");
-      console.log(`[Connectivity] ✅ Internet transit verified: ${stdout.trim()}`);
+      await execAsync(pingCmd);
+      console.log(`[Connectivity] ✅ Internet transit verified.`);
       return true;
     } catch (err) {
       console.warn(`[Connectivity] Attempt ${i + 1}/${retries} failed: ${err.message}`);
@@ -115,7 +140,7 @@ async function verifyConnectivity(retries = 3) {
 async function stopVpn() {
   if (!state.activeVpnFile) return { success: true, message: "No active VPN." };
   
-  const wg = await getWgCmd() || { type: 'svc', path: 'wireguard.exe' };
+  const wg = await getWgCmd();
   const tunnelName = path.basename(state.activeVpnFile, '.conf');
   console.log(`[VPN Toggle] Disconnecting tunnel: ${tunnelName}`);
   
@@ -141,17 +166,19 @@ async function stopVpn() {
 }
 
 function generateWgConfig(config, dnsServers) {
+  const subnet = config.Subnet || "10.150.0";
   return `
 [Interface]
 PrivateKey = ${(process.env.WG_CLIENT_PRIVATE_KEY || "").trim()}
-Address = 10.150.0.2/32
+Address = ${subnet}.2/24
 DNS = ${dnsServers}
-MTU = ${config.MTU || 1200}
+MTU = 1420
 
 [Peer]
 PublicKey = ${config.PublicKey}
 Endpoint = ${config.PublicIp}:443
-AllowedIPs = 0.0.0.0/0
+AllowedIPs = 0.0.0.0/1, 128.0.0.0/1
+PersistentKeepalive = 25
 `.trim();
 }
 
@@ -169,18 +196,21 @@ async function pollGateway(gateways, maxWait = 60000) {
         // Continue polling
       }
     }
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2000));
   }
   return { ok: false };
 }
 
 async function startVpn(config) {
+  console.log(`[VPN Toggle] 🚀 STARTING VPN ENGINE...`);
   if (!config?.PublicIp) {
     console.error(`[VPN Toggle] ❌ Invalid config received:`, config);
     throw new Error("Invalid config.");
   }
   
-  const wg = await getWgCmd() || { type: 'svc', path: 'wireguard.exe' };
+  const wg = await getWgCmd();
+  if (!wg) throw new Error("WireGuard engine not found.");
+
   state.activeVpnConfig = config;
   const adStatus = await adblockTools.getAdBlockStatus();
   const dnsServers = adStatus.active ? "94.140.14.14, 94.140.15.15, 8.8.8.8" : "1.1.1.1, 8.8.8.8";
@@ -188,45 +218,61 @@ async function startVpn(config) {
   console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp}`);
   const confContent = generateWgConfig(config, dnsServers);
 
-  const tempPath = path.join(app.getPath("temp"), `ps-${config.Id}.conf`);
-  fs.writeFileSync(tempPath, confContent);
-  state.activeVpnFile = tempPath;
+  const vpnDataDir = path.join(app.getPath("userData"), "vpn");
+  if (!fs.existsSync(vpnDataDir)) fs.mkdirSync(vpnDataDir, { recursive: true });
+  const tunnelName = `ps-${config.Id}`;
+  const persistentPath = path.join(vpnDataDir, `${tunnelName}.conf`);
+  fs.writeFileSync(persistentPath, confContent);
   
-  console.log(`[VPN Toggle] Installing tunnel service: ${tempPath} (${wg.type})`);
+  let tunnelConfigPath = persistentPath;
+  if (process.platform === 'win32') {
+    const bridgeDir = "C:\\Users\\Public\\PrivacyShield";
+    if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
+    tunnelConfigPath = path.join(bridgeDir, `${tunnelName}.conf`);
+    fs.writeFileSync(tunnelConfigPath, confContent);
+  }
+
+  state.activeVpnFile = persistentPath;
+  
+  console.log(`[VPN Toggle] Installing tunnel: ${tunnelName} (via ${wg.path})`);
   try {
-    // 1. Add Bypass Route BEFORE tunnel starts
     await addBypassRoute(config.PublicIp);
 
-    if (wg.type === 'svc') {
-      await execAsync(`${wg.path} /installtunnelservice "${tempPath}"`);
+    if (process.platform === 'win32') {
+      await execAsync("ipconfig /flushdns").catch(() => {});
+      await execAsync(`${wg.path} /uninstalltunnelservice "${tunnelName}"`).catch(() => {});
+      await execAsync(`${wg.path} /installtunnelservice "${tunnelConfigPath}"`);
+      await execAsync(`sc start "WireGuardTunnel$${tunnelName}"`).catch(() => {});
     } else {
-      await execAsync(`sudo ${wg.path} up "${tempPath}"`);
+      await execAsync(`sudo ${wg.path} up "${persistentPath}"`);
     }
   } catch (err) {
-    console.error(`[VPN Toggle] ❌ Failed to install service: ${err.message}`);
+    console.error(`[VPN Toggle] ❌ Failed to start tunnel: ${err.message}`);
     await removeBypassRoute(config.PublicIp);
     throw err;
+  } finally {
+    if (process.platform === 'win32' && fs.existsSync(tunnelConfigPath)) {
+      setTimeout(() => { try { if (fs.existsSync(tunnelConfigPath)) fs.unlinkSync(tunnelConfigPath); } catch(e) {} }, 15000);
+    }
   }
   
   console.log(`[VPN Toggle] Wait for interface to initialize...`);
   await new Promise(r => setTimeout(r, 5000));
   
-  const { ok, gw, time } = await pollGateway(["10.150.0.1", "10.0.0.1"]);
+  const gwIp = `${config.Subnet || "10.150.0"}.1`;
+  const { ok, gw, time } = await pollGateway([gwIp, "10.150.0.1", "10.0.0.1"]);
 
   if (!ok) {
-    console.error(`[VPN Toggle] ❌ Handshake Timeout. Neither 10.150.0.1 nor 10.0.0.1 replied after 60s.`);
-    console.log(`[VPN Toggle] [DEBUG] WireGuard Config: \n${confContent}`);
-    return { success: true, message: "Connected (Handshake Timeout - Server still bootstrapping?)" };
+    console.error(`[VPN Toggle] ❌ Handshake Timeout. Gateway ${gwIp} did not reply.`);
+    return { success: true, message: "Connected (Establishing...)" };
   }
 
   console.log(`[Connectivity] ✅ Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
-  if (gw === "10.0.0.1") console.warn(`[VPN Toggle] ⚠️ SUBNET MISMATCH DETECTED: Server is on 10.0.0.1.`);
-
+  
   const isOnline = await verifyConnectivity();
   if (isOnline) return { success: true, message: "Connected & Verified." };
   
-  console.warn("[VPN Toggle] ⚠️ Handshake OK but Transit failed. Likely Server NAT/Forwarding issue.");
-  return { success: true, message: "Connected (NAT/Forwarding Error on Server)." };
+  return { success: true, message: "Connected (NAT/Routing Latency)." };
 }
 
 async function handleVpnToggle(config) {

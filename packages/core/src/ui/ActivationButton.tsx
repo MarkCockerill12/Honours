@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import { Shield, ShieldOff, Lock } from "lucide-react";
 import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
-import type { ProtectionState } from "@privacy-shield/core";
+import type { ProtectionState } from "../shared";
 
 interface ActivationButtonProps {
   protection: ProtectionState;

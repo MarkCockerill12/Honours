@@ -115,7 +115,7 @@ export const initBlockStats = async (): Promise<BlockStats> => {
 };
 
 let memoryStats: BlockStats | null = null;
-let saveTimeout: NodeJS.Timeout | null = null;
+let saveTimeout: any = null;
 
 export const recordBlockedRequest = async (
   resourceType: string,
@@ -137,16 +137,15 @@ export const recordBlockedRequest = async (
 
   console.log(`[AdBlock] Blocked ${category}: ${url.substring(0, 50)}... (${(size / 1024).toFixed(1)}KB saved)`);
 
-    if (saveTimeout) clearTimeout(saveTimeout);
-    saveTimeout = setTimeout(async () => {
+    if (saveTimeout) window.clearTimeout(saveTimeout);
+    saveTimeout = window.setTimeout(async () => {
       if (isChromeStorageAvailable()) {
         await chrome.storage.local.set({ blockStats: memoryStats });
       } else {
         saveStatsToLocalStorage(memoryStats!);
       }
 
-      // @ts-expect-error - electron API is injected at runtime
-      const api = globalThis.window?.electron;
+      const api = (globalThis.window as any)?.electron;
       if (api?.systemAdBlock?.recordBlock) {
         try {
           await api.systemAdBlock.recordBlock({ size, category });

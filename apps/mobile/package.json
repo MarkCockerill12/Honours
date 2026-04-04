@@ -19,7 +19,7 @@
     "expo-secure-store": "~14.0.1",
     "expo-status-bar": "~55.0.4",
     "lucide-react-native": "^0.577.0",
-    "react": "19.2.0",
+    "react": "19.2.4",
     "react-native": "0.83.2",
     "react-native-gesture-handler": "^2.30.0",
     "react-native-reanimated": "^4.2.2",

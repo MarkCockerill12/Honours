@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently -k \"next dev\" \"node scripts/build-extension.js --watch\"",
-    "build": "node scripts/clean.js && node scripts/build-extension.js && next build && node scripts/rename-next.js && node scripts/extract-inline-scripts.js && node scripts/finalize-build.js",
+    "dev": "concurrently -k \"next dev\" \"bun scripts/build-extension.js --watch\"",
+    "build": "bun scripts/clean.js && bun scripts/build-extension.js && next build && bun scripts/rename-next.js && bun scripts/extract-inline-scripts.js && bun scripts/finalize-build.js",
     "lint": "eslint .",
     "test": "vitest run",
     "clean": "rimraf .next out extension-dist .turbo"

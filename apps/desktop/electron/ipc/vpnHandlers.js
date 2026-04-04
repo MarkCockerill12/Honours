@@ -16,6 +16,14 @@ const SERVER_REGION_MAP = {
   au: "ap-southeast-2",
 };
 
+const SERVER_SUBNET_MAP = {
+  us: "10.151.0",
+  uk: "10.152.0",
+  de: "10.153.0",
+  jp: "10.154.0",
+  au: "10.155.0",
+};
+
 const EC2_TAG_NAMES = {
   us: "VPN-US",
   uk: "VPN-UK",
@@ -61,9 +69,14 @@ function getEC2Client(region) {
 
 async function findInstanceByTag(client, tagName) {
   const result = await client.send(new DescribeInstancesCommand({
-    Filters: [{ Name: "tag:Name", Values: [tagName] }],
+    Filters: [
+      { Name: "tag:Name", Values: [tagName] },
+      { Name: "instance-state-name", Values: ["pending", "running", "stopping", "stopped"] }
+    ],
   }));
-  return result.Reservations?.[0]?.Instances?.[0];
+  // If multiple instances are found (e.g. during replacement), prefer the one that is NOT terminal
+  const instances = result.Reservations?.flatMap(r => r.Instances) || [];
+  return instances.find(i => i.State?.Name === "running" || i.State?.Name === "pending") || instances[0];
 }
 
 const MAIN_HUB_TAG = "AwesomeVPN";
@@ -106,19 +119,30 @@ function setupVpnHandlers(state, handleVpnToggle) {
         return { success: false, error: `Region ${serverId} not available.` };
       }
 
-      if (spokeInstance.State?.Name !== "running") {
+      const stateName = spokeInstance.State?.Name;
+      console.log(`[VPN Provision] Found Spoke ${spokeInstance.InstanceId} in state: ${stateName}`);
+
+      if (stateName === "stopped") {
         console.log(`[VPN Provision] Starting Spoke instance: ${spokeInstance.InstanceId}`);
         await spokeClient.send(new StartInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+      } else if (stateName === "pending" || stateName === "running") {
+        console.log(`[VPN Provision] Spoke instance is ${stateName}, proceeding to IP check...`);
+      } else {
+        console.warn(`[VPN Provision] Spoke instance is in unexpected state: ${stateName}. This might fail.`);
       }
 
       // 2. (Optional) Start Hub as orchestrator — non-blocking
       const hubClient = getEC2Client(HUB_REGION);
       const hubInstance = await findInstanceByTag(hubClient, MAIN_HUB_TAG).catch(() => null);
-      if (hubInstance && hubInstance.State?.Name !== "running") {
-        console.log(`[VPN Provision] Starting Hub orchestrator: ${hubInstance.InstanceId}`);
-        hubClient.send(new StartInstancesCommand({ InstanceIds: [hubInstance.InstanceId] })).catch(
-          err => console.warn(`[VPN Provision] Hub start failed (non-critical): ${err.message}`)
-        );
+      if (hubInstance) {
+        const hState = hubInstance.State?.Name;
+        console.log(`[VPN Provision] Hub orchestrator ${hubInstance.InstanceId} is ${hState}`);
+        if (hState === "stopped") {
+          console.log(`[VPN Provision] Starting Hub orchestrator: ${hubInstance.InstanceId}`);
+          hubClient.send(new StartInstancesCommand({ InstanceIds: [hubInstance.InstanceId] })).catch(
+            err => console.warn(`[VPN Provision] Hub start failed (non-critical): ${err.message}`)
+          );
+        }
       }
 
       // 3. Wait for Spoke IP
@@ -162,7 +186,8 @@ function setupVpnHandlers(state, handleVpnToggle) {
         PublicIp: spokeIp,             // Client connects to SPOKE directly
         PublicKey: spokePublicKey,      // Use the spoke's public key for handshake
         Port: 443, 
-        MTU: 1200 
+        Subnet: SERVER_SUBNET_MAP[serverId], // Unique internal subnet
+        // MTU will be decided by main.js
       };
       
       return { success: true, config };

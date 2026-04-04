@@ -12,8 +12,8 @@ interface ElectronAPI {
     recordBlock: (data: { size: number; category: string }) => Promise<void>;
   };
 }
-import type { TrackerStats } from "@privacy-shield/core";
-import { computeBlockDelta } from "@privacy-shield/core";
+import type { TrackerStats } from "../shared";
+import { computeBlockDelta } from "../shared";
 
 interface StatsContextType {
   stats: TrackerStats;

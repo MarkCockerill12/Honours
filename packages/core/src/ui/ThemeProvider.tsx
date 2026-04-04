@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect } from "react";
-import type { Theme, ThemeColors } from "@privacy-shield/core";
+import type { Theme, ThemeColors } from "../shared";
 
 const themeConfigs: Record<Theme, ThemeColors> = {
   dark: {

@@ -3,7 +3,7 @@ import ts from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import globals from "globals";
 
-export default [
+const config = /** @type {any} */ ([
   {
     ignores: ["**/dist/**", "**/build/**", "**/out/**", "**/.next/**", "**/.expo/**", "**/node_modules/**", "**/extension-dist/**"],
   },
@@ -70,4 +70,6 @@ export default [
       "@typescript-eslint/no-require-imports": "off",
     },
   },
-];
+]);
+
+export default config;

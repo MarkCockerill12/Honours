@@ -17,7 +17,7 @@ echo "Applying iptables NAT Rules..."
 IFACE=$(ip route get 8.8.8.8 | grep -Po '(?<=dev )(\S+)')
 
 # MASQUERADE internal VPN traffic out to the internet
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o "$IFACE" -j MASQUERADE
+sudo iptables -t nat -A POSTROUTING -s 10.150.0.0/24 -o "$IFACE" -j MASQUERADE
 # Allow forwarding
 sudo iptables -A FORWARD -i wg0 -j ACCEPT
 sudo iptables -A FORWARD -o wg0 -j ACCEPT

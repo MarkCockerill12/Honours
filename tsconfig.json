@@ -16,7 +16,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": []
+    "baseUrl": ".",
+    "paths": {
+      "@privacy-shield/core": ["packages/core/src"],
+      "@privacy-shield/core/*": ["packages/core/src/*"]
+    },
+    "types": ["node", "chrome"]
   },
   "exclude": ["node_modules"]
 }

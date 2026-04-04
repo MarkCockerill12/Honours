@@ -5,7 +5,7 @@ import { Shield, Globe, Filter } from "lucide-react";
 import { Switch } from "./primitives/switch";
 import anime from "animejs";
 import { useTheme } from "./ThemeProvider";
-import type { ProtectionState } from "@privacy-shield/core";
+import type { ProtectionState } from "../shared";
 
 interface ToggleItem {
   id: string;

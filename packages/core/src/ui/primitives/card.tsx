@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { cn } from "@privacy-shield/core";
+import { cn } from "../../shared";
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
