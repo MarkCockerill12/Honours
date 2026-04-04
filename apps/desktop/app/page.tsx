@@ -57,7 +57,10 @@ export default function DesktopPage() {
   const [serverStatuses, setServerStatuses] = useState<Record<string, ServerLocation["status"]>>({});
   const [isToggling, setIsToggling] = useState(false);
   const [isAdmin, setIsAdmin] = useState(true);
+  
   const isTogglingRef = useRef(false);
+  const lastToggleTimeRef = useRef<number>(0);
+  const syncConsensusRef = useRef<{ ad: boolean, vpn: boolean, count: number }>({ ad: false, vpn: false, count: 0 });
 
   const { stats, updateStats } = useStats();
 
@@ -96,43 +99,74 @@ export default function DesktopPage() {
   useEffect(() => {
     if (!isElectron()) return;
     const sync = async () => {
-      // DON'T sync state while a manual toggle is in progress
+      // 1. Don't sync if we are in the middle of a big power toggle or manual interaction
       if (isTogglingRef.current) return;
+      if (Date.now() - lastToggleTimeRef.current < 15000) return;
       
       try {
         const api = (globalThis.window as Window).electron!;
         const status = await api.systemAdBlock.checkStatus();
         setIsAdmin(!!status.isAdmin);
-        setProtection(prev => ({ 
-          ...prev, 
-          isActive: status.active || !!status.vpnActive, 
-          adblockEnabled: status.active,
-          vpnEnabled: !!status.vpnActive
-        }));
+        
+        const sysAd = !!status.active;
+        const sysVpn = !!status.vpnActive;
+
+        setProtection(prev => {
+          // Re-check lock inside state setter
+          if (isTogglingRef.current || Date.now() - lastToggleTimeRef.current < 15000) return prev;
+          
+          // Only sync if the system state is different from our UI intent
+          if (prev.adblockEnabled !== sysAd || prev.vpnEnabled !== sysVpn) {
+            // Consensus: Only update if the system state is consistent for 2 cycles
+            if (syncConsensusRef.current.ad === sysAd && syncConsensusRef.current.vpn === sysVpn) {
+              syncConsensusRef.current.count++;
+              if (syncConsensusRef.current.count >= 2) {
+                console.log(`[Sync] System state confirmed after 2 cycles. Updating UI: AdBlock=${sysAd}, VPN=${sysVpn}`);
+                return { 
+                  ...prev, 
+                  isActive: sysAd || sysVpn, 
+                  adblockEnabled: sysAd,
+                  vpnEnabled: sysVpn
+                };
+              }
+            } else {
+              // Reset consensus if system state is flickering
+              syncConsensusRef.current = { ad: sysAd, vpn: sysVpn, count: 1 };
+            }
+          } else {
+            syncConsensusRef.current.count = 0;
+          }
+          return prev;
+        });
 
         // Sync VPN server status
         if (status.vpnActive) {
           const vpnStatus = await api.vpn.getStatus();
           if (vpnStatus.serverId) {
             setServerStatuses(prev => ({ ...prev, [vpnStatus.serverId!]: "active" }));
-            // Also ensure selectedServer matches
             const activeServer = VPN_SERVERS.find(s => s.id === vpnStatus.serverId);
-            if (activeServer) setSelectedServer(activeServer);
+            if (activeServer) {
+              setSelectedServer(current => {
+                if (!current) return activeServer;
+                return current;
+              });
+            }
           }
         }
 
-        await updateDnsInfo(true);
+        await updateDnsInfo();
         await updateStats();
       } catch (err) { console.error("Sync error:", err); }
     };
     sync();
-    const interval = setInterval(sync, 10000);
+    const interval = setInterval(sync, 15000);
     return () => clearInterval(interval);
   }, [updateDnsInfo, updateStats]);
 
   const toggleAdBlock = useCallback(async (enable: boolean) => {
     const api = (globalThis.window as Window).electron;
     if (!isElectron() || !api) return true;
+    console.log(`[UI] Toggling AdBlock: ${enable ? 'Enabling' : 'Disabling'}...`);
     if (enable) {
       const res = await api.systemAdBlock.enable();
       if (!res.success) setError(res.message);
@@ -146,6 +180,7 @@ export default function DesktopPage() {
   const toggleVpn = useCallback(async (enable: boolean, server?: ServerLocation) => {
     const api = (globalThis.window as Window).electron;
     if (!isElectron() || !api) return true;
+    console.log(`[UI] Toggling VPN: ${enable ? 'Enabling' : 'Disabling'}...`);
     
     if (enable) {
       if (!server) return false;
@@ -199,6 +234,7 @@ export default function DesktopPage() {
     setIsToggling(true);
     setError(null);
     setStatusInfo(null);
+    lastToggleTimeRef.current = Date.now();
 
     try {
       if (currentProtection.isActive) {
@@ -222,11 +258,60 @@ export default function DesktopPage() {
     } finally {
       setIsToggling(false);
       isTogglingRef.current = false;
+      lastToggleTimeRef.current = Date.now();
     }
   }, [protection, selectedServer, updateDnsInfo, toggleAdBlock, toggleVpn]);
 
-  const handleVpnToggle = useCallback(() => setProtection(prev => ({ ...prev, vpnEnabled: !prev.vpnEnabled })), []);
-  const handleAdblockToggle = useCallback(() => setProtection(prev => ({ ...prev, adblockEnabled: !prev.adblockEnabled })), []);
+  const handleVpnToggle = useCallback(async () => {
+    const wasEnabled = protection.vpnEnabled;
+    const newState = !wasEnabled;
+    
+    lastToggleTimeRef.current = Date.now();
+    setProtection(prev => ({ ...prev, vpnEnabled: newState }));
+    
+    if (protection.isActive) {
+      console.log(`[UI] Hot-Toggling VPN -> ${newState ? 'ON' : 'OFF'}`);
+      setIsToggling(true);
+      isTogglingRef.current = true;
+      try {
+        await toggleVpn(newState, selectedServer || undefined);
+      } finally {
+        setIsToggling(false);
+        isTogglingRef.current = false;
+        lastToggleTimeRef.current = Date.now();
+      }
+    }
+  }, [protection.vpnEnabled, protection.isActive, selectedServer, toggleVpn]);
+
+  const handleAdblockToggle = useCallback(async () => {
+    const wasEnabled = protection.adblockEnabled;
+    const newState = !wasEnabled;
+
+    lastToggleTimeRef.current = Date.now();
+    setProtection(prev => ({ ...prev, adblockEnabled: newState }));
+
+    // Inform backend of intent immediately
+    const api = (globalThis.window as Window).electron;
+    if (api?.systemAdBlock?.setIntent) {
+      console.log(`[UI] Setting AdBlock Intent -> ${newState ? 'PROTECT' : 'STANDARD'}`);
+      await api.systemAdBlock.setIntent(newState);
+    }
+
+    // If the system is already active, apply the change immediately
+    if (protection.isActive) {
+      console.log(`[UI] Hot-Toggling AdBlock -> ${newState ? 'ON' : 'OFF'}`);
+      setIsToggling(true);
+      isTogglingRef.current = true;
+      try {
+        await toggleAdBlock(newState);
+      } finally {
+        setIsToggling(false);
+        isTogglingRef.current = false;
+        lastToggleTimeRef.current = Date.now();
+      }
+    }
+  }, [protection.adblockEnabled, protection.isActive, toggleAdBlock]);
+
   const handleReset = useCallback(async () => {
     if (!isElectron()) return;
     setIsToggling(true);
@@ -238,35 +323,24 @@ export default function DesktopPage() {
     } finally { setIsToggling(false); }
   }, [updateDnsInfo]);
 
-  // Server switching — disconnect from old, reconnect to new if VPN is active
   const handleServerSelect = useCallback(async (server: ServerLocation) => {
     if (server.id === selectedServer?.id) return;
-
     const wasActive = protection.isActive && protection.vpnEnabled;
     const oldServer = selectedServer;
-
     setSelectedServer(server);
-
-    // If VPN is not running, just update the selection (no reconnect needed)
     if (!wasActive || !isElectron()) return;
-
     const api = (globalThis.window as Window).electron;
     if (!api) return;
-
     isTogglingRef.current = true;
     setIsToggling(true);
     setError(null);
     setStatusInfo(null);
-
     try {
-      // 1. Disconnect current tunnel
       await api.vpn.toggle(null);
       if (oldServer) {
         setServerStatuses(prev => ({ ...prev, [oldServer.id]: "off" }));
         await api.vpn.deprovision(oldServer.id);
       }
-
-      // 2. Provision new server
       setServerStatuses(prev => ({ ...prev, [server.id]: "starting" }));
       const prov = await api.vpn.provision(server.id);
       if (!prov.success) {
@@ -275,8 +349,6 @@ export default function DesktopPage() {
         setProtection(prev => ({ ...prev, isActive: false }));
         return;
       }
-
-      // 3. Connect to new server
       const res = await api.vpn.toggle(prov.config!);
       if (res.success) {
         setServerStatuses(prev => ({ ...prev, [server.id]: "active" }));
@@ -287,8 +359,7 @@ export default function DesktopPage() {
         setProtection(prev => ({ ...prev, isActive: false }));
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Server switch failed: ${message}`);
+      setError(`Server switch failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setIsToggling(false);
       isTogglingRef.current = false;

@@ -78,33 +78,33 @@ export function DesktopApp({
     const elements = dashboardRef.current.querySelectorAll(".dashboard-anim-item");
     anime({
       targets: elements,
-      translateY: [30, 0],
+      translateY: [20, 0],
       opacity: [0, 1],
-      delay: anime.stagger(100, { start: 100 }),
-      duration: 800,
-      easing: "easeOutQuint"
+      delay: anime.stagger(60, { start: 50 }),
+      duration: 600,
+      easing: "easeOutCubic"
     });
   }, []);
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    // Parallax background glows
+    // High-performance parallax glows
     if (glow1Ref.current && glow2Ref.current) {
-      const x = (e.clientX / window.innerWidth - 0.5) * 40;
-      const y = (e.clientY / window.innerHeight - 0.5) * 40;
+      const x = (e.clientX / window.innerWidth - 0.5) * 60;
+      const y = (e.clientY / window.innerHeight - 0.5) * 60;
       
       anime({
         targets: glow1Ref.current,
         translateX: x,
         translateY: y,
-        duration: 1000,
-        easing: 'easeOutExpo'
+        duration: 800,
+        easing: 'easeOutQuad'
       });
       anime({
         targets: glow2Ref.current,
-        translateX: -x * 1.5,
-        translateY: -y * 1.5,
-        duration: 1200,
-        easing: 'easeOutExpo'
+        translateX: -x * 1.2,
+        translateY: -y * 1.2,
+        duration: 1000,
+        easing: 'easeOutQuad'
       });
     }
   };

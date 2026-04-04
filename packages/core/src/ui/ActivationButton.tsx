@@ -27,6 +27,7 @@ export function ActivationButton({
     Array<{ id: number; angle: number; delay: number }>
   >([]);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLSpanElement>(null);
 
   const dimensions = {
     sm: 80,
@@ -52,6 +53,36 @@ export function ActivationButton({
     setTimeout(() => setLightningBolts([]), 600);
   };
 
+  const handleMouseEnter = () => {
+    if (buttonRef.current) {
+      anime({
+        targets: buttonRef.current,
+        scale: 1.15,
+        duration: 400,
+        easing: "easeOutElastic(1, .6)"
+      });
+    }
+    if (contentRef.current) {
+      anime({
+        targets: contentRef.current,
+        rotate: [0, -10, 10, 0],
+        duration: 600,
+        easing: "easeInOutSine"
+      });
+    }
+  };
+
+  const handleMouseLeave = () => {
+    if (buttonRef.current) {
+      anime({
+        targets: buttonRef.current,
+        scale: 1.0,
+        duration: 300,
+        easing: "easeOutQuad"
+      });
+    }
+  };
+
   const handleClick = () => {
     if (!isAdmin && !protection.isActive) {
       if (buttonRef.current) {
@@ -64,6 +95,17 @@ export function ActivationButton({
       }
       return;
     }
+    
+    // Impact animation
+    if (buttonRef.current) {
+      anime({
+        targets: buttonRef.current,
+        scale: [1.15, 0.9, 1.1],
+        duration: 300,
+        easing: "easeOutQuad"
+      });
+    }
+
     setIsPressed(true);
     setTimeout(() => setIsPressed(false), 150);
 
@@ -165,12 +207,14 @@ export function ActivationButton({
       <button
         ref={buttonRef}
         onClick={handleClick}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
         className={`
           relative rounded-full
           flex items-center justify-center
           transition-all duration-300 ease-out
           z-30
-          ${isPressed ? "scale-90" : "hover:scale-110 active:scale-95"}
+          ${isPressed ? "scale-90" : ""}
         `}
         style={{
           width: px,
@@ -184,7 +228,7 @@ export function ActivationButton({
           cursor: "pointer",
         }}
       >
-        <span className="pointer-events-none flex items-center justify-center">
+        <span ref={contentRef} className="pointer-events-none flex items-center justify-center">
           {protection.isActive ? (
             <Shield className="drop-shadow-md" size={iconSizes[size]} />
           ) : (

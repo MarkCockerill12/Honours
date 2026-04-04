@@ -15,11 +15,13 @@ const { setupAdblockHandlers, STATS_PATH } = require("./ipc/adblockHandlers");
 
 const execAsync = promisify(exec);
 
-// Global State Object (Shared between main and modular handlers)
+// Global State
 const state = {
   isAdmin: false,
   activeVpnFile: null,
+  activeVpnBridgeFile: null,
   activeVpnConfig: null,
+  adblockEnabled: false, // Track user's intent for DNS
   adBlocker: null,
   adblockStats: {
     totalBlocked: 0,
@@ -50,7 +52,6 @@ async function checkAdmin() {
 // -------------------------
 async function getWgCmd() {
   if (process.platform === 'win32') {
-    // For Windows, we use a "Public Bridge" folder to ensure SYSTEM service access
     const bridgeDir = "C:\\Users\\Public\\PrivacyShield";
     const bridgeWg = path.join(bridgeDir, "wireguard.exe");
     const localBinDir = path.join(app.getAppPath(), 'bin');
@@ -59,7 +60,6 @@ async function getWgCmd() {
 
     if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
 
-    // Ensure binaries are in the bridge
     if (fs.existsSync(localWg)) {
       if (!fs.existsSync(bridgeWg) || fs.statSync(localWg).size !== fs.statSync(bridgeWg).size) {
         fs.copyFileSync(localWg, bridgeWg);
@@ -70,14 +70,12 @@ async function getWgCmd() {
       }
       return { type: 'svc', path: `"${bridgeWg}"` };
     }
-    
     return { type: 'svc', path: 'wireguard.exe' };
   }
   
   if (process.platform === 'linux' || process.platform === 'darwin') {
     return { type: 'quick', path: 'wg-quick' };
   }
-  
   return null;
 }
 
@@ -127,7 +125,7 @@ async function verifyConnectivity(retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
       await execAsync(pingCmd);
-      console.log(`[Connectivity] ✅ Internet transit verified.`);
+      console.log(`[Connectivity] OK: Internet transit verified.`);
       return true;
     } catch (err) {
       console.warn(`[Connectivity] Attempt ${i + 1}/${retries} failed: ${err.message}`);
@@ -150,17 +148,23 @@ async function stopVpn() {
     } else {
       await execAsync(`sudo ${wg.path} down "${state.activeVpnFile}"`);
     }
-    console.log(`[VPN Toggle] ✅ Tunnel uninstalled.`);
+    console.log(`[VPN Toggle] OK: Tunnel uninstalled.`);
   } catch (err) {
-    console.error(`[VPN Toggle] ❌ Failed to uninstall tunnel: ${err.message}`);
+    console.error(`[VPN Toggle] ERROR: Failed to uninstall tunnel: ${err.message}`);
   }
   
   if (state.activeVpnConfig?.PublicIp) {
     await removeBypassRoute(state.activeVpnConfig.PublicIp);
   }
 
+  // Cleanup files
   if (fs.existsSync(state.activeVpnFile)) fs.unlinkSync(state.activeVpnFile);
+  if (state.activeVpnBridgeFile && fs.existsSync(state.activeVpnBridgeFile)) {
+    fs.unlinkSync(state.activeVpnBridgeFile);
+  }
+  
   state.activeVpnFile = null;
+  state.activeVpnBridgeFile = null;
   state.activeVpnConfig = null;
   return { success: true, message: "Disconnected." };
 }
@@ -196,15 +200,15 @@ async function pollGateway(gateways, maxWait = 60000) {
         // Continue polling
       }
     }
-    await new Promise(r => setTimeout(r, 2000));
+    await new Promise(r => setTimeout(r, 3000));
   }
   return { ok: false };
 }
 
 async function startVpn(config) {
-  console.log(`[VPN Toggle] 🚀 STARTING VPN ENGINE...`);
+  console.log(`[VPN Toggle] starting VPN engine...`);
   if (!config?.PublicIp) {
-    console.error(`[VPN Toggle] ❌ Invalid config received:`, config);
+    console.error(`[VPN Toggle] ERROR: Invalid config received:`, config);
     throw new Error("Invalid config.");
   }
   
@@ -212,10 +216,12 @@ async function startVpn(config) {
   if (!wg) throw new Error("WireGuard engine not found.");
 
   state.activeVpnConfig = config;
-  const adStatus = await adblockTools.getAdBlockStatus();
-  const dnsServers = adStatus.active ? "94.140.14.14, 94.140.15.15, 8.8.8.8" : "1.1.1.1, 8.8.8.8";
   
-  console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp}`);
+  // Use state.adblockEnabled as the primary source of truth for the VPN DNS
+  const useAdGuard = state.adblockEnabled;
+  const dnsServers = useAdGuard ? "94.140.14.14, 94.140.15.15, 2a10:50c0::ad1:ff, 2a10:50c0::ad2:ff" : "1.1.1.1, 8.8.8.8";
+  
+  console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp} (DNS: ${useAdGuard ? 'Protected' : 'Standard'})`);
   const confContent = generateWgConfig(config, dnsServers);
 
   const vpnDataDir = path.join(app.getPath("userData"), "vpn");
@@ -230,6 +236,7 @@ async function startVpn(config) {
     if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
     tunnelConfigPath = path.join(bridgeDir, `${tunnelName}.conf`);
     fs.writeFileSync(tunnelConfigPath, confContent);
+    state.activeVpnBridgeFile = tunnelConfigPath;
   }
 
   state.activeVpnFile = persistentPath;
@@ -247,13 +254,9 @@ async function startVpn(config) {
       await execAsync(`sudo ${wg.path} up "${persistentPath}"`);
     }
   } catch (err) {
-    console.error(`[VPN Toggle] ❌ Failed to start tunnel: ${err.message}`);
+    console.error(`[VPN Toggle] ERROR: Failed to start tunnel: ${err.message}`);
     await removeBypassRoute(config.PublicIp);
     throw err;
-  } finally {
-    if (process.platform === 'win32' && fs.existsSync(tunnelConfigPath)) {
-      setTimeout(() => { try { if (fs.existsSync(tunnelConfigPath)) fs.unlinkSync(tunnelConfigPath); } catch(e) {} }, 15000);
-    }
   }
   
   console.log(`[VPN Toggle] Wait for interface to initialize...`);
@@ -263,16 +266,16 @@ async function startVpn(config) {
   const { ok, gw, time } = await pollGateway([gwIp, "10.150.0.1", "10.0.0.1"]);
 
   if (!ok) {
-    console.error(`[VPN Toggle] ❌ Handshake Timeout. Gateway ${gwIp} did not reply.`);
+    console.error(`[VPN Toggle] ERROR: Handshake Timeout. Gateway ${gwIp} did not reply.`);
     return { success: true, message: "Connected (Establishing...)" };
   }
 
-  console.log(`[Connectivity] ✅ Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
+  console.log(`[Connectivity] OK: Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
   
   const isOnline = await verifyConnectivity();
   if (isOnline) return { success: true, message: "Connected & Verified." };
   
-  return { success: true, message: "Connected (NAT/Routing Latency)." };
+  return { success: true, message: "Connected (Limited Connectivity)." };
 }
 
 async function handleVpnToggle(config) {
@@ -328,6 +331,15 @@ function loadStats() {
 
 app.on("ready", async () => {
   await checkAdmin();
+  // Ensure system is in a clean state on startup
+  try {
+    await adblockTools.safeResetDNS();
+    if (process.platform === 'win32') {
+      await execAsync("ipconfig /flushdns").catch(() => {});
+    }
+  } catch (e) {
+    console.debug("[Startup] DNS cleanup skipped.");
+  }
   loadStats();
   createWindow();
 });
