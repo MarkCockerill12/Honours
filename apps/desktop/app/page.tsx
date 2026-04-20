@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { DesktopApp } from "../DesktopApp";
 import { ThemeProvider, useStats, VPN_SERVERS } from "@privacy-shield/core";
-import type { Theme, ProtectionState, ServerLocation } from "@privacy-shield/core";
+import type { Theme as AppTheme, ProtectionState, ServerLocation } from "@privacy-shield/core";
 
 // Declare electron global
 declare global {
@@ -19,6 +19,7 @@ declare global {
         enable: () => Promise<{ success: boolean; message: string }>;
         disable: () => Promise<{ success: boolean; message: string }>;
         forceReset: () => Promise<{ success: boolean; message: string }>;
+        setIntent: (enabled: boolean) => Promise<{ success: boolean }>;
         testDns?: () => Promise<{ isBlocked: boolean; output: string; summary?: string }>;
         getStats: () => Promise<Record<string, number>>;
         recordBlock: (data: { size: number; category: string }) => Promise<void>;
@@ -40,8 +41,11 @@ const isElectron = () =>
   globalThis.window !== undefined &&
   !!(globalThis.window as Window).electron?.systemAdBlock;
 
+// Potential extension IDs for communication
+const EXTENSION_IDS = ["pipgnidlkfkljljlkfkljljlkfkljljl", "hfchejlhjdpkdfefmkdbbabedjhkciki"];
+
 export default function DesktopPage() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<AppTheme>("dark");
   const [protection, setProtection] = useState<ProtectionState>({
     isActive: false,
     vpnEnabled: false,
@@ -99,7 +103,6 @@ export default function DesktopPage() {
   useEffect(() => {
     if (!isElectron()) return;
     const sync = async () => {
-      // 1. Don't sync if we are in the middle of a big power toggle or manual interaction
       if (isTogglingRef.current) return;
       if (Date.now() - lastToggleTimeRef.current < 15000) return;
       
@@ -112,12 +115,9 @@ export default function DesktopPage() {
         const sysVpn = !!status.vpnActive;
 
         setProtection(prev => {
-          // Re-check lock inside state setter
           if (isTogglingRef.current || Date.now() - lastToggleTimeRef.current < 15000) return prev;
           
-          // Only sync if the system state is different from our UI intent
           if (prev.adblockEnabled !== sysAd || prev.vpnEnabled !== sysVpn) {
-            // Consensus: Only update if the system state is consistent for 2 cycles
             if (syncConsensusRef.current.ad === sysAd && syncConsensusRef.current.vpn === sysVpn) {
               syncConsensusRef.current.count++;
               if (syncConsensusRef.current.count >= 2) {
@@ -130,7 +130,6 @@ export default function DesktopPage() {
                 };
               }
             } else {
-              // Reset consensus if system state is flickering
               syncConsensusRef.current = { ad: sysAd, vpn: sysVpn, count: 1 };
             }
           } else {
@@ -139,7 +138,6 @@ export default function DesktopPage() {
           return prev;
         });
 
-        // Sync VPN server status
         if (status.vpnActive) {
           const vpnStatus = await api.vpn.getStatus();
           if (vpnStatus.serverId) {
@@ -163,6 +161,19 @@ export default function DesktopPage() {
     return () => clearInterval(interval);
   }, [updateDnsInfo, updateStats]);
 
+  const notifyExtension = useCallback(async (action: string, data: any) => {
+    if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) return;
+
+    for (const id of EXTENSION_IDS) {
+      try {
+        chrome.runtime.sendMessage(id, { action, ...data }, (response) => {
+          if (chrome.runtime.lastError) return;
+          console.log(`[Desktop] Extension ${id} notified:`, response);
+        });
+      } catch (e) { /* ignore */ }
+    }
+  }, []);
+
   const toggleAdBlock = useCallback(async (enable: boolean) => {
     const api = (globalThis.window as Window).electron;
     if (!isElectron() || !api) return true;
@@ -181,7 +192,7 @@ export default function DesktopPage() {
     const api = (globalThis.window as Window).electron;
     if (!isElectron() || !api) return true;
     console.log(`[UI] Toggling VPN: ${enable ? 'Enabling' : 'Disabling'}...`);
-    
+
     if (enable) {
       if (!server) return false;
       try {
@@ -197,6 +208,9 @@ export default function DesktopPage() {
         if (res.success) {
           setServerStatuses(prev => ({ ...prev, [server.id]: "active" }));
           setStatusInfo(res.message);
+
+          // Notify extension of new IP
+          notifyExtension("SET_VPN_CONFIG", { config: prov.config });
         } else {
           setServerStatuses(prev => ({ ...prev, [server.id]: "off" }));
           setError(res.errorCode === "MISSING_DEPENDENCY" 
@@ -219,7 +233,7 @@ export default function DesktopPage() {
       }
       return true;
     }
-  }, []);
+  }, [notifyExtension]);
 
   const handleProtectionToggle = useCallback(async () => {
     if (isTogglingRef.current) return;
@@ -290,14 +304,12 @@ export default function DesktopPage() {
     lastToggleTimeRef.current = Date.now();
     setProtection(prev => ({ ...prev, adblockEnabled: newState }));
 
-    // Inform backend of intent immediately
     const api = (globalThis.window as Window).electron;
     if (api?.systemAdBlock?.setIntent) {
       console.log(`[UI] Setting AdBlock Intent -> ${newState ? 'PROTECT' : 'STANDARD'}`);
       await api.systemAdBlock.setIntent(newState);
     }
 
-    // If the system is already active, apply the change immediately
     if (protection.isActive) {
       console.log(`[UI] Hot-Toggling AdBlock -> ${newState ? 'ON' : 'OFF'}`);
       setIsToggling(true);
@@ -369,7 +381,7 @@ export default function DesktopPage() {
 
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
-      <div className="h-screen overflow-hidden bg-zinc-950 flex flex-col">
+      <div className="h-screen overflow-hidden flex flex-col">
         <div className="absolute top-4 right-4 z-[9999] flex flex-col gap-2 w-80">
           {error && (
             <div className="bg-red-500/90 text-white px-4 py-3 rounded-xl shadow-2xl flex justify-between items-center backdrop-blur-md">

@@ -122,40 +122,6 @@ async function safeResetDNS(adapter) {
   }
 }
 
-async function syncVpnDns(state, active) {
-  if (!state.activeVpnConfig?.Id) return;
-  const vpnAdapter = `ps-${state.activeVpnConfig.Id}`;
-
-  if (process.platform === 'win32') {
-    const dnsServers = active 
-      ? "'94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'" 
-      : "'1.1.1.1','8.8.8.8'";
-    
-    console.log(`[AdBlock] Syncing VPN DNS (${vpnAdapter}) -> ${active ? 'PROTECTED' : 'STANDARD'}...`);
-    
-    for (let i = 0; i < 5; i++) {
-      try {
-        const setCmd = active
-          ? `Set-DnsClientServerAddress -InterfaceAlias '${vpnAdapter}' -ServerAddresses ${dnsServers}`
-          : `Set-DnsClientServerAddress -InterfaceAlias '${vpnAdapter}' -ServerAddresses '1.1.1.1','8.8.8.8'`;
-        await execAsync(`powershell -Command "${setCmd}"`);
-        await execAsync("ipconfig /flushdns").catch(() => {});
-        console.log(`[AdBlock] OK: VPN DNS synced successfully.`);
-        return;
-      } catch (err) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
-    }
-  } else if (process.platform === 'darwin') {
-    const dnsServers = active ? "94.140.14.14 94.140.15.15" : "1.1.1.1 8.8.8.8";
-    try {
-      await execAsync(`networksetup -setdnsservers "${vpnAdapter}" ${dnsServers}`);
-    } catch (err) {
-      console.error(`[AdBlock] ERROR: Mac VPN DNS sync failed:`, err.message);
-    }
-  }
-}
-
 // --- Main Handler Setup ---
 
 function setupAdblockHandlers(state, _restartVpnIfActive) {
@@ -213,9 +179,12 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
         await execAsync("ipconfig /flushdns").catch(() => {});
       }
       if (state.adBlocker) {
-        try { state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession); } catch { }
+        try { state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession); } catch { /* ignore */ }
         state.adBlocker = null;
       }
+      // If VPN is active, we must restart it to reset DNS in the config
+      if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
+      
       console.log("[AdBlock] OK: Force Reset complete.");
       return { success: true, message: "System cleaned." };
     } catch (err) {
@@ -244,25 +213,32 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
         console.log("[AdBlock] Ghostery (Ultra Mode) active in Electron session.");
       }
 
-      const adapter = await getActiveAdapter();
-      if (!adapter) {
-        console.warn("[AdBlock] No active physical adapter found.");
+      const isVpnActive = !!state.activeVpnConfig?.Id;
+
+      if (isVpnActive) {
+        console.log("[AdBlock] VPN is active. Restarting tunnel to inject Protected DNS...");
+        if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
       } else {
-        console.log(`[AdBlock] Setting system DNS for adapter: ${adapter}...`);
-        const escapedAdapter = adapter.replaceAll("'", "''");
-        const dnsList = "'94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'";
-        const innerCmd = `Set-DnsClientServerAddress -InterfaceAlias '${escapedAdapter}' -ServerAddresses ${dnsList}; ipconfig /flushdns`;
-        try {
-          await execAsync(`powershell -Command "${innerCmd}"`);
-          console.log("[AdBlock] OK: Physical DNS set successfully.");
-        } catch (directError) {
-          console.log("[AdBlock] Direct set failed, attempting UAC...");
-          const psCmd = `powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd.replaceAll("'", "''")}'"`;
-          await Promise.race([ execAsync(psCmd), new Promise((_, reject) => setTimeout(() => reject(new Error("UAC Timeout")), 30000)) ]);
-          console.log("[AdBlock] OK: Physical DNS set (elevated).");
+        const adapter = await getActiveAdapter();
+        if (!adapter) {
+          console.warn("[AdBlock] No active physical adapter found.");
+        } else {
+          console.log(`[AdBlock] Setting system DNS for adapter: ${adapter}...`);
+          const escapedAdapter = adapter.replaceAll("'", "''");
+          const dnsList = "'94.140.14.14','94.140.15.15','2a10:50c0::ad1:ff','2a10:50c0::ad2:ff'";
+          const innerCmd = `Set-DnsClientServerAddress -InterfaceAlias '${escapedAdapter}' -ServerAddresses ${dnsList}; ipconfig /flushdns`;
+          try {
+            await execAsync(`powershell -Command "${innerCmd}"`);
+            console.log("[AdBlock] OK: Physical DNS set successfully.");
+          } catch (directError) {
+            console.log("[AdBlock] Direct set failed, attempting UAC...");
+            const psCmd = `powershell -Command "Start-Process powershell -Verb RunAs -WindowStyle Hidden -Wait -ArgumentList '-Command ${innerCmd.replaceAll("'", "''")}'"`;
+            await Promise.race([ execAsync(psCmd), new Promise((_, reject) => setTimeout(() => reject(new Error("UAC Timeout")), 30000)) ]);
+            console.log("[AdBlock] OK: Physical DNS set (elevated).");
+          }
         }
       }
-      await syncVpnDns(state, true);
+      
       console.log("[AdBlock] OK: Protection fully enabled.");
       return { success: true, message: "System-wide protection active." };
     } catch (err) {
@@ -277,9 +253,15 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
     state.adblockEnabled = false;
     try {
       await safeResetDNS();
-      await syncVpnDns(state, false);
+      
+      const isVpnActive = !!state.activeVpnConfig?.Id;
+      if (isVpnActive) {
+        console.log("[AdBlock] VPN is active. Restarting tunnel to restore Standard DNS...");
+        if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
+      }
+
       if (state.adBlocker) {
-        try { state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession); } catch { }
+        try { state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession); } catch { /* ignore */ }
       }
       console.log("[AdBlock] OK: Protection fully disabled.");
       return { success: true, message: "Protection session detached." };

@@ -1,17 +1,14 @@
 "use client";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import ExtensionApp from "../ExtensionApp";
 import { ThemeProvider } from "@privacy-shield/core";
 import type { Theme, ProtectionState, SmartFilter } from "@privacy-shield/core";
 import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core";
-import { blurContent, clearBlurContent } from "../utils/content";
 import { chromeBridge } from "../utils/chromeBridge";
 
 export default function ExtensionPage() {
   const [theme, setTheme] = useState<Theme>("dark");
   const [protection, setProtection] = useState<ProtectionState>(DEFAULT_PROTECTION_STATE);
-
-  const testContentRef = useRef<HTMLDivElement>(null);
 
   const [filters, setFilters] = useState<SmartFilter[]>(DEFAULT_FILTERS);
 
@@ -44,15 +41,6 @@ export default function ExtensionPage() {
     }
   };
 
-  // Sync stats with Electron if available
-  useEffect(() => {
-    const api = (globalThis.window as any).electron;
-    if (api?.systemAdBlock) {
-      console.log("[ExtensionPage] Electron context detected. Syncing stats...");
-    }
-  }, []);
-
-
   const handleVpnToggle = () => {
     console.log("[ExtensionPage] VPN toggled");
     persistProtection({ ...protection, vpnEnabled: !protection.vpnEnabled });
@@ -64,7 +52,7 @@ export default function ExtensionPage() {
     persistProtection({ ...protection, isActive: newState });
     
     // Notify backgrounds/tabs of master state change if needed
-    chromeBridge.sendMessage(0, { action: "TOGGLE_MASTER", enabled: newState });
+    chromeBridge.sendMessage(undefined, { action: "TOGGLE_MASTER", enabled: newState });
 
     if (typeof chrome !== "undefined") {
       chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
@@ -88,7 +76,7 @@ export default function ExtensionPage() {
     const newProt = { ...protection, filteringEnabled: newState };
     persistProtection(newProt);
     
-    chromeBridge.sendMessage(0, { action: "TOGGLE_FILTERING", enabled: newState });
+    chromeBridge.sendMessage(undefined, { action: "TOGGLE_FILTERING", enabled: newState });
     
     if (typeof chrome !== "undefined") {
       chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
@@ -110,19 +98,8 @@ export default function ExtensionPage() {
     const newState = !protection.adblockEnabled;
     persistProtection({ ...protection, adblockEnabled: newState });
 
-    // 1. FOR ELECTRON: Toggle system-wide adblocking
-    const api = (globalThis.window as any).electron;
-    if (api?.systemAdBlock) {
-      try {
-        if (newState) await api.systemAdBlock.enable();
-        else await api.systemAdBlock.disable();
-      } catch (err) {
-        console.error("[ExtensionPage] System toggle failed:", err);
-      }
-    }
-
     // 2. FOR CHROME: Send message to background
-    chromeBridge.sendMessage(0, { action: "TOGGLE_ADBLOCK", enabled: newState });
+    chromeBridge.sendMessage(undefined, { action: "TOGGLE_ADBLOCK", enabled: newState });
 
     if (typeof chrome !== "undefined") {
       chrome.tabs?.query({ active: true, currentWindow: true }, (tabs) => {
@@ -135,29 +112,17 @@ export default function ExtensionPage() {
     }
   };
 
-  useEffect(() => {
-    // Clear existing filters first to avoid duplication/overlapping
-    clearBlurContent();
-
-    if (protection.filteringEnabled && testContentRef.current) {
-      console.log("[ExtensionPage] Applying blurContent with filters:", filters);
-      blurContent(testContentRef.current, filters, "blur");
-    }
-  }, [protection.isActive, protection.filteringEnabled, filters]);
-
   return (
     <ThemeProvider theme={theme} setTheme={setTheme}>
-      <div className="w-100 h-150 bg-zinc-950 overflow-y-auto">
-        <ExtensionApp
-          protection={protection}
-          onProtectionToggle={handleMasterToggle}
-          onVpnToggle={handleVpnToggle}
-          onAdblockToggle={handleAdblockToggle}
-          onFilteringToggle={handleFilteringToggle}
-          filters={filters}
-          onFiltersChange={persistFilters}
-        />
-      </div>
+      <ExtensionApp
+        protection={protection}
+        onProtectionToggle={handleMasterToggle}
+        onVpnToggle={handleVpnToggle}
+        onAdblockToggle={handleAdblockToggle}
+        onFilteringToggle={handleFilteringToggle}
+        filters={filters}
+        onFiltersChange={persistFilters}
+      />
     </ThemeProvider>
   );
 }

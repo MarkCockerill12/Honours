@@ -4,8 +4,9 @@
   "private": true,
   "main": "electron/main.js",
   "scripts": {
-    "dev": "concurrently -k \"cross-env PORT=3000 next dev\" \"wait-on -t 60000 http-get://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
-    "build": "next build",
+    "dev": "concurrently -k \"cross-env PORT=3000 next dev --webpack\" \"wait-on -t 60000 http-get://localhost:3000 && cross-env ELECTRON_START_URL=http://localhost:3000 electron .\"",
+    "build": "next build --webpack",
+    "package": "node scripts/build-env.js && npm run build && electron-builder",
     "lint": "eslint .",
     "test": "vitest run",
     "clean": "rimraf .next out .turbo",
@@ -17,11 +18,13 @@
     "@privacy-shield/core": "workspace:*",
     "animejs": "^3.2.2",
     "cross-fetch": "^4.1.0",
+    "d3-geo": "^3.1.1",
     "dotenv": "^17.3.1",
     "lucide-react": "^0.454.0",
     "next": "^16.1.6",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-simple-maps": "^3.0.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
@@ -37,6 +40,34 @@
     "postcss": "^8.5",
     "tailwindcss": "^4.1.9",
     "tw-animate-css": "1.3.3",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.0.4",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.markcockerill.privacyshield",
+    "productName": "PrivacySentinel",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*",
+      "electron/**/*",
+      "bin/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "requestedExecutionLevel": "requireAdministrator",
+      "icon": "../../Shield.ico"
+    },
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ]
   }
 }

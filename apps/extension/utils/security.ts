@@ -1,5 +1,5 @@
 // Uses heuristic analysis, pattern matching, and known threat databases
-import { COMPREHENSIVE_DOMAINS } from "@privacy-shield/core";
+import { COMPREHENSIVE_DOMAINS } from "@privacy-shield/core/shared";
 
 // Local Threat Database — expanded with comprehensive lists
 const THREAT_DB = {

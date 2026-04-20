@@ -1,32 +1,23 @@
-"use client";
-
-import React, { useState, useMemo, useEffect, useRef } from "react";
-import {
-  Shield,
-  Terminal,
-  CheckCircle2,
-  AlertCircle,
-  Activity,
-  ShieldCheck,
-  Lock,
-} from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { useTheme } from "@privacy-shield/core";
+import type { ProtectionState, TrackerStats, Theme, ServerLocation } from "@privacy-shield/core";
+import { WorldMap } from "./components/WorldMap";
+import Tutorial from "./components/Tutorial";
 import anime from "animejs";
-import { useTheme, ActivationButton, TrackerCard, ProtectionToggles, APP_VERSION } from "@privacy-shield/core";
-import type { ProtectionState, TrackerStats, Theme, ServerLocation, ThemeColors } from "@privacy-shield/core";
-import { ServerList } from "./components/ServerList";
+import { Map, Shield, Palette, RefreshCw, HelpCircle } from "lucide-react";
 
 interface DesktopAppProps {
   protection: ProtectionState;
   onProtectionToggle: () => void;
   onVpnToggle: () => void;
   onAdblockToggle: () => void;
-  onTest: () => Promise<{ isBlocked: boolean; output: string } | null>;
+  onTest: () => Promise<{ isBlocked: boolean; output: string; summary?: string } | null>;
   onReset: () => Promise<void>;
   stats: TrackerStats;
   loading?: boolean;
   dnsInfo?: Record<string, string[]>;
   initialDns?: Record<string, string[]>;
-  setTheme?: (theme: Theme) => void;
+  setTheme?: (theme: any) => void;
   servers: ServerLocation[];
   selectedServer: ServerLocation | null;
   onServerSelect: (server: ServerLocation) => void;
@@ -38,415 +29,305 @@ export function DesktopApp({
   onProtectionToggle,
   onVpnToggle,
   onAdblockToggle,
-  onTest,
   onReset,
   stats,
   loading = false,
-  dnsInfo = {},
-  initialDns = {},
   setTheme,
   servers,
   selectedServer,
   onServerSelect,
-  isAdmin = true,
 }: Readonly<DesktopAppProps>) {
-  const { colors, theme } = useTheme();
-  const [testing, setTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{
-    isBlocked: boolean;
-    output: string;
-    summary?: string;
-  } | null>(null);
-
-  const glassCardClass = useMemo(() => {
-    switch (theme) {
-      case "dark": return "glass-card";
-      case "vaporwave": return "glass-card-vaporwave";
-      case "frutiger-aero": return "glass-card-frutiger";
-      case "cyberpunk": return "glass-card-cyberpunk";
-      default: return "glass-card-light";
-    }
-  }, [theme]);
-
-  // Dashboard Ref and Animation Logic
-  const dashboardRef = useRef<HTMLDivElement>(null);
-  const glow1Ref = useRef<HTMLDivElement>(null);
-  const glow2Ref = useRef<HTMLDivElement>(null);
+  const { theme, colors } = useTheme();
+  const [isMapMode, setIsMapMode] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
-    if (!dashboardRef.current) return;
-    const elements = dashboardRef.current.querySelectorAll(".dashboard-anim-item");
+    if (typeof window !== 'undefined' && !localStorage.getItem('ps_tutorial_seen')) {
+      setShowTutorial(true);
+    }
+  }, []);
+  
+  const powerBtnRef = useRef<HTMLButtonElement>(null);
+  const mainUiRef = useRef<HTMLDivElement>(null);
+
+  const handleInteraction = (el: HTMLElement | null, type: 'enter' | 'leave' | 'down' | 'up') => {
+    if (!el) return;
+    const configs = {
+      enter: { scale: 1.05, duration: 400, easing: "easeOutElastic(1, .8)" },
+      leave: { scale: 1, duration: 400, easing: "easeOutQuint" },
+      down: { scale: 0.92, duration: 100, easing: "easeOutQuint" },
+      up: { scale: 1.05, duration: 400, easing: "easeOutElastic(1, .8)" }
+    };
+    anime({ targets: el, ...configs[type] });
+  };
+
+  useEffect(() => {
     anime({
-      targets: elements,
+      targets: ".anim-entry",
       translateY: [20, 0],
       opacity: [0, 1],
-      delay: anime.stagger(60, { start: 50 }),
-      duration: 600,
-      easing: "easeOutCubic"
+      delay: anime.stagger(100),
+      duration: 1000,
+      easing: "easeOutQuint"
     });
   }, []);
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    // High-performance parallax glows
-    if (glow1Ref.current && glow2Ref.current) {
-      const x = (e.clientX / window.innerWidth - 0.5) * 60;
-      const y = (e.clientY / window.innerHeight - 0.5) * 60;
-      
+  useEffect(() => {
+    if (!mainUiRef.current) return;
+    
+    if (isMapMode) {
       anime({
-        targets: glow1Ref.current,
-        translateX: x,
-        translateY: y,
+        targets: mainUiRef.current,
+        opacity: 0,
+        scale: 0.9,
+        duration: 600,
+        easing: "easeOutQuint",
+        complete: () => {
+          if (mainUiRef.current) mainUiRef.current.style.visibility = "hidden";
+        }
+      });
+    } else {
+      if (mainUiRef.current) mainUiRef.current.style.visibility = "visible";
+      anime({
+        targets: mainUiRef.current,
+        opacity: 1,
+        scale: 1,
         duration: 800,
-        easing: 'easeOutQuad'
-      });
-      anime({
-        targets: glow2Ref.current,
-        translateX: -x * 1.2,
-        translateY: -y * 1.2,
-        duration: 1000,
-        easing: 'easeOutQuad'
+        easing: "easeOutElastic(1, .8)"
       });
     }
+  }, [isMapMode]);
+
+  const handleServerClick = (server: ServerLocation) => {
+    onServerSelect(server);
+    setIsMapMode(false);
   };
 
-  const handleTest = async () => {
-    setTesting(true);
-    try {
-      const result = await onTest();
-      setTestResult(result);
-    } catch (err) {
-      console.error("Test failed", err);
-    } finally {
-      setTesting(false);
-      // Keep result visible for 15 seconds so user can read it
-      setTimeout(() => setTestResult(null), 15000);
-    }
-  };
+  const isDark = theme === "dark" || theme === "vaporwave" || theme === "frutiger-aero";
 
-  const adapterNames = Object.keys(dnsInfo);
-  const primaryAdapter = adapterNames.find((name) => dnsInfo[name].length > 0) || adapterNames[0] || "SCANNING";
-  const activeDns = dnsInfo[primaryAdapter] || ["DEFAULT"];
+  const [pings, setPings] = useState<Record<string, number>>({});
 
-  const getGlow1Color = () => {
-    if (!protection.isActive) return "bg-red-500";
-    return theme === "cyberpunk" ? "bg-cyan-500" : "bg-emerald-500";
-  };
+  useEffect(() => {
+    const pingRegions = async () => {
+      const newPings: Record<string, number> = {};
+      const SERVER_REGION_MAP: Record<string, string> = {
+        us: "us-east-1", uk: "eu-west-2", de: "eu-central-1", jp: "ap-northeast-1", au: "ap-southeast-2"
+      };
 
-  const getGlow2Color = () => {
-    if (!protection.isActive) return "bg-orange-600";
-    switch (theme) {
-      case "vaporwave": return "bg-pink-500";
-      case "cyberpunk": return "bg-yellow-400";
-      default: return "bg-blue-500";
-    }
-  };
+      await Promise.all(servers.map(async (s) => {
+        const start = Date.now();
+        try {
+          const region = SERVER_REGION_MAP[s.id];
+          const ctrl = new AbortController();
+          const tid = setTimeout(() => ctrl.abort(), 2000);
+          await fetch(`https://dynamodb.${region}.amazonaws.com`, { method: "HEAD", mode: "no-cors", signal: ctrl.signal });
+          clearTimeout(tid);
+          newPings[s.id] = Date.now() - start;
+        } catch {
+          newPings[s.id] = 999;
+        }
+      }));
+      setPings(newPings);
+    };
+
+    pingRegions();
+    const interval = setInterval(pingRegions, 10000);
+    return () => clearInterval(interval);
+  }, [servers]);
 
   return (
-    <div 
-      className="w-full h-screen mx-auto overflow-hidden text-zinc-100 selection:bg-emerald-500/30"
-      onMouseMove={handleMouseMove}
-    >
-      <div className={`${colors.bg} h-full flex flex-col relative transition-colors duration-1000`}>
-        {/* Ambient Glows */}
-        <div
-          ref={glow1Ref}
-          className={`absolute -top-40 -left-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${getGlow1Color()}`}
+    <div className={`fixed inset-0 ${colors.bg} ${colors.text} font-body transition-all duration-1000 overflow-hidden`}>
+      
+      {/* Background Map Layer */}
+      <div className="absolute inset-0 z-0 map-mesh opacity-20 pointer-events-none"></div>
+      <div className={`absolute inset-0 z-10 flex items-center justify-center overflow-hidden transition-all duration-1000 ${isMapMode ? 'scale-110 opacity-100' : 'scale-100 opacity-40'}`}>
+        <WorldMap 
+          servers={servers.map(s => ({ ...s, ping: pings[s.id] || 0 }))}
+          selectedServer={selectedServer}
+          onServerSelect={handleServerClick}
+          isMapMode={isMapMode}
         />
-        <div
-          ref={glow2Ref}
-          className={`absolute -bottom-40 -right-20 w-150 h-150 rounded-full mix-blend-screen filter blur-[100px] opacity-20 transition-colors duration-1000 ${getGlow2Color()}`}
-        />
+      </div>
 
-        {/* Top Header Strip */}
-        <div className={`dashboard-anim-item ${glassCardClass} border-b ${colors.border} px-8 py-6 flex items-center justify-between z-10 relative`}>
+      {/* Main UI Layer */}
+      <div ref={mainUiRef} className="relative z-20 w-full h-full flex flex-col items-center justify-center">
+        
+        {/* Top Navigation */}
+        <nav className="fixed top-0 w-full flex justify-between items-center px-12 py-8 bg-transparent anim-entry">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl border transition-all duration-500 ${protection.isActive ? "bg-emerald-500/20 border-emerald-500/30" : "bg-red-500/10 border-red-500/20"}`}>
-              <Shield className={`w-5 h-5 ${protection.isActive ? "text-emerald-400" : "text-red-400"}`} />
+            <div className={`w-8 h-8 ${colors.accent} rounded-lg flex items-center justify-center shadow-lg`}>
+              <Shield className={`w-5 h-5 ${theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]'}`} />
             </div>
-            <div className="flex flex-col">
-              <h1 className={`text-sm font-black tracking-tight ${colors.text}`}>AD-BLOCK SHIELD</h1>
-              <p className={`text-[9px] font-bold ${colors.textSecondary} opacity-40 uppercase`}>Honours Project Edition</p>
-            </div>
+            <span className={`font-headline font-extrabold text-xl tracking-tighter ${colors.text}`}>PRIVACY SENTINEL</span>
           </div>
-          <div className="flex items-center gap-4">
+          
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTutorial(true)}
+              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95`}
+              title="Help"
+            >
+              <HelpCircle className={`w-4 h-4 ${colors.textSecondary}`} />
+            </button>
             <button
               onClick={() => {
-                const themes: Theme[] = ["dark", "light", "vaporwave", "frutiger-aero", "cyberpunk"];
-                const idx = themes.indexOf(theme);
-                if (setTheme) setTheme(themes[(idx + 1) % themes.length]);
+                const themes: Theme[] = ['dark', 'light', 'vaporwave', 'frutiger-aero'];
+                const next = themes[(themes.indexOf(theme as Theme) + 1) % themes.length];
+                setTheme?.(next);
               }}
-              className={`p-2 rounded-xl transition-all duration-300 hover:rotate-180 bg-black/20 border ${colors.border} ${colors.textSecondary}`}
-              title="Switch Theme"
+              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95`}
+              title={`Theme: ${theme}`}
             >
-              <Activity className="w-4 h-4" />
+              <Palette className={`w-4 h-4 ${colors.textSecondary}`} />
             </button>
-            <div className={`text-[9px] font-mono px-3 py-1 rounded-full border ${colors.border} ${colors.textSecondary} opacity-60 bg-black/20`}>
-              BUILD {APP_VERSION}
-            </div>
           </div>
-        </div>
+        </nav>
 
-        {/* Main Dashboard */}
-        <div ref={dashboardRef} className="flex-1 flex flex-col overflow-hidden items-center perspective-[1000px]">
-          <div className="w-full max-w-full px-8 py-8 lg:px-24 flex-1 overflow-y-auto custom-scrollbar">
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-10 items-start py-4">
-              
-              {/* Left Side: System Integrity & Stats */}
-              <div className="md:col-span-5 space-y-6 flex flex-col z-10">
-                <div className="dashboard-anim-item">
-                  <IntegrityCard 
-                    protection={protection} 
-                    glassCardClass={glassCardClass} 
-                    colors={colors} 
-                    onTest={handleTest} 
-                    onReset={onReset}
-                    testing={testing}
-                    testResult={testResult}
-                    dnsInfo={dnsInfo}
-                    initialDns={initialDns}
-                    isAdmin={isAdmin}
-                  />
+        {/* Central Controller Hub */}
+        <div className="flex flex-col items-center max-w-4xl w-full px-6">
+          <div className="relative w-96 h-96 flex items-center justify-center anim-entry">
+            {protection.isActive && !loading && (
+               <div className={`absolute inset-0 shield-orbit-ring scale-100 opacity-20 ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+            )}
+            { (protection.isActive && loading) && (
+              <>
+                <div className={`absolute inset-0 shield-orbit-ring scale-100 opacity-20 animate-radar-sweep ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+                <div className={`absolute inset-12 shield-orbit-ring scale-100 opacity-30 animate-radar-sweep [animation-direction:reverse] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+                <div className={`absolute inset-24 shield-orbit-ring scale-100 opacity-50 animate-radar-sweep [animation-duration:3s] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+              </>
+            )}
+            
+            <button 
+              ref={powerBtnRef}
+              onClick={onProtectionToggle}
+              onMouseEnter={() => handleInteraction(powerBtnRef.current, 'enter')}
+              onMouseLeave={() => handleInteraction(powerBtnRef.current, 'leave')}
+              onMouseDown={() => handleInteraction(powerBtnRef.current, 'down')}
+              onMouseUp={() => handleInteraction(powerBtnRef.current, 'up')}
+              disabled={loading}
+              className={`
+                relative group w-48 h-48 rounded-full p-[2px] transition-all shadow-xl
+                ${protection.isActive 
+                  ? (isDark ? 'bg-linear-to-br from-cyan-400 to-blue-500 shadow-[0_0_60px_rgba(0,229,255,0.4)]' : 'bg-linear-to-br from-blue-500 to-emerald-500 shadow-[0_0_40px_rgba(37,99,235,0.3)]')
+                  : 'bg-linear-to-br from-slate-700 to-slate-800 opacity-80'}
+              `}
+            >
+              <div className={`
+                w-full h-full rounded-full flex flex-col items-center justify-center gap-2 transition-colors
+                ${protection.isActive ? "bg-transparent" : `${colors.bgSecondary} group-hover:bg-transparent`}
+              `}>
+                {loading ? (
+                  <RefreshCw className={`w-12 h-12 animate-spin ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />
+                ) : (
+                  <RefreshCw className={`w-12 h-12 transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`} />
+                )}
+                <span className={`font-headline font-bold text-xs tracking-[0.2em] transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`}>
+                  {loading ? "LOADING" : (protection.isActive ? "SECURE" : "SHIELD")}
+                </span>
+              </div>
+            </button>
+          </div>
+
+          {/* Analytics & Controls Section */}
+          <div className="mt-12 w-full grid grid-cols-1 md:grid-cols-2 gap-8 items-start anim-entry">
+            <div className="flex flex-col gap-6">
+              <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Security Analytics</div>
+              <div className="grid grid-cols-1 gap-4">
+                <div className={`${colors.bgSecondary} backdrop-blur-md p-6 rounded-xl border ${colors.border} shadow-inner flex justify-between items-center`}>
+                  <div className={`font-label text-[10px] tracking-wider ${colors.textSecondary} uppercase`}>Latency</div>
+                  <div className={`font-headline text-3xl font-extrabold ${colors.success} mb-1`}>{selectedServer ? (pings[selectedServer.id] || 0) : 0} ms</div>
                 </div>
-                
-                <div className="dashboard-anim-item">
-                  <ServerList
-                    servers={servers}
-                    selectedServer={selectedServer}
-                    onServerSelect={onServerSelect}
-                  />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-6">
+              <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Vault Controls</div>
+              <div className="flex flex-col gap-3">
+                <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-4 rounded-xl border ${colors.border} shadow-inner`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <RefreshCw className={`w-5 h-5 ${colors.success}`} />
+                      <span className={`font-medium text-sm ${colors.text}`}>VPN Encryption</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <button 
+                        onClick={() => setIsMapMode(true)}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isDark ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'} border text-[10px] font-black hover:bg-opacity-20 transition-all uppercase tracking-widest`}
+                      >
+                        <Map className="w-3 h-3" />
+                        Location
+                      </button>
+                      <button 
+                        onClick={onVpnToggle}
+                        className={`w-12 h-6 rounded-full relative transition-colors ${protection.vpnEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100`}
+                      >
+                        <div className={`absolute top-1 w-4 h-4 rounded-full transition-all ${protection.vpnEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="dashboard-anim-item bg-black/20 rounded-4xl p-1 border border-zinc-800/50">
-                  <TrackerCard stats={stats} />
+
+                <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-4 rounded-xl flex items-center justify-between border ${colors.border} shadow-inner`}>
+                  <div className="flex items-center gap-4">
+                    <Shield className={`w-5 h-5 ${colors.success}`} />
+                    <span className={`font-medium text-sm ${colors.text}`}>Adblock Protocol</span>
+                  </div>
+                  <button 
+                    onClick={onAdblockToggle}
+                    className={`w-12 h-6 rounded-full relative transition-colors ${protection.adblockEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 rounded-full transition-all ${protection.adblockEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
+                  </button>
                 </div>
               </div>
-
-              {/* Right Side: Primary Activation Area */}
-              <div className="md:col-span-7 z-10 dashboard-anim-item">
-                <ActivationArea 
-                  protection={protection}
-                  glassCardClass={glassCardClass}
-                  colors={colors}
-                  onProtectionToggle={onProtectionToggle}
-                  onAdblockToggle={onAdblockToggle}
-                  onVpnToggle={onVpnToggle}
-                  loading={loading}
-                  isAdmin={isAdmin}
-                />
-              </div>
             </div>
-          </div>
-
-          {/* Detailed Footer Bar */}
-          <div className={`dashboard-anim-item w-full ${colors.bgSecondary} border-t ${colors.border} px-8 py-3 flex items-center justify-between text-[10px] font-black tracking-[0.2em] z-10 ${colors.textSecondary}`}>
-            <div className="flex items-center gap-8">
-              <div className="flex items-center gap-2">
-                <Activity className="w-3.5 h-3.5" />
-                ADAPTER: <span className="text-zinc-300 uppercase">{primaryAdapter}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ShieldCheck className={`w-3.5 h-3.5 ${protection.isActive ? "text-emerald-500" : "text-zinc-600"}`} />
-                DNS NODE: <span className="text-zinc-300">{protection.isActive ? activeDns[0] : "DEFAULT"}</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-6 opacity-60">
-              <span>PROTOCOL: AES-256-GCM</span>
-              <span>VERSION: {APP_VERSION}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Internal Sub-components for better complexity management
-
-interface IntegrityCardProps {
-  protection: ProtectionState;
-  glassCardClass: string;
-  colors: ThemeColors;
-  onTest: () => void;
-  onReset: () => void;
-  testing: boolean;
-  testResult: { isBlocked: boolean; output: string; summary?: string } | null;
-  dnsInfo: Record<string, string[]>;
-  initialDns: Record<string, string[]>;
-  isAdmin: boolean;
-}
-
-function IntegrityCard({ 
-  protection, 
-  glassCardClass, 
-  onTest, 
-  onReset,
-  testing,
-  testResult,
-  dnsInfo,
-  initialDns,
-  isAdmin
-}: Readonly<IntegrityCardProps>) {
-  const testButtonContent = useMemo(() => {
-    if (testing) return { text: "VALIDATING...", icon: <div className="w-5 h-5 border-3 border-current border-t-transparent rounded-full animate-spin" /> };
-    if (testResult) {
-      return {
-        text: testResult.isBlocked ? "SHIELD ACTIVE" : "PROTECTION FAILED",
-        icon: testResult.isBlocked ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />,
-        className: testResult.isBlocked ? "bg-emerald-500 text-emerald-950 shadow-emerald-500/25" : "bg-red-500 text-white shadow-red-500/25"
-      };
-    }
-    return {
-      text: "TEST PROTECTION",
-      icon: <Terminal className="w-5 h-5" />,
-      className: protection.isActive 
-        ? "bg-zinc-100 hover:bg-white text-zinc-900 shadow-white/10" 
-        : "bg-zinc-100/10 hover:bg-zinc-100/20 text-zinc-300 border border-zinc-700 shadow-none"
-    };
-  }, [testing, testResult, protection.isActive]);
-
-  return (
-    <div className={`rounded-3xl ${glassCardClass} p-5 flex flex-col justify-between hover-lift transition-all duration-500 ${protection.isActive ? "border-emerald-500/20 shadow-[0_8px_32px_rgba(16,185,129,0.05)]" : "border-zinc-800 shadow-[0_8px_32px_rgba(0,0,0,0.2)]"}`}>
-      <div className="mb-4">
-        <h3 className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400 mb-4 flex items-center gap-3">
-          <span className={`w-2.5 h-2.5 rounded-full ${protection.isActive ? "bg-emerald-400 animate-pulse" : "bg-red-500"}`} />
-          <span>System Health</span>
-        </h3>
-        <div className="space-y-6">
-          <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
-            <span className="text-sm tracking-wide text-zinc-300 font-bold">Initial Context</span>
-            <span className="text-[10px] font-black text-zinc-500 bg-zinc-500/10 px-3 py-1 border border-zinc-500/20 rounded-full">
-              {Object.values(initialDns)[0]?.[0] || "ISP-DEFAULT"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
-            <span className="text-sm tracking-wide text-zinc-300 font-bold">DNS Node</span>
-            <span className={`text-[10px] font-black px-3 py-1 rounded-full ${protection.isActive ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-              {protection.isActive ? "ADGUARD-PRIVATE" : "UNFILTERED"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between pb-4 border-b border-zinc-800/50">
-            <span className="text-sm tracking-wide text-zinc-300 font-bold">Admin Privileges</span>
-            <span className={`text-[10px] font-black px-3 py-1 rounded-full ${isAdmin ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30" : "bg-red-500/10 text-red-400 border border-red-500/20"}`}>
-              {isAdmin ? "AUTHORIZED" : "UNPRIVILEGED"}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm tracking-wide text-zinc-300 font-bold">Current Node</span>
-            <span className={`text-[10px] font-black px-3 py-1 rounded-full ${protection.isActive ? "text-emerald-400 bg-emerald-500/10 border border-emerald-500/20" : "text-zinc-400 bg-zinc-800 border border-zinc-700"}`}>
-              {Object.values(dnsInfo)[0]?.[0] || "SCANNING"}
-            </span>
           </div>
         </div>
       </div>
 
-      <div className="mt-10 space-y-4">
-        {testResult && (
-          <div className={`p-4 rounded-xl border mb-4 text-[11px] font-medium leading-relaxed animate-fade-slide-up ${testResult.isBlocked ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}>
-            <div className="font-black uppercase tracking-widest mb-1 opacity-60">Test Result:</div>
-            <p className="mb-2 italic opacity-90">{testResult.summary}</p>
-            <div className="p-2 rounded bg-black/40 font-mono text-[9px] overflow-hidden truncate">
-              {testResult.output.split('\n')[0]}...
-            </div>
-          </div>
-        )}
-        <button
-          onClick={onTest}
-          disabled={testing}
-          className={`w-full py-5 rounded-2xl flex items-center justify-center gap-3 text-sm font-black tracking-widest transition-all shadow-xl ${testButtonContent.className}`}
-        >
-          {testButtonContent.icon}
-          {testButtonContent.text}
+      <footer className={`fixed bottom-0 w-full flex justify-between items-center px-12 py-8 z-30 bg-transparent transition-opacity duration-500 ${isMapMode ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+        <button onClick={onReset} className={`font-manrope text-[10px] tracking-widest uppercase font-medium ${isDark ? 'text-red-400/60 hover:text-red-400' : 'text-red-600/60 hover:text-red-600'} transition-colors duration-300 flex items-center gap-2 anim-entry`}>
+          <RefreshCw className="w-3 h-3" />
+          System Reset
         </button>
-        <button
-          onClick={onReset}
-          className="w-full py-2 rounded-xl text-[9px] font-black tracking-[0.2em] uppercase opacity-40 hover:opacity-100 hover:bg-red-500/10 hover:text-red-400 transition-all text-zinc-500"
-        >
-          Emergency Protocol Reset
-        </button>
+        <div className="flex items-center gap-4 anim-entry">
+          <div className="flex gap-1">
+            <div className={`w-1.5 h-1.5 rounded-full transition-all ${protection.isActive ? (isDark ? "bg-cyan-400 shadow-[0_0_8px_#00daf3]" : "bg-blue-600 shadow-[0_0_8px_#2563eb]") : "bg-red-500 shadow-[0_0_8px_#ef4444]"}`}></div>
+            <div className={`w-1.5 h-1.5 rounded-full opacity-50 ${protection.isActive ? (isDark ? "bg-cyan-400" : "bg-blue-600") : "bg-red-500"}`}></div>
+            <div className={`w-1.5 h-1.5 rounded-full opacity-20 ${protection.isActive ? (isDark ? "bg-cyan-400" : "bg-blue-600") : "bg-red-500"}`}></div>
+          </div>
+        </div>
+      </footer>
+
+      {isMapMode && (
+        <div className="fixed bottom-16 left-1/2 -translate-x-1/2 z-40 flex flex-col items-center pointer-events-none">
+          <div className={`bg-black/80 backdrop-blur-2xl px-16 py-8 rounded-[3rem] border border-white/20 flex flex-col items-center shadow-[0_0_50px_rgba(0,0,0,0.5)] anim-entry`}>
+            <span className="font-headline font-black text-4xl text-cyan-400 tracking-tighter drop-shadow-2xl animate-pulse text-center">SELECT TERMINAL</span>
+            <p className="font-label text-[10px] text-white/60 uppercase tracking-[0.4em] mt-4 mb-8">Click a glowing node to re-route your connection</p>
+            <button 
+              onClick={() => setIsMapMode(false)}
+              className="px-12 py-4 rounded-full bg-white/10 hover:bg-white/20 border border-white/20 text-[11px] font-black uppercase tracking-widest text-white transition-all pointer-events-auto"
+            >
+              Cancel Selection
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className={`fixed top-32 left-12 flex flex-col gap-1 pointer-events-none z-30 transition-opacity duration-500 ${isMapMode ? 'opacity-0' : 'opacity-100'}`}>
+        <span className={`font-label text-[10px] tracking-[0.3em] ${colors.success}/50 uppercase`}>Current Node</span>
+        <span className={`font-headline font-extrabold text-2xl uppercase ${protection.isActive ? colors.text : "text-red-500"}`}>
+          {protection.isActive ? (selectedServer?.name || "CONNECTED") : "UNPROTECTED"}
+        </span>
+        <div className={`w-24 h-0.5 mt-2 ${protection.isActive ? `bg-gradient-to-r ${isDark ? 'from-cyan-400' : 'from-blue-600'} to-transparent` : "bg-gradient-to-r from-red-500 to-transparent"}`}></div>
       </div>
+
+      {showTutorial && (
+        <Tutorial onClose={() => {
+          setShowTutorial(false);
+          if (typeof window !== 'undefined') localStorage.setItem('ps_tutorial_seen', 'true');
+        }} />
+      )}
     </div>
   );
 }
-
-interface ActivationAreaProps {
-  protection: ProtectionState;
-  glassCardClass: string;
-  colors: ThemeColors;
-  onProtectionToggle: () => void;
-  onVpnToggle: () => void;
-  onAdblockToggle: () => void;
-  loading: boolean;
-  isAdmin: boolean;
-}
-
-function ActivationArea({
-  protection,
-  glassCardClass,
-  colors,
-  onProtectionToggle,
-  onVpnToggle,
-  onAdblockToggle,
-  loading,
-  isAdmin
-}: Readonly<ActivationAreaProps>) {
-  const statusHeading = protection.isActive ? "SYSTEM SECURED" : "PROTECTION PAUSED";
-  const statusSubtext = protection.isActive 
-    ? "Network traffic is encrypted and filtered. Tracking domains are blocked system-wide."
-    : "Ad-blocking suspended. Your privacy is currently exposed to public networks.";
-
-  return (
-    <div className={`h-full rounded-4xl ${glassCardClass} p-8 lg:p-10 relative overflow-hidden flex flex-col items-center justify-center transition-all duration-700 hover-lift ${protection.isActive ? "border-emerald-500/30 shadow-[0_0_80px_rgba(16,185,129,0.1)]" : "border-red-500/20"}`}>
-      <div className={`absolute inset-0 transition-opacity duration-1000 ${protection.isActive ? "opacity-10 animate-pulse" : "opacity-0"} pointer-events-none bg-emerald-500 blur-[120px]`} />
-
-      <div className="relative z-10 flex flex-col items-center text-center w-full">
-        <div className="mb-6">
-          <h2 className={`text-3xl lg:text-4xl font-black ${colors.text} mb-2 tracking-tighter ${protection.isActive ? "drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]" : ""} transition-all duration-500`}>
-            {statusHeading}
-          </h2>
-          <p className={`text-xs font-medium ${colors.textSecondary} leading-relaxed tracking-wide opacity-80 max-w-sm`}>
-            {statusSubtext}
-          </p>
-        </div>
-
-        <div className={`mt-8 transition-all duration-700 py-6 relative ${protection.isActive ? "animate-shield-pulse scale-105" : "scale-100 grayscale-[0.2]"}`}>
-          {protection.isActive && (
-            <div className="absolute inset-0 -m-8 rounded-full border border-emerald-500/20 animate-glow-ring pointer-events-none mix-blend-screen" />
-          )}
-          <ActivationButton
-            protection={protection}
-            onToggle={onProtectionToggle}
-            size="lg"
-            loading={loading}
-            isAdmin={isAdmin}
-          />
-        </div>
-
-        <div className="mt-10 w-full max-w-sm">
-          <ProtectionToggles
-            layout="vertical"
-            items={[
-              {
-                id: "adblock",
-                icon: Shield,
-                label: "System AdBlock",
-                description: isAdmin ? "Zero-lag network layer protection" : "Admin privileges required",
-                enabled: protection.adblockEnabled,
-                onToggle: onAdblockToggle,
-                disabled: !isAdmin
-              },
-              {
-                id: "vpn",
-                icon: Lock,
-                label: "Encrypted VPN",
-                description: "Route traffic via secure tunnel",
-                enabled: protection.vpnEnabled,
-                onToggle: onVpnToggle
-              }
-            ]}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-

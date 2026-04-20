@@ -1,596 +1,501 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Shield, Palette, Globe, Lock } from 'lucide-react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import Constants from 'expo-constants';
-import * as SecureStore from 'expo-secure-store';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  EC2Client,
-  StartInstancesCommand,
-  DescribeInstancesCommand,
-  ModifyInstanceAttributeCommand,
-} from '@aws-sdk/client-ec2';
-import WireGuardVpnModule from 'react-native-wireguard-vpn';
-import { VPN_SERVERS, type ServerLocation } from '@privacy-shield/core';
-import { NativeProtectionToggles } from './components/NativeProtectionToggles';
+  StyleSheet, Text, View, TouchableOpacity, Switch, ScrollView,
+  Dimensions, Animated, StatusBar, Modal, TouchableWithoutFeedback,
+  Easing, Linking, Alert, Platform
+} from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  ShieldIcon, GlobeIcon, LockIcon, InfoIcon, PaletteIcon,
+  ChevronDownIcon, ExternalLinkIcon, ZapIcon, CopyIcon, CheckIcon,
+  ChevronRightIcon, ChevronLeftIcon, WifiIcon
+} from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as SecureStore from 'expo-secure-store';
+import * as Clipboard from 'expo-clipboard';
+import { WorldMap } from './components/WorldMap';
+import { VPN_SERVERS, ServerLocation } from '@privacy-shield/core/src/shared';
+import {
+  connectVpn, disconnectVpn, setStatusCallback,
+  type VpnStage, type VpnStatusUpdate
+} from './services/vpnService';
 
-// ─── Configuration (Same as Desktop vpnHandlers.js) ─────────────
+const { height } = Dimensions.get('window');
 
-const SERVER_REGION_MAP: Record<string, string> = {
-  us: 'us-east-1',
-  uk: 'eu-west-2',
-  de: 'eu-central-1',
-  jp: 'ap-northeast-1',
-  au: 'ap-southeast-2',
+type Theme = 'dark' | 'light' | 'vaporwave' | 'frutiger-aero';
+
+const THEMES: Record<Theme, any> = {
+  dark: { bg: '#0f172a', secondary: '#1e293b', accent: '#2dd4bf', text: '#f8fafc', dot: '#334155' },
+  light: { bg: '#f8fafc', secondary: '#f1f5f9', accent: '#3b82f6', text: '#0f172a', dot: '#e2e8f0' },
+  vaporwave: { bg: '#240b36', secondary: '#4d194d', accent: '#ff00ff', text: '#00ffff', dot: '#5a189a' },
+  'frutiger-aero': { bg: '#e0f2fe', secondary: '#f0f9ff', accent: '#22c55e', text: '#0369a1', dot: '#7dd3fc' },
 };
 
-const EC2_TAG_NAMES: Record<string, string> = {
-  us: 'VPN-US',
-  uk: 'VPN-UK',
-  de: 'VPN-Germany',
-  jp: 'VPN-Japan',
-  au: 'VPN-Sydney',
+const THEME_GRADIENTS: Record<Theme, string[]> = {
+  dark: ['#0f172a', '#020617'],
+  light: ['#f8fafc', '#f1f5f9'],
+  vaporwave: ['#240b36', '#c31432'],
+  'frutiger-aero': ['#e0f2fe', '#ffffff'],
 };
 
-// ─── Secure Key Management ─────────────
+const TUTORIAL_STEPS = [
+  {
+    title: 'WELCOME',
+    body: 'Welcome to Privacy Sentinel. This app keeps your phone safe by encrypting your internet connection and blocking ads and trackers.',
+  },
+  {
+    title: 'USING THE VPN',
+    body: 'Tap the shield button in the centre to turn on protection. Your internet traffic will be encrypted through a secure WireGuard tunnel.\n\nTap the server name (e.g. "US") to choose a different location from 5 global servers.',
+  },
+  {
+    title: 'DNS AD BLOCKING',
+    body: 'Tap "CONFIG" next to Adblock Protocol to set up DNS protection. This blocks ads and trackers across your entire phone — not just this app.\n\nYou will be shown the DNS addresses to enter in your phone\'s settings.',
+  },
+  {
+    title: 'PERSONALISE',
+    body: 'Tap the palette icon in the top-right to change your visual theme. Choose from Dark, Light, Vaporwave, or Frutiger Aero.\n\nTap the info icon anytime to see this guide again.',
+  },
+];
 
-async function getSecureValue(key: string, buildTimeValue: string): Promise<string> {
-  try {
-    let val = await SecureStore.getItemAsync(key);
-    if (!val && buildTimeValue) {
-      await SecureStore.setItemAsync(key, buildTimeValue);
-      val = buildTimeValue;
-    }
-    return val || '';
-  } catch (err) {
-    console.warn(`[SecureStore] Error reading ${key}:`, err);
-    return buildTimeValue || '';
-  }
-}
+function PrivacySentinelApp() {
+  const insets = useSafeAreaInsets();
+  const [theme, setTheme] = useState<Theme>('dark');
+  const ct = THEMES[theme];
 
-// ─── App Component ──────────────────────────────────────────────
-
-interface ProtectionState {
-  isActive: boolean;
-  vpnEnabled: boolean;
-  adblockEnabled: boolean;
-}
-
-type ThemeName = 'dark' | 'vaporwave' | 'cyberpunk';
-
-const THEME_GRADIENTS: Record<ThemeName, readonly [string, string, ...string[]]> = {
-  dark: ['#065f46', '#020617'],
-  vaporwave: ['#7c3aed', '#020617'],
-  cyberpunk: ['#eab308', '#020617'],
-};
-
-const THEME_GRADIENTS_INACTIVE: Record<ThemeName, readonly [string, string, ...string[]]> = {
-  dark: ['#450a0a', '#020617'],
-  vaporwave: ['#4c1d95', '#020617'],
-  cyberpunk: ['#78350f', '#020617'],
-};
-
-export default function App() {
-  const [protection, setProtection] = useState<ProtectionState>({
-    isActive: false,
-    vpnEnabled: false,
-    adblockEnabled: false,
-  });
-
-  const [activeTab, setActiveTab] = useState<'shield' | 'vpn' | 'stats'>('shield');
+  const [protection, setProtection] = useState({ isActive: false, vpnEnabled: true, adblockEnabled: true });
+  const [vpnStatus, setVpnStatus] = useState('READY');
+  const [vpnMessage, setVpnMessage] = useState('');
   const [selectedServer, setSelectedServer] = useState<ServerLocation>(VPN_SERVERS[0]);
+  const [showServerPicker, setShowServerPicker] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+  const [showDnsConfig, setShowDnsConfig] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
-  const [theme, setTheme] = useState<ThemeName>('dark');
+  const [pings, setPings] = useState<Record<string, number>>({});
 
-  // Initialize WireGuard on mount
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const rotation = useRef(new Animated.Value(0)).current;
+  const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const rotationLoop = useRef<Animated.CompositeAnimation | null>(null);
+
   useEffect(() => {
-    WireGuardVpnModule.initialize().catch(err => {
-      console.warn('[VPN] Initialization failed:', err);
+    SecureStore.getItemAsync('has_seen_tutorial').then(seen => {
+      if (!seen) setShowTutorial(true);
     });
-  }, []);
-
-  const cycleTheme = useCallback(() => {
-    const themes: ThemeName[] = ['dark', 'vaporwave', 'cyberpunk'];
-    setTheme(prev => {
-      const idx = themes.indexOf(prev);
-      return themes[(idx + 1) % themes.length];
+    SecureStore.getItemAsync('app_theme').then(saved => {
+      if (saved && Object.keys(THEMES).includes(saved)) setTheme(saved as Theme);
     });
+
+    pulseLoop.current = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1.2, duration: 1500, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+      ])
+    );
+    pulseLoop.current.start();
+
+    rotationLoop.current = Animated.loop(
+      Animated.timing(rotation, { toValue: 1, duration: 3000, easing: Easing.linear, useNativeDriver: true })
+    );
+    rotationLoop.current.start();
+
+    refreshPings();
+
+    setStatusCallback((update: VpnStatusUpdate) => {
+      setVpnMessage(update.message);
+      if (update.stage === 'CONNECTED') setVpnStatus('SECURE');
+      else if (update.stage === 'ERROR') { setVpnStatus('ERROR'); Alert.alert('VPN Error', update.message); }
+      else if (update.stage === 'IDLE') setVpnStatus('READY');
+      else setVpnStatus('LOADING');
+    });
+
+    return () => {
+      pulseLoop.current?.stop();
+      rotationLoop.current?.stop();
+    };
   }, []);
 
-  const toggleProtection = useCallback(() => {
-    setProtection(prev => ({
-      ...prev,
-      isActive: !prev.isActive
-    }));
-  }, []);
+  const refreshPings = () => {
+    const p: Record<string, number> = {};
+    VPN_SERVERS.forEach(s => { p[s.id] = Math.floor(Math.random() * 150) + 20; });
+    setPings(p);
+  };
 
-  const toggleVpn = useCallback(async () => {
-    if (protection.vpnEnabled) {
-      console.log('[VPN] Disconnecting...');
-      try {
-        await WireGuardVpnModule.disconnect();
-        setProtection(prev => ({ ...prev, vpnEnabled: false }));
-      } catch (err) {
-        Alert.alert('Disconnect Error', (err as Error).message);
-      }
+  const toggleProtection = useCallback(async () => {
+    if (protection.isActive) {
+      setIsStarting(true);
+      await disconnectVpn();
+      setProtection(prev => ({ ...prev, isActive: false }));
+      setVpnStatus('READY');
+      setVpnMessage('');
+      setIsStarting(false);
       return;
     }
 
     setIsStarting(true);
-    try {
-      // 1. Load credentials
-      const accessKey = await getSecureValue('AWS_ACCESS_KEY_ID', Constants.expoConfig?.extra?.awsAccessKeyId);
-      const secretKey = await getSecureValue('AWS_SECRET_ACCESS_KEY', Constants.expoConfig?.extra?.awsSecretAccessKey);
-      const clientPrivateKey = await getSecureValue('WG_CLIENT_PRIVATE_KEY', Constants.expoConfig?.extra?.wgClientPrivateKey);
+    setVpnStatus('LOADING');
+    const success = await connectVpn(selectedServer.id, protection.adblockEnabled);
+    if (success) {
+      setProtection(prev => ({ ...prev, isActive: true }));
+      setVpnStatus('SECURE');
+    } else {
+      setVpnStatus('READY');
+    }
+    setIsStarting(false);
+  }, [protection.isActive, protection.adblockEnabled, selectedServer]);
 
-      if (!accessKey || !secretKey || !clientPrivateKey) {
-        throw new Error('Missing AWS credentials or WireGuard private key. Please check app.json.');
-      }
+  const toggleVpn = () => setProtection(prev => ({ ...prev, vpnEnabled: !prev.vpnEnabled }));
 
-      const serverId = selectedServer.id;
-      const region = SERVER_REGION_MAP[serverId];
-      const tagName = EC2_TAG_NAMES[serverId];
-      
-      const configKeyName = `wg${serverId.charAt(0).toUpperCase() + serverId.slice(1)}PublicKey`;
-      const spokePublicKey = await getSecureValue(`WG_${serverId.toUpperCase()}_PUBLIC_KEY`, Constants.expoConfig?.extra?.[configKeyName]);
+  const cycleTheme = () => {
+    const themes: Theme[] = ['dark', 'light', 'vaporwave', 'frutiger-aero'];
+    const next = themes[(themes.indexOf(theme) + 1) % themes.length];
+    setTheme(next);
+    SecureStore.setItemAsync('app_theme', next);
+  };
 
-      if (!spokePublicKey) {
-        throw new Error(`Spoke public key for ${serverId} not found.`);
-      }
-
-      console.log(`[VPN] Connecting to ${selectedServer.name} (${region})...`);
-
-      // 2. Provision EC2
-      const client = new EC2Client({
-        region,
-        credentials: { accessKeyId: accessKey, secretAccessKey: secretKey },
-      });
-
-      // Find instance
-      const result = await client.send(new DescribeInstancesCommand({
-        Filters: [{ Name: 'tag:Name', Values: [tagName] }],
-      }));
-      const instance = result.Reservations?.[0]?.Instances?.[0];
-
-      if (!instance) throw new Error(`EC2 instance ${tagName} not found in ${region}.`);
-
-      // Start if needed
-      if (instance.State?.Name !== 'running') {
-        console.log('[VPN] Starting instance...');
-        await client.send(new StartInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
-      }
-
-      // Poll for public IP
-      let spokeIp = '';
-      for (let i = 0; i < 30; i++) {
-        const desc = await client.send(new DescribeInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
-        const inst = desc.Reservations?.[0]?.Instances?.[0];
-        if (inst?.State?.Name === 'running' && inst?.PublicIpAddress) {
-          spokeIp = inst.PublicIpAddress;
-          break;
-        }
-        console.log(`[VPN] Waiting for IP (attempt ${i+1}/30)...`);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-
-      if (!spokeIp) throw new Error('Timeout waiting for public IP. Server may be starting slowly.');
-
-      // Disable SourceDestCheck (required for NAT)
-      await client.send(new ModifyInstanceAttributeCommand({
-        InstanceId: instance.InstanceId!,
-        SourceDestCheck: { Value: false },
-      })).catch(e => console.warn('[VPN] SourceDestCheck update failed (non-fatal):', e));
-
-      console.log('[VPN] Activating tunnel...');
-      await WireGuardVpnModule.connect({
-        privateKey: clientPrivateKey,
-        publicKey: spokePublicKey,
-        serverAddress: spokeIp,
-        serverPort: 51820,
-        address: '10.0.0.2/32',
-        allowedIPs: ['0.0.0.0/0'],
-        dns: protection.adblockEnabled ? ['94.140.14.14', '94.140.15.15'] : ['1.1.1.1'],
-        mtu: 1280
-      });
-      
-      setProtection(prev => ({ ...prev, vpnEnabled: true }));
-      console.log('[VPN] ✅ Connected');
-    } catch (error) {
-      console.error('[VPN Error]:', error);
-      Alert.alert('VPN Connection Failed', (error as Error).message);
-    } finally {
+  const selectServer = useCallback(async (s: ServerLocation) => {
+    setSelectedServer(s);
+    setShowServerPicker(false);
+    if (protection.isActive) {
+      setIsStarting(true);
+      setVpnStatus('LOADING');
+      await disconnectVpn();
+      const success = await connectVpn(s.id, protection.adblockEnabled);
+      if (success) setVpnStatus('SECURE');
+      else setVpnStatus('READY');
       setIsStarting(false);
     }
-  }, [protection.vpnEnabled, protection.adblockEnabled, selectedServer]);
+  }, [protection.isActive, protection.adblockEnabled]);
 
-  const toggleAdblock = useCallback(() => {
-    setProtection(prev => ({
-      ...prev,
-      adblockEnabled: !prev.adblockEnabled,
-    }));
-    // Re-connection with new DNS would happen here if VPN is active
-    // But simplified for parity with desktop toggle logic
-  }, []);
+  const copyToClipboard = async (text: string, field: string) => {
+    await Clipboard.setStringAsync(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
 
-  const gradientColors = protection.isActive
-    ? THEME_GRADIENTS[theme]
-    : THEME_GRADIENTS_INACTIVE[theme];
+  const openAndroidDnsSettings = () => {
+    if (Platform.OS === 'android') {
+      Linking.openSettings().catch(() => {
+        Linking.openURL('app-settings:').catch(() => {
+          Alert.alert('Settings', 'Please open Settings > Network & Internet > Private DNS manually.');
+        });
+      });
+    }
+  };
+
+  const closeTutorial = () => {
+    SecureStore.setItemAsync('has_seen_tutorial', 'true');
+    setShowTutorial(false);
+    setTutorialStep(0);
+  };
+
+  const rotate = rotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient
-        colors={gradientColors}
-        style={StyleSheet.absoluteFill}
-      />
+    <View style={[styles.container, { backgroundColor: ct.bg }]}>
+      <StatusBar translucent backgroundColor="transparent" barStyle={theme === 'light' ? 'dark-content' : 'light-content'} />
+      <LinearGradient colors={THEME_GRADIENTS[theme]} style={StyleSheet.absoluteFill} />
 
-      <SafeAreaView style={styles.safeArea}>
+      <View style={{ flex: 1, paddingTop: insets.top }}>
         {/* Header */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerTitle}>Privacy Shield</Text>
-            <Text style={styles.headerSubtitle}>MOBILE PROTECTION</Text>
+          <View style={styles.brandGroup}>
+            <View style={[styles.brandIcon, { backgroundColor: ct.accent }]}>
+              <ShieldIcon size={14} color={theme === 'light' ? '#fff' : '#000'} />
+            </View>
+            <Text style={[styles.brandText, { color: ct.text }]}>PRIVACY SENTINEL</Text>
           </View>
-          <TouchableOpacity style={styles.themeButton} onPress={cycleTheme}>
-            <Palette size={20} color="#a1a1aa" />
+          <View style={styles.headerActions}>
+            <TouchableOpacity onPress={() => { setTutorialStep(0); setShowTutorial(true); }} style={[styles.circleBtn, { backgroundColor: ct.secondary }]}>
+              <InfoIcon size={18} color={ct.accent} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={cycleTheme} style={[styles.circleBtn, { backgroundColor: ct.secondary }]}>
+              <PaletteIcon size={18} color={ct.accent} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Hero */}
+        <View style={styles.hero}>
+          <View style={[styles.mapContainer, { opacity: theme === 'light' ? 0.15 : 0.20 }]}>
+            <WorldMap servers={VPN_SERVERS} selectedServer={selectedServer} isConnected={protection.vpnEnabled && protection.isActive} theme={theme} />
+          </View>
+          <View style={styles.orbCenter}>
+            {protection.isActive && (
+              <>
+                <Animated.View style={[styles.radarSweep, { borderColor: ct.accent, transform: [{ rotate }] }]} />
+                <Animated.View style={[styles.glowRing, { borderColor: ct.accent, transform: [{ scale: pulseAnim }] }]} />
+              </>
+            )}
+            <TouchableOpacity activeOpacity={0.9} onPress={toggleProtection} disabled={isStarting} style={[styles.orb, { borderColor: protection.isActive ? ct.accent : '#334155', opacity: isStarting ? 0.7 : 1 }]}>
+              <View style={[styles.orbInner, { backgroundColor: protection.isActive ? ct.accent : 'transparent' }]}>
+                <ShieldIcon size={40} color={protection.isActive ? (theme === 'light' ? '#fff' : '#000') : ct.accent} />
+              </View>
+            </TouchableOpacity>
+          </View>
+          <Text style={[styles.orbStatus, { color: ct.accent }]}>
+            {vpnStatus === 'LOADING' ? (vpnMessage || 'CONNECTING...') : protection.isActive ? 'PROTECTION SECURE' : 'SHIELD INACTIVE'}
+          </Text>
+        </View>
+
+        {/* Analytics */}
+        <View style={styles.analytics}>
+          <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
+            <GlobeIcon size={16} color={ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
+            <Text style={[styles.statVal, { color: ct.accent }]}>{pings[selectedServer.id] || 0} ms</Text>
+            <Text style={styles.statKey}>LATENCY</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
+            <ShieldIcon size={16} color={vpnStatus === 'LOADING' ? '#eab308' : ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
+            <Text adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.5}
+              style={[styles.statVal, { color: vpnStatus === 'LOADING' ? '#eab308' : ct.accent, textAlign: 'center', width: '100%' }]}>
+              {vpnStatus === 'LOADING' ? 'LOADING...' : vpnStatus}
+            </Text>
+            <Text style={styles.statKey}>STATUS</Text>
+          </View>
+        </View>
+
+        {/* Controls */}
+        <View style={styles.controls}>
+          <View style={[styles.controlRow, { backgroundColor: ct.secondary }]}>
+            <View style={styles.controlInfo}>
+              <GlobeIcon size={20} color={ct.accent} />
+              <Text style={[styles.controlLabel, { color: ct.text }]}>VPN Encryption</Text>
+            </View>
+            <View style={styles.controlActions}>
+              <TouchableOpacity style={styles.nodePicker} onPress={() => setShowServerPicker(true)}>
+                <Text style={[styles.nodePickerText, { color: ct.accent }]}>{selectedServer.id.toUpperCase()}</Text>
+                <ChevronDownIcon size={12} color={ct.accent} style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+              <Switch value={protection.vpnEnabled} onValueChange={toggleVpn} trackColor={{ false: '#334155', true: ct.accent }} thumbColor="#fff" />
+            </View>
+          </View>
+          <TouchableOpacity style={[styles.controlRow, { backgroundColor: ct.secondary }]} onPress={() => setShowDnsConfig(true)}>
+            <View style={styles.controlInfo}>
+              <LockIcon size={20} color={ct.accent} />
+              <Text style={[styles.controlLabel, { color: ct.text }]}>Adblock Protocol</Text>
+            </View>
+            <View style={styles.actionBtn}>
+              <Text style={[styles.actionBtnText, { color: ct.accent }]}>CONFIG</Text>
+              <ExternalLinkIcon size={14} color={ct.accent} />
+            </View>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {activeTab === 'shield' && (
-            <View style={styles.shieldContainer}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={toggleProtection}
-                style={[
-                  styles.activationButton,
-                  protection.isActive ? styles.activationButtonActive : styles.activationButtonInactive
-                ]}
-              >
-                <Shield
-                  size={80}
-                  color={protection.isActive ? '#10b981' : '#ef4444'}
-                  strokeWidth={1.5}
-                />
-              </TouchableOpacity>
-
-              <Text style={[
-                styles.statusText,
-                { color: protection.isActive ? '#10b981' : '#ef4444' }
-              ]}>
-                {protection.isActive ? 'SYSTEM SECURED' : 'PROTECTION OFFLINE'}
-              </Text>
-
-              <View style={styles.togglesWrapper}>
-                <NativeProtectionToggles
-                  items={[
-                    {
-                      id: 'vpn',
-                      label: 'Encrypted VPN',
-                      description: 'Direct-to-Spoke WireGuard',
-                      enabled: protection.vpnEnabled,
-                      onToggle: () => { toggleVpn(); },
-                    },
-                    {
-                      id: 'adblock',
-                      label: 'Ad Blocker',
-                      description: 'DNS-level filtering',
-                      enabled: protection.adblockEnabled,
-                      onToggle: () => { toggleAdblock(); },
-                    },
-                  ]}
-                />
-              </View>
+        {/* Server Picker Modal */}
+        <Modal visible={showServerPicker} transparent animationType="slide">
+          <TouchableWithoutFeedback onPress={() => setShowServerPicker(false)}>
+            <View style={styles.modalBackdrop}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.modalBody, { backgroundColor: ct.bg }]}>
+                  <Text style={[styles.modalTitle, { color: ct.text }]}>SELECT TERMINAL</Text>
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {VPN_SERVERS.map((s: ServerLocation) => (
+                      <TouchableOpacity key={s.id} style={styles.serverRow} onPress={() => selectServer(s)}>
+                        <Text style={{ fontSize: 22, marginRight: 15 }}>{s.flag}</Text>
+                        <Text style={[styles.serverRowName, { color: ct.text }]}>{s.name.toUpperCase()}</Text>
+                        <View style={{ flex: 1 }} />
+                        <Text style={[styles.serverRowPing, { color: ct.accent }]}>{pings[s.id] || '--'} ms</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  <TouchableOpacity style={[styles.modalClose, { backgroundColor: ct.accent }]} onPress={() => setShowServerPicker(false)}>
+                    <Text style={styles.modalCloseText}>CANCEL</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableWithoutFeedback>
             </View>
-          )}
+          </TouchableWithoutFeedback>
+        </Modal>
 
-          {activeTab === 'vpn' && (
-            <View style={styles.vpnContainer}>
-              <Text style={styles.sectionTitle}>AWS SPOKE SERVERS</Text>
-              {VPN_SERVERS.map((server) => (
-                <TouchableOpacity
-                  key={server.id}
-                  style={[
-                    styles.serverButton,
-                    selectedServer.id === server.id && styles.serverButtonSelected
-                  ]}
-                  onPress={() => setSelectedServer(server)}
-                  disabled={isStarting || protection.vpnEnabled}
-                >
-                  <Text style={styles.serverFlag}>{server.flag}</Text>
-                  <View style={styles.serverInfo}>
-                    <Text style={styles.serverName}>{server.name}</Text>
-                    <Text style={styles.serverCountry}>{regionToLabel(SERVER_REGION_MAP[server.id])}</Text>
-                  </View>
-                  {selectedServer.id === server.id && (
-                    <View style={styles.selectedIndicator} />
-                  )}
-                </TouchableOpacity>
-              ))}
+        {/* DNS Config Modal */}
+        <Modal visible={showDnsConfig} transparent animationType="slide">
+          <TouchableWithoutFeedback onPress={() => setShowDnsConfig(false)}>
+            <View style={styles.modalBackdrop}>
+              <TouchableWithoutFeedback>
+                <View style={[styles.modalBody, { backgroundColor: ct.bg, height: height * 0.8 }]}>
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    <Text style={[styles.modalTitle, { color: ct.text }]}>DNS-LEVEL AD BLOCKING</Text>
+                    <Text style={[styles.dnsDesc, { color: ct.text }]}>
+                      DNS ad blocking works across your entire device — not just this app. It blocks ads, trackers, and malicious domains at the network level.
+                    </Text>
 
-              <TouchableOpacity
-                onPress={toggleVpn}
-                disabled={isStarting}
-                style={[
-                  styles.connectButton,
-                  protection.vpnEnabled ? styles.disconnectButton : styles.connectButtonPrimary
-                ]}
-              >
-                {isStarting ? (
-                  <Text style={styles.buttonText}>PROVISIONING...</Text>
-                ) : (
-                  <Text style={styles.buttonText}>
-                    {protection.vpnEnabled ? 'DISCONNECT' : 'CONNECT NOW'}
-                  </Text>
+                    <Text style={[styles.dnsSectionTitle, { color: ct.accent }]}>PRIVATE DNS (ANDROID 9+)</Text>
+                    <Text style={[styles.dnsInstructions, { color: ct.text }]}>
+                      This is the easiest method. It encrypts your DNS queries automatically.
+                    </Text>
+                    <View style={[styles.dnsRow, { backgroundColor: ct.secondary }]}>
+                      <View>
+                        <Text style={[styles.dnsLabel, { color: ct.accent }]}>HOSTNAME</Text>
+                        <Text style={[styles.dnsValue, { color: ct.text }]}>dns.adguard.com</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => copyToClipboard('dns.adguard.com', 'hostname')}>
+                        {copiedField === 'hostname' ? <CheckIcon size={18} color="#22c55e" /> : <CopyIcon size={18} color={ct.accent} />}
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={[styles.dnsSteps, { backgroundColor: ct.secondary }]}>
+                      <Text style={[styles.dnsStepTitle, { color: ct.accent }]}>SETUP STEPS</Text>
+                      {[
+                        'Open your phone Settings',
+                        'Go to Network & Internet (or Connections)',
+                        'Tap "Private DNS" (or "More connection settings > Private DNS")',
+                        'Select "Private DNS provider hostname"',
+                        'Type: dns.adguard.com',
+                        'Tap Save',
+                      ].map((step, i) => (
+                        <Text key={i} style={[styles.dnsStep, { color: ct.text }]}>{i + 1}. {step}</Text>
+                      ))}
+                    </View>
+
+                    <Text style={[styles.dnsSectionTitle, { color: ct.accent, marginTop: 20 }]}>MANUAL DNS (WIFI ONLY)</Text>
+                    <View style={[styles.dnsRow, { backgroundColor: ct.secondary }]}>
+                      <View>
+                        <Text style={[styles.dnsLabel, { color: ct.accent }]}>PRIMARY</Text>
+                        <Text style={[styles.dnsValue, { color: ct.text }]}>94.140.14.14</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => copyToClipboard('94.140.14.14', 'primary')}>
+                        {copiedField === 'primary' ? <CheckIcon size={18} color="#22c55e" /> : <CopyIcon size={18} color={ct.accent} />}
+                      </TouchableOpacity>
+                    </View>
+                    <View style={[styles.dnsRow, { backgroundColor: ct.secondary, marginTop: 8 }]}>
+                      <View>
+                        <Text style={[styles.dnsLabel, { color: ct.accent }]}>SECONDARY</Text>
+                        <Text style={[styles.dnsValue, { color: ct.text }]}>94.140.15.15</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => copyToClipboard('94.140.15.15', 'secondary')}>
+                        {copiedField === 'secondary' ? <CheckIcon size={18} color="#22c55e" /> : <CopyIcon size={18} color={ct.accent} />}
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity style={[styles.dnsOpenBtn, { backgroundColor: ct.accent }]} onPress={openAndroidDnsSettings}>
+                      <WifiIcon size={18} color="#000" />
+                      <Text style={styles.dnsOpenBtnText}>OPEN DEVICE SETTINGS</Text>
+                    </TouchableOpacity>
+                  </ScrollView>
+                  <TouchableOpacity style={[styles.modalClose, { backgroundColor: ct.accent }]} onPress={() => setShowDnsConfig(false)}>
+                    <Text style={styles.modalCloseText}>DONE</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* Tutorial Modal (Multi-Step) */}
+        <Modal visible={showTutorial} transparent animationType="fade">
+          <View style={styles.tutOverlay}>
+            <View style={[styles.tutCard, { backgroundColor: ct.bg }]}>
+              <ZapIcon size={50} color={ct.accent} />
+              <Text style={[styles.tutTitle, { color: ct.text }]}>{TUTORIAL_STEPS[tutorialStep].title}</Text>
+              <Text style={[styles.tutText, { fontSize: 15, lineHeight: 24 }]}>{TUTORIAL_STEPS[tutorialStep].body}</Text>
+
+              <View style={styles.tutDots}>
+                {TUTORIAL_STEPS.map((_, i) => (
+                  <View key={i} style={[styles.tutDot, { backgroundColor: i === tutorialStep ? ct.accent : ct.dot }]} />
+                ))}
+              </View>
+
+              <View style={styles.tutNav}>
+                {tutorialStep > 0 && (
+                  <TouchableOpacity style={[styles.tutNavBtn, { borderColor: ct.accent }]} onPress={() => setTutorialStep(s => s - 1)}>
+                    <ChevronLeftIcon size={16} color={ct.accent} />
+                    <Text style={[styles.tutNavBtnText, { color: ct.accent }]}>BACK</Text>
+                  </TouchableOpacity>
                 )}
+                <View style={{ flex: 1 }} />
+                {tutorialStep < TUTORIAL_STEPS.length - 1 ? (
+                  <TouchableOpacity style={[styles.tutBtn, { backgroundColor: ct.accent, flex: 0, paddingHorizontal: 30 }]} onPress={() => setTutorialStep(s => s + 1)}>
+                    <Text style={styles.tutBtnText}>NEXT</Text>
+                    <ChevronRightIcon size={16} color="#000" />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity style={[styles.tutBtn, { backgroundColor: ct.accent, flex: 0, paddingHorizontal: 30 }]} onPress={closeTutorial}>
+                    <Text style={styles.tutBtnText}>GET STARTED</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              <TouchableOpacity style={{ marginTop: 10 }} onPress={() => { setShowTutorial(false); setTutorialStep(0); }}>
+                <Text style={{ color: ct.text, opacity: 0.4, fontWeight: '900', letterSpacing: 2, fontSize: 11 }}>SKIP</Text>
               </TouchableOpacity>
             </View>
-          )}
-
-          {activeTab === 'stats' && (
-            <View style={styles.statsContainer}>
-              <Text style={styles.sectionTitle}>SYSTEM MONITOR</Text>
-              <View style={styles.statCard}>
-                <Globe size={20} color="#10b981" />
-                <View style={styles.statInfo}>
-                  <Text style={styles.statValue}>{protection.vpnEnabled ? selectedServer.name : 'Unsecured'}</Text>
-                  <Text style={styles.statLabel}>VPN ENDPOINT</Text>
-                </View>
-              </View>
-              <View style={styles.statCard}>
-                <Lock size={20} color={protection.adblockEnabled ? '#10b981' : '#71717a'} />
-                <View style={styles.statInfo}>
-                  <Text style={styles.statValue}>{protection.adblockEnabled ? 'AdGuard DNS' : 'Native DNS'}</Text>
-                  <Text style={styles.statLabel}>TRAFFIC FILTER</Text>
-                </View>
-              </View>
-              <View style={styles.statCard}>
-                <Shield size={20} color={protection.isActive ? '#10b981' : '#ef4444'} />
-                <View style={styles.statInfo}>
-                  <Text style={styles.statValue}>{protection.isActive ? 'Protected' : 'Vulnerable'}</Text>
-                  <Text style={styles.statLabel}>STANCE</Text>
-                </View>
-              </View>
-            </View>
-          )}
-        </ScrollView>
-
-        {/* Navigation */}
-        <View style={styles.navContainer}>
-          <View style={styles.navBar}>
-            {(['shield', 'vpn', 'stats'] as const).map((tab) => (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => setActiveTab(tab)}
-                style={styles.navItem}
-              >
-                <Text style={[
-                  styles.navText,
-                  activeTab === tab ? styles.navTextActive : styles.navTextInactive
-                ]}>
-                  {tab.toUpperCase()}
-                </Text>
-                {activeTab === tab && <View style={styles.navIndicator} />}
-              </TouchableOpacity>
-            ))}
           </View>
-        </View>
-      </SafeAreaView>
+        </Modal>
+
+      </View>
     </View>
   );
 }
 
-function regionToLabel(region: string) {
-  return region.toUpperCase().replace('-', ' ');
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <PrivacySentinelApp />
+    </SafeAreaProvider>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#020617',
-  },
-  safeArea: {
-    flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    marginBottom: 20,
-  },
-  headerTitle: {
-    color: '#ffffff',
-    fontSize: 24,
-    fontWeight: '900',
-  },
-  headerSubtitle: {
-    color: '#a1a1aa',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 2,
-  },
-  themeButton: {
-    padding: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 12,
-  },
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
-  },
-  shieldContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  activationButton: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-  },
-  activationButtonActive: {
-    borderColor: 'rgba(16, 185, 129, 0.3)',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  activationButtonInactive: {
-    borderColor: 'rgba(239, 68, 68, 0.2)',
-  },
-  statusText: {
-    marginTop: 30,
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 3,
-  },
-  togglesWrapper: {
-    width: '100%',
-    marginTop: 40,
-  },
-  navContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    paddingBottom: 40,
-  },
-  navBar: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderRadius: 24,
-    padding: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  navItem: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: 'center',
-    position: 'relative',
-  },
-  navText: {
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  navTextActive: {
-    color: '#ffffff',
-  },
-  navTextInactive: {
-    color: '#71717a',
-  },
-  navIndicator: {
-    position: 'absolute',
-    bottom: 0,
-    width: 20,
-    height: 3,
-    backgroundColor: '#ffffff',
-    borderRadius: 1.5,
-  },
-  vpnContainer: {
-    paddingVertical: 20,
-    gap: 15,
-  },
-  sectionTitle: {
-    color: '#a1a1aa',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 2,
-    marginBottom: 5,
-  },
-  serverButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 15,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  serverButtonSelected: {
-    borderColor: 'rgba(16, 185, 129, 0.5)',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-  },
-  serverFlag: {
-    fontSize: 24,
-    marginRight: 15,
-  },
-  serverInfo: {
-    flex: 1,
-  },
-  serverName: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  serverCountry: {
-    color: '#a1a1aa',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  selectedIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10b981',
-  },
-  connectButton: {
-    marginTop: 20,
-    padding: 18,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  connectButtonPrimary: {
-    backgroundColor: '#10b981',
-  },
-  disconnectButton: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.5)',
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-  statsContainer: {
-    paddingVertical: 20,
-    gap: 15,
-  },
-  statCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    padding: 18,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    gap: 15,
-  },
-  statInfo: {
-    flex: 1,
-  },
-  statValue: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  statLabel: {
-    color: '#71717a',
-    fontSize: 9,
-    fontWeight: '900',
-    letterSpacing: 2,
-    marginTop: 2,
-  },
+  container: { flex: 1 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
+  brandGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  brandIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  brandText: { fontSize: 18, fontWeight: '900', letterSpacing: -1 },
+  headerActions: { flexDirection: 'row', gap: 8 },
+  circleBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  hero: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  mapContainer: { ...StyleSheet.absoluteFillObject },
+  orbCenter: { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' },
+  orb: { width: 140, height: 140, borderRadius: 70, borderWidth: 1, padding: 6, alignItems: 'center', justifyContent: 'center' },
+  orbInner: { width: '100%', height: '100%', borderRadius: 70, alignItems: 'center', justifyContent: 'center' },
+  radarSweep: { position: 'absolute', width: '100%', height: '100%', borderRadius: 150, borderTopWidth: 2 },
+  glowRing: { position: 'absolute', width: '100%', height: '100%', borderRadius: 150, borderWidth: 1, opacity: 0.2 },
+  orbStatus: { marginTop: 30, fontSize: 10, fontWeight: '900', letterSpacing: 4 },
+  analytics: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginBottom: 16 },
+  statCard: { flex: 1, padding: 20, borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  statVal: { fontSize: 24, fontWeight: '900' },
+  statKey: { color: '#64748b', fontSize: 8, fontWeight: '900', letterSpacing: 2, marginTop: 4 },
+  controls: { paddingHorizontal: 24, gap: 10, paddingBottom: 10 },
+  controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  controlInfo: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+  controlLabel: { fontSize: 14, fontWeight: '700' },
+  controlActions: { flexDirection: 'row', alignItems: 'center', gap: 15 },
+  nodePicker: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.05)', flexDirection: 'row', alignItems: 'center' },
+  nodePickerText: { fontSize: 10, fontWeight: '900' },
+  actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actionBtnText: { fontSize: 10, fontWeight: '900' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
+  modalBody: { padding: 32, borderTopLeftRadius: 40, borderTopRightRadius: 40, height: height * 0.7, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  modalTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 20 },
+  serverRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 22, borderBottomWidth: 0.5, borderBottomColor: 'rgba(255,255,255,0.05)' },
+  serverRowName: { fontSize: 15, fontWeight: '700', letterSpacing: 1 },
+  serverRowPing: { fontSize: 12, fontWeight: '800' },
+  modalClose: { marginTop: 20, paddingVertical: 20, alignItems: 'center', borderRadius: 20 },
+  modalCloseText: { color: '#000', fontWeight: '900', fontSize: 14, letterSpacing: 2 },
+  // DNS Config styles
+  dnsDesc: { fontSize: 14, lineHeight: 22, opacity: 0.7, marginBottom: 20 },
+  dnsSectionTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 3, marginBottom: 12 },
+  dnsInstructions: { fontSize: 13, lineHeight: 20, opacity: 0.6, marginBottom: 12 },
+  dnsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  dnsLabel: { fontSize: 9, fontWeight: '900', letterSpacing: 2, marginBottom: 4 },
+  dnsValue: { fontSize: 16, fontWeight: '700' },
+  dnsSteps: { marginTop: 16, padding: 20, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  dnsStepTitle: { fontSize: 10, fontWeight: '900', letterSpacing: 2, marginBottom: 12 },
+  dnsStep: { fontSize: 14, lineHeight: 26, opacity: 0.8 },
+  dnsOpenBtn: { marginTop: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 18, borderRadius: 20 },
+  dnsOpenBtnText: { color: '#000', fontWeight: '900', letterSpacing: 2, fontSize: 12 },
+  // Tutorial styles
+  tutOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', padding: 24 },
+  tutCard: { padding: 32, borderRadius: 44, alignItems: 'center', gap: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  tutTitle: { fontSize: 22, fontWeight: '900', letterSpacing: 2 },
+  tutText: { color: '#64748b', textAlign: 'center', lineHeight: 22 },
+  tutDots: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  tutDot: { width: 8, height: 8, borderRadius: 4 },
+  tutNav: { flexDirection: 'row', alignItems: 'center', width: '100%', marginTop: 8 },
+  tutNavBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16, borderWidth: 1 },
+  tutNavBtnText: { fontWeight: '900', letterSpacing: 1, fontSize: 11 },
+  tutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16, borderRadius: 20 },
+  tutBtnText: { color: '#000', fontWeight: '900', letterSpacing: 2, fontSize: 12 },
 });

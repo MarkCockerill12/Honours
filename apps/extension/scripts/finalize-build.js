@@ -29,8 +29,11 @@ scripts.forEach(script => {
     const dest = path.join(outDir, script);
     
     if (fs.existsSync(src)) {
-        console.log(`📦 Copying ${script} to 'out' folder...`);
-        fs.copyFileSync(src, dest);
+        console.log(`📦 Copying ${script} to 'out' folder with cache-buster...`);
+        let content = fs.readFileSync(src, 'utf8');
+        // Append cache-buster comment
+        content += `\n// Build Time: ${new Date().toISOString()}\n`;
+        fs.writeFileSync(dest, content);
     } else {
         console.error(`❌ ${script} not found in 'extension-dist' folder. Run 'node scripts/build-extension.js' first.`);
     }

@@ -441,6 +441,26 @@ html {
     0 0 20px rgba(56, 189, 248, 0.05);
 }
 
+/* ========================================
+   CUSTOM UI UTILITIES
+   ======================================== */
+
+.glass-panel {
+  background: rgba(45, 52, 73, 0.6);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.shield-orbit-ring {
+  border: 1px solid rgba(59, 73, 76, 0.3);
+  border-radius: 50%;
+}
+
+.map-mesh {
+  background-image: radial-gradient(circle at 2px 2px, rgba(0, 229, 255, 0.05) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
 /* Apply fluid typography to Tailwind classes */
 .text-xs {
   font-size: var(--text-xs);

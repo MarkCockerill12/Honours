@@ -56,7 +56,6 @@ export function ScalableContainer({
       className={`
         w-full min-h-fit ${colors.bg} ${colors.text}
         transition-all duration-300 ease-out
-        responsive-p
         overflow-auto
         ${className}
       `}

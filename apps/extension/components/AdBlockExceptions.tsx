@@ -1,29 +1,26 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { Label } from "@privacy-shield/core";
-import { Button } from "@privacy-shield/core";
+import { useTheme } from "@privacy-shield/core";
 import {
   Globe,
   Trash2,
   Shield,
+  Plus
 } from "lucide-react";
-import { chromeBridge } from "../utils/chromeBridge";
 import anime from "animejs";
-
+import { chromeBridge } from "../utils/chromeBridge";
 
 export function AdBlockExceptions() {
   const [exceptions, setExceptions] = useState<string[]>([]);
   const [manualDomain, setManualDomain] = useState("");
-  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const { colors } = useTheme();
 
-
-  const cardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   // Load persistence
   useEffect(() => {
-    const loadExceptions = async () => {
+    const loadData = async () => {
       if (!chromeBridge.isAvailable()) return;
       try {
         const response = await chromeBridge.sendMessage(undefined as any, { action: "GET_EXCEPTIONS" });
@@ -31,13 +28,25 @@ export function AdBlockExceptions() {
           setExceptions(response.exceptions || []);
         }
       } catch (err) {
-        console.warn("[AdBlockExceptions] Error loading exceptions:", err);
+        console.warn("[AdBlockExceptions] Error loading data:", err);
       }
     };
-    loadExceptions();
+    loadData();
   }, []);
 
-
+  useEffect(() => {
+    if (exceptions.length > 0 && listRef.current) {
+      const items = listRef.current.querySelectorAll(".exception-item");
+      anime({
+        targets: items,
+        translateX: [-10, 0],
+        opacity: [0, 1],
+        delay: anime.stagger(30),
+        duration: 400,
+        easing: "easeOutQuad"
+      });
+    }
+  }, [exceptions.length]);
 
   const removeException = async (domain: string) => {
     const el = document.querySelector(`[data-domain="${domain}"]`);
@@ -67,26 +76,9 @@ export function AdBlockExceptions() {
     }
   };
 
-  const addManualException = async () => {
-    let domain = manualDomain.trim().toLowerCase();
+  const addManualException = async (domainToSet?: string) => {
+    let domain = (domainToSet || manualDomain).trim().toLowerCase();
     if (!domain) return;
-
-    // URL parsing safety
-    if (domain.includes("://") || domain.startsWith("www.")) {
-      try {
-        const urlToParse = domain.startsWith("http") ? domain : `https://${domain}`;
-        const parsed = new URL(urlToParse);
-        domain = parsed.hostname;
-      } catch (e) {
-        console.debug("[AdBlockExceptions] Manual entry parsing failed, using literal:", domain);
-      }
-    }
-
-    if (!domain || exceptions.includes(domain)) {
-      setStatusMessage(domain ? `"${domain}" is already trusted` : "Invalid domain");
-      setTimeout(() => setStatusMessage(null), 3000);
-      return;
-    }
 
     if (chromeBridge.isAvailable()) {
       try {
@@ -94,8 +86,6 @@ export function AdBlockExceptions() {
         if (response?.success) {
           setExceptions(response.exceptions);
           setManualDomain("");
-          setStatusMessage(`Trusted ${domain}`);
-          setTimeout(() => setStatusMessage(null), 3000);
         }
       } catch (err) { console.warn(err); }
     }
@@ -106,89 +96,63 @@ export function AdBlockExceptions() {
     try {
       const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
       if (tabs[0]?.url) {
-        try {
-          const url = new URL(tabs[0].url);
-          const domain = url.hostname;
-          if (domain && domain !== "localhost" && !exceptions.includes(domain)) {
-            const response = await chromeBridge.sendMessage(undefined as any, { action: "ADD_EXCEPTION", domain });
-            if (response?.success) {
-              setExceptions(response.exceptions);
-              setStatusMessage(`Trusted ${domain}`);
-              setTimeout(() => setStatusMessage(null), 3000);
-            }
-          }
-        } catch (e) { console.warn(e); }
+        const url = new URL(tabs[0].url);
+        const domain = url.hostname;
+        if (domain && domain !== "localhost") {
+          await addManualException(domain);
+        }
       }
     } catch (err) { console.warn(err); }
   };
 
-
   return (
-    <div ref={cardRef} className="w-full space-y-5">
-      <div className={`p-4 rounded-2xl border transition-all duration-500 bg-zinc-950 border-zinc-800`}>
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex flex-col">
-            <span className="text-sm font-black tracking-tight uppercase">Allowlist</span>
-            <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">
-              AdBlocker Exceptions
-            </span>
-          </div>
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={trustCurrentSite}
-            className="h-8 border-emerald-500/30 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-400 hover:border-emerald-500/50 text-[10px] font-black uppercase tracking-widest"
-          >
-            <Shield size={12} className="mr-2" /> Trust Current Site
-          </Button>
-        </div>
-
-        <div className="flex gap-2 border-t border-zinc-900 mt-1 pt-3">
-          <input 
-            placeholder="DOMAIN OR URL" 
-            value={manualDomain}
-            onChange={(e) => setManualDomain(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && addManualException()}
-            className="flex-1 h-8 bg-black/40 border border-zinc-800 rounded-lg px-3 text-[10px] font-black tracking-widest uppercase focus:outline-none focus:border-emerald-500/50 transition-colors"
-          />
-          <Button 
-            variant="secondary" 
-            size="sm" 
-            onClick={addManualException}
-            className="h-8 px-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-[10px] font-black uppercase tracking-widest"
-          >
-            Add
-          </Button>
-        </div>
+    <div className="w-full flex flex-col gap-2.5">
+      <div className="flex items-center justify-between px-1 mb-1">
+        <span className={`text-[10px] font-bold uppercase tracking-widest ${colors.textSecondary}`}>Domain Exclusions</span>
+        <button 
+          onClick={trustCurrentSite}
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary/10 border border-primary/20 ${colors.success} text-[9px] font-black uppercase hover:bg-primary/20 transition-all`}
+        >
+          <Plus size={10} /> Trust Current Site
+        </button>
       </div>
 
-      {statusMessage && (
-        <div className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[10px] font-bold text-emerald-400 uppercase tracking-widest animate-pulse">
-           {statusMessage}
-        </div>
-      )}
+      {/* Exclude Domain Input */}
+      <div className={`${colors.bgSecondary} rounded-xl p-0.5 flex items-center gap-2 group transition-all focus-within:ring-1 focus-within:ring-primary/50`}>
+        <input 
+          type="text"
+          placeholder="Enter domain manually..."
+          value={manualDomain}
+          onChange={(e) => setManualDomain(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && addManualException()}
+          className={`bg-transparent border-none text-[11px] font-body w-full focus:ring-0 placeholder:${colors.textSecondary}/40 px-3 py-1.5 ${colors.text}`}
+        />
+        <button 
+          onClick={() => addManualException()}
+          className={`mr-1 p-1.5 ${colors.accentSecondary} ${colors.success} rounded-lg hover:opacity-90 transition-opacity active:scale-95`}
+        >
+          <Plus className="w-4 h-4" />
+        </button>
+      </div>
 
-      <div className="space-y-3" ref={listRef}>
-        <Label className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-500 px-1">Allowed Domains</Label>
-        <div className="space-y-2 max-h-48 overflow-y-auto pr-1 flex flex-col">
-          {exceptions.map((domain) => (
-            <div key={domain} data-domain={domain} className="exception-item flex items-center justify-between p-3 rounded-xl bg-black/20 border border-white/5 group hover:border-white/10 transition-all">
-              <div className="flex flex-row items-center gap-3">
-                <div className="p-1.5 rounded-lg bg-black/20 text-emerald-400">
-                  <Globe size={14} />
-                </div>
-                <span className="text-xs font-black lowercase tracking-tight">{domain}</span>
-              </div>
-              <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-zinc-600 hover:text-red-500" onClick={() => { removeException(domain).catch(err => console.warn(err)); }}>
-                <Trash2 size={14} />
-              </Button>
+      <div className="flex-1 flex flex-col gap-1 overflow-y-auto max-h-32 pr-1 custom-scrollbar" ref={listRef}>
+        {exceptions.map((domain) => (
+          <div key={domain} data-domain={domain} className={`exception-item ${colors.bgSecondary} hover:${colors.bg} transition-colors p-2.5 rounded-lg flex items-center justify-between group border ${colors.border}`}>
+            <div className="flex items-center gap-2.5 overflow-hidden">
+              <Globe className={`${colors.success} w-3.5 h-3.5 shrink-0`} />
+              <span className={`text-[11px] font-semibold truncate ${colors.text}`}>{domain}</span>
             </div>
-          ))}
-          {exceptions.length === 0 && <div className="text-[10px] text-zinc-600 font-bold uppercase text-center py-4 border border-dashed border-zinc-800 rounded-xl">No exceptions added</div>}
-        </div>
+            <button className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-red-500 transition-all p-1" onClick={() => removeException(domain)}>
+              <Trash2 size={12} />
+            </button>
+          </div>
+        ))}
+        {exceptions.length === 0 && (
+          <div className={`text-[9px] ${colors.textSecondary} font-bold uppercase text-center py-4 border border-dashed ${colors.border} rounded-xl opacity-40`}>
+            No domains excluded
+          </div>
+        )}
       </div>
-
-
     </div>
   );
 }

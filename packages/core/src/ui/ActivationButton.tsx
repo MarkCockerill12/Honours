@@ -1,252 +1,96 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Shield, ShieldOff, Lock } from "lucide-react";
-import anime from "animejs";
+import { Shield, ShieldOff } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 import type { ProtectionState } from "../shared";
 
 interface ActivationButtonProps {
-  protection: ProtectionState;
-  onToggle: () => void;
-  size?: "sm" | "md" | "lg" | "xl";
-  loading?: boolean;
-  isAdmin?: boolean;
+  readonly protection: ProtectionState;
+  readonly onToggle: () => void;
+  readonly size?: "sm" | "md" | "lg" | "xl";
 }
 
 export function ActivationButton({
   protection,
   onToggle,
   size = "md",
-  loading = false,
-  isAdmin = true,
 }: ActivationButtonProps) {
-  const { theme } = useTheme();
   const [isPressed, setIsPressed] = useState(false);
-  const [lightningBolts, setLightningBolts] = useState<
-    Array<{ id: number; angle: number; delay: number }>
-  >([]);
+  const { theme } = useTheme();
+  
   const buttonRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLSpanElement>(null);
 
   const dimensions = {
-    sm: 80,
-    md: 128,
-    lg: 160,
-    xl: 224,
+    sm: 64,
+    md: 96,
+    lg: 128,
+    xl: 160,
   };
 
   const iconSizes = {
-    sm: 32,
-    md: 48,
-    lg: 64,
-    xl: 80,
+    sm: 24,
+    md: 36,
+    lg: 48,
+    xl: 64,
   };
 
-  const triggerLightning = () => {
-    const bolts = Array.from({ length: 12 }, (_, i) => ({
-      id: Date.now() + i,
-      angle: i * 30,
-      delay: i * 30,
-    }));
-    setLightningBolts(bolts);
-    setTimeout(() => setLightningBolts([]), 600);
-  };
-
-  const handleMouseEnter = () => {
-    if (buttonRef.current) {
-      anime({
-        targets: buttonRef.current,
-        scale: 1.15,
-        duration: 400,
-        easing: "easeOutElastic(1, .6)"
-      });
-    }
-    if (contentRef.current) {
-      anime({
-        targets: contentRef.current,
-        rotate: [0, -10, 10, 0],
-        duration: 600,
-        easing: "easeInOutSine"
-      });
-    }
-  };
-
-  const handleMouseLeave = () => {
-    if (buttonRef.current) {
-      anime({
-        targets: buttonRef.current,
-        scale: 1.0,
-        duration: 300,
-        easing: "easeOutQuad"
-      });
-    }
-  };
-
-  const handleClick = () => {
-    if (!isAdmin && !protection.isActive) {
-      if (buttonRef.current) {
-        anime({
-          targets: buttonRef.current,
-          translateX: [0, -10, 10, -10, 10, 0],
-          duration: 400,
-          easing: "easeInOutSine"
-        });
-      }
-      return;
-    }
-    
-    // Impact animation
-    if (buttonRef.current) {
-      anime({
-        targets: buttonRef.current,
-        scale: [1.15, 0.9, 1.1],
-        duration: 300,
-        easing: "easeOutQuad"
-      });
-    }
-
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     setIsPressed(true);
     setTimeout(() => setIsPressed(false), 150);
-
-    if (!protection.isActive) triggerLightning();
     onToggle();
   };
 
-  const buttonRadius = dimensions[size] / 2;
-  const px = `${dimensions[size]}px`;
-
-  const getLightningColor = () => {
-    switch (theme) {
-      case "vaporwave": return "#f472b6";
-      case "frutiger-aero": return "#38bdf8";
-      case "cyberpunk": return "#fef08a";
-      default: return "#34d399";
-    }
-  };
+  const px = dimensions[size];
 
   return (
     <div className="relative flex items-center justify-center">
-      {/* Outer spinning ring for loading state */}
-      {loading && (
-        <div
-          className="absolute inset-0 rounded-full border-4 border-transparent border-t-emerald-400 border-r-emerald-400/30 animate-spin z-10 pointer-events-none"
-          style={{ width: "110%", height: "110%", left: "-5%", top: "-5%" }}
-        />
-      )}
+      {/* Outer Ring from Reference */}
+      <div className={`absolute rounded-full border-2 transition-all duration-1000 ${
+        protection.isActive 
+          ? 'border-[#81ecff]/20 animate-pulse' 
+          : 'border-white/5'
+      }`} style={{ width: px + 32, height: px + 32 }} />
 
-      {/* Lightning bolts */}
-      {lightningBolts.map((bolt) => {
-        const angleRad = (bolt.angle * Math.PI) / 180;
-        const startX = Math.cos(angleRad) * buttonRadius;
-        const startY = Math.sin(angleRad) * buttonRadius;
-
-        return (
-          <div
-            key={bolt.id}
-            className="absolute pointer-events-none z-50"
-            style={{
-              left: `calc(50% + ${startX}px)`,
-              top: `calc(50% + ${startY}px)`,
-              transform: `rotate(${bolt.angle}deg) translateX(0)`,
-              transformOrigin: "left center",
-            }}
-          >
-            <svg
-              className="lightning-bolt"
-              width="80"
-              height="20"
-              viewBox="0 0 80 20"
-              style={{
-                animation: `lightning-shoot 0.4s ease-out ${bolt.delay}ms forwards`,
-                opacity: 0,
-              }}
-            >
-              <path
-                d="M0,10 L15,8 L12,10 L30,7 L25,10 L45,5 L38,10 L60,3 L50,10 L80,0"
-                fill="none"
-                stroke={getLightningColor()}
-                strokeWidth="3"
-                strokeLinecap="round"
-                filter="url(#glow)"
-              />
-              <defs>
-                <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-                  <feGaussianBlur stdDeviation="2" result="coloredBlur" />
-                  <feMerge>
-                    <feMergeNode in="coloredBlur" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
-              </defs>
-            </svg>
-          </div>
-        );
-      })}
-
-      {/* Glow ring */}
-      {protection.isActive && (
-        <div
-          className="absolute rounded-full animate-ping opacity-30 pointer-events-none"
-          style={{
-            width: px,
-            height: px,
-            background:
-              theme === "vaporwave"
-                ? "radial-gradient(circle, #f472b6 0%, transparent 70%)"
-                : theme === "frutiger-aero"
-                  ? "radial-gradient(circle, #38bdf8 0%, transparent 70%)"
-                  : theme === "cyberpunk"
-                    ? "radial-gradient(circle, #22d3ee 0%, transparent 70%)"
-                    : "radial-gradient(circle, #34d399 0%, transparent 70%)",
-          }}
-        />
-      )}
-
-      {/* Main button — single element, no wrapper div stealing clicks */}
+      {/* Main button */}
       <button
         ref={buttonRef}
         onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
         className={`
           relative rounded-full
           flex items-center justify-center
           transition-all duration-300 ease-out
           z-30
           ${isPressed ? "scale-90" : ""}
+          ${theme === "dark" ? "power-glow" : ""}
         `}
         style={{
           width: px,
           height: px,
-          backgroundColor: protection.isActive ? "#10b981" : "#3f3f46",
-          color: "#ffffff",
-          border: `4px solid ${protection.isActive ? "rgba(16, 185, 129, 0.3)" : "rgba(63, 63, 70, 0.5)"}`,
-          boxShadow: protection.isActive
-            ? "0 0 40px rgba(16, 185, 129, 0.25), 0 0 80px rgba(16, 185, 129, 0.1)"
-            : "0 8px 32px rgba(0, 0, 0, 0.4)",
+          background: theme === "dark" 
+            ? (protection.isActive ? "linear-gradient(135deg, #81ecff 0%, #00d4ec 100%)" : "#3f3f46")
+            : protection.isActive ? "#10b981" : "#d4d4d8",
+          color: protection.isActive ? (theme === "dark" ? "#005762" : "#ffffff") : "#a1a1aa",
+          border: "none",
+          boxShadow: theme === "dark" 
+            ? (protection.isActive ? "0 0 25px rgba(129, 236, 255, 0.35)" : "none")
+            : protection.isActive
+              ? "0 0 40px rgba(16, 185, 129, 0.25)"
+              : "0 4px 12px rgba(0, 0, 0, 0.1)",
           cursor: "pointer",
         }}
       >
         <span ref={contentRef} className="pointer-events-none flex items-center justify-center">
           {protection.isActive ? (
-            <Shield className="drop-shadow-md" size={iconSizes[size]} />
+            <Shield className="drop-shadow-md" size={iconSizes[size]} style={{ fill: theme === 'dark' ? 'currentColor' : 'none' }} />
           ) : (
             <ShieldOff className="drop-shadow-md opacity-90" size={iconSizes[size]} />
           )}
         </span>
-
-        {/* Admin Lock Overlay */}
-        {!isAdmin && !protection.isActive && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px] rounded-full z-20 pointer-events-none">
-            <div className="bg-red-500/90 p-2 rounded-full border border-white/20 shadow-xl">
-              <Lock size={iconSizes[size] / 2.5} className="text-white drop-shadow-md" />
-            </div>
-          </div>
-        )}
       </button>
-
-
     </div>
   );
 }

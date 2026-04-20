@@ -208,7 +208,7 @@ export const chromeBridge = {
     return result.tabs || [];
   },
 
-  async sendMessage(tabId: number, message: any): Promise<any> {
+  async sendMessage(tabId: number | undefined, message: any): Promise<any> {
     console.log("[Chrome Bridge] sendMessage:", message.action);
 
     // 1. Native Extension Context (Send to background script from popup)
@@ -222,7 +222,7 @@ export const chromeBridge = {
         "GET_PAGE_TEXT"
       ].includes(message.action);
 
-      if (isContentAction) {
+      if (isContentAction && tabId !== undefined) {
         return new Promise((r) => {
           try {
             chrome.tabs.sendMessage(tabId, message, (response) => {
@@ -231,10 +231,11 @@ export const chromeBridge = {
                   const msg = err.message || "";
                   if (msg.includes("Could not establish connection") || msg.includes("Receiving end does not exist")) {
                     console.debug("[Chrome Bridge] Content ready-check (silenced):", msg);
+                    r({ success: false, error: "not_ready" });
                   } else {
                     console.warn(`[Chrome Bridge] sendMessage(${message.action}) error:`, msg);
+                    r({ success: false, error: msg });
                   }
-                  r({ success: false, error: msg });
                 } else {
                   r(response);
                 }
@@ -253,10 +254,11 @@ export const chromeBridge = {
                 const msg = err.message || "";
                 if (msg.includes("Could not establish connection") || msg.includes("Receiving end does not exist")) {
                   console.debug("[Chrome Bridge] Runtime not ready (silenced):", msg);
+                  r({ success: false, error: "not_ready" });
                 } else {
                   console.warn("[Chrome Bridge] runtime.sendMessage error:", msg);
+                  r({ success: false, error: msg });
                 }
-                r({ success: false, error: msg });
               } else {
                 r(response);
               }

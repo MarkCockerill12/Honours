@@ -4,7 +4,8 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./*"],
-      "@privacy-shield/core": ["../../packages/core"]
+      "@privacy-shield/core": ["../../packages/core/src/index.ts"],
+      "@privacy-shield/core/*": ["../../packages/core/src/*"]
     },
     "types": ["node", "react", "react-dom"]
   },

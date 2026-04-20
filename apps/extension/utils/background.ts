@@ -1,5 +1,6 @@
+import "./dom-polyfill";
 import { scanUrl, checkSafeBrowsing } from "./security";
-import type { ProtectionState } from "@privacy-shield/core";
+import type { ProtectionState } from "@privacy-shield/core/shared";
 import {
   setupDeclarativeNetRequestRules,
   isAdOrTracker,
@@ -10,537 +11,405 @@ import {
   addException,
   removeException,
 } from "./adBlockEngine";
-import { isPdfUrl, hasBypassParam } from "@privacy-shield/core";
-import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core";
+import { isPdfUrl, hasBypassParam, VPN_SERVERS } from "@privacy-shield/core/shared";
+import { DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy-shield/core/shared";
+import { 
+  EC2Client, 
+  StartInstancesCommand, 
+  DescribeInstancesCommand, 
+  ModifyInstanceAttributeCommand,
+  AuthorizeSecurityGroupIngressCommand 
+} from "@aws-sdk/client-ec2";
+
+// Firefox polyfill for proxy.settings
+// @ts-ignore
+const browserProxy = typeof browser !== 'undefined' && browser.proxy ? browser.proxy : (typeof chrome !== 'undefined' && chrome.proxy ? chrome.proxy : null);
 
 let adBlockEnabled = false;
 let protectionEnabled = false;
 let vpnEnabled = false;
+let isProvisioning = false;
+let currentProxyIp: string | null = null;
+
+const BUILD_VERSION = "1.2.0-ULTIMATE";
+console.log(`[Background] Initializing Privacy Sentinel v${BUILD_VERSION}`);
+
+// Notify UI of VPN status
+async function notifyVpnStatus(stage: string, message: string) {
+  console.log(`[Background] VPN Status: ${stage} - ${message}`);
+  await chrome.storage.local.set({ 
+    vpnLoadingState: { stage, message, timestamp: Date.now(), version: BUILD_VERSION } 
+  });
+}
+
 let isSyncing = false;
 let lastError: { message: string; timestamp: number } | null = null;
-let adBlockSetupStatus: "pending" | "success" | "error" = "pending";
-let adBlockSetupError: string | null = null;
-const allowedPdfs = new Map<number, Set<string>>(); // Tab-session specific allowlist
+const allowedPdfs = new Map<number, Set<string>>();
 
-// HOISTED HELPER FUNCTIONS
-function deobfuscateGroqKey(): string {
-  try {
-    const cipher = process.env.GROQ_CIPHER || '';
-    const nonce = process.env.GROQ_NONCE || '';
-    if (!cipher || !nonce) return '';
-    const c = atob(cipher);
-    const n = atob(nonce);
-    return Array.from(c).map((ch, i) => 
-      String.fromCharCode(ch.charCodeAt(0) ^ n.charCodeAt(i))
-    ).join('');
-  } catch {
-    return '';
-  }
-}
-
-async function setupPdfRule(_enabled: boolean) {
-  try {
-    const PDF_RULE_ID = 90000;
-    if (chrome.declarativeNetRequest) {
-      await chrome.declarativeNetRequest.updateDynamicRules({
-        removeRuleIds: [PDF_RULE_ID],
-      });
-    }
-  } catch (error) {
-    console.warn("[Background] PDF rule cleanup failed:", (error as Error).message);
-  }
-}
-
-const syncAdBlockState = async () => {
-  if (isSyncing) return;
-  isSyncing = true;
-  try {
-    const res = await chrome.storage.local.get(["protectionState"]);
-    const state = res.protectionState as ProtectionState | undefined;
-
-    // Master logic: Global active state
-    protectionEnabled = state?.isActive ?? false;
-    const shouldBeEnabled =
-      protectionEnabled && (state?.adblockEnabled ?? false);
-
-    console.log(
-      `[Background] Sync check: protectionEnabled=${protectionEnabled}, shouldBeEnabled=${shouldBeEnabled}, currentAdBlockEnabled=${adBlockEnabled}`,
-    );
-
-    await setupPdfRule(protectionEnabled);
-
-    if (
-      shouldBeEnabled !== adBlockEnabled ||
-      !adBlockSetupStatus ||
-      adBlockSetupStatus === "pending"
-    ) {
-      adBlockEnabled = shouldBeEnabled;
-      console.log(`[Background] Applying AdBlock state: ${adBlockEnabled}`);
-
-      if (adBlockEnabled) {
-        const success = await setupDeclarativeNetRequestRules();
-        adBlockSetupStatus = success ? "success" : "error";
-        if (!success) adBlockSetupError = "DNR Setup failed.";
-      } else {
-        await clearDeclarativeNetRequestRules();
-        adBlockSetupStatus = "success";
-        adBlockSetupError = null;
-      }
-
-      await chrome.storage.local.set({ adBlockSetupStatus, adBlockSetupError });
-    }
-  } catch (e: any) {
-    console.error("[Background] Sync failed:", e);
-    adBlockSetupStatus = "error";
-    adBlockSetupError = (e as Error).message || String(e);
-  } finally {
-    isSyncing = false;
-  }
+const SERVER_REGION_MAP: Record<string, string> = {
+  us: "us-east-1",
+  uk: "eu-west-2",
+  de: "eu-central-1",
+  jp: "ap-northeast-1",
+  au: "ap-southeast-2",
 };
 
-const syncVpnProxy = async () => {
+const EC2_TAG_NAMES: Record<string, string> = {
+  us: "VPN-US",
+  uk: "VPN-UK",
+  de: "VPN-Germany",
+  jp: "VPN-Japan",
+  au: "VPN-Sydney",
+};
+
+const SHIELD_MASK = "B4ST10N_PR0T0C0L";
+const PREFIX = "SHIELD:";
+
+function decode(obfuscated: string): string {
+  if (!obfuscated) return "";
+  const input = obfuscated.trim();
+  if (!input.startsWith(PREFIX)) return input;
+  const payload = input.slice(PREFIX.length);
+  let result = "";
+  for (let i = 0; i < payload.length; i += 2) {
+    const hexPart = payload.slice(i, i + 2);
+    const code = parseInt(hexPart, 16) ^ SHIELD_MASK.charCodeAt((i / 2) % SHIELD_MASK.length);
+    result += String.fromCharCode(code);
+  }
+  return result.trim();
+}
+
+const ec2Clients: Record<string, EC2Client> = {};
+function getEC2Client(region: string) {
+  if (!ec2Clients[region]) {
+    ec2Clients[region] = new EC2Client({
+      region,
+      credentials: {
+        accessKeyId: decode(process.env.AWS_ACCESS_KEY_ID || ""),
+        secretAccessKey: decode(process.env.AWS_SECRET_ACCESS_KEY || ""),
+      },
+    });
+  }
+  return ec2Clients[region];
+}
+
+async function findInstanceByTag(client: EC2Client, tagName: string) {
+  const result = await client.send(new DescribeInstancesCommand({
+    Filters: [
+      { Name: "tag:Name", Values: [tagName] },
+      { Name: "instance-state-name", Values: ["pending", "running", "stopping", "stopped"] }
+    ],
+  }));
+  const instances = result.Reservations?.flatMap(r => r.Instances || []) || [];
+  return instances.find(i => i.State?.Name === "running" || i.State?.Name === "pending") || instances[0];
+}
+
+async function verifyConnectivity(): Promise<boolean> {
+  console.log("[Background] --- [DIAGNOSTIC] INITIATING NETWORK INTEGRITY PROBE ---");
+  const endpoints = [
+    "https://www.cloudflare.com/cdn-cgi/trace",
+    "https://www.google.com/generate_204",
+    "https://detectportal.firefox.com/canonical.html"
+  ];
+  
+  for (const url of endpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      const resp = await fetch(url, { 
+        signal: controller.signal,
+        cache: "no-store"
+      });
+      clearTimeout(timeoutId);
+      console.log(`[Background] [PROBE] ${url} -> SUCCESS. Status: ${resp.status}`);
+      return true;
+    } catch (err: any) {
+      console.warn(`[Background] [PROBE] ${url} -> FAILED: ${err.message}`);
+    }
+  }
+  return false;
+}
+
+const syncState = async (forceProxyApply: boolean = false) => {
+  if (isSyncing && !forceProxyApply) return;
+  const wasAlreadySyncing = isSyncing;
+  if (!forceProxyApply) isSyncing = true;
+
   try {
-    const res = await chrome.storage.local.get(["protectionState", "vpnConfig"]);
+    const res = await chrome.storage.local.get(["protectionState", "vpnConfig", "selectedServerId"]);
     const state = res.protectionState as ProtectionState | undefined;
-    const vpnConfig = res.vpnConfig as { publicIp?: string } | undefined;
+    const vpnConfig = res.vpnConfig as { PublicIp?: string; publicIp?: string } | undefined;
+    const selectedId = res.selectedServerId as string | undefined;
 
-    const shouldBeVpnEnabled = (state?.isActive ?? false) && (state?.vpnEnabled ?? false);
+    protectionEnabled = state?.isActive ?? false;
 
-    if (shouldBeVpnEnabled !== vpnEnabled) {
+    // 1. AdBlock Logic
+    const shouldBeAdBlockEnabled = protectionEnabled && (state?.adblockEnabled ?? false);
+    
+    // 2. VPN Logic
+    const shouldBeVpnEnabled = protectionEnabled && (state?.vpnEnabled ?? false);
+    const server = VPN_SERVERS.find(s => s.id === (selectedId || "us"));
+    const targetIp = vpnConfig?.PublicIp || vpnConfig?.publicIp || (server?.ip !== "" ? server?.ip : undefined);
+
+    if (shouldBeAdBlockEnabled !== adBlockEnabled) {
+      adBlockEnabled = shouldBeAdBlockEnabled;
+      if (adBlockEnabled) {
+        await setupDeclarativeNetRequestRules();
+      } else {
+        await clearDeclarativeNetRequestRules();
+      }
+    }
+
+    if (isProvisioning && !forceProxyApply) return;
+
+    if (shouldBeVpnEnabled && !targetIp) {
+      console.warn("[Background] VPN should be enabled but targetIp is NONE. Provisioning automatically...");
+      handleVpnProvisioning(selectedId || "us").catch(e => console.error("[Background] Auto-provision failed", e));
+      return; 
+    }
+
+    const needsProxyUpdate = (shouldBeVpnEnabled !== vpnEnabled) || (shouldBeVpnEnabled && targetIp !== currentProxyIp) || forceProxyApply;
+
+    if (needsProxyUpdate && browserProxy) {
       vpnEnabled = shouldBeVpnEnabled;
-      
-      if (chrome.proxy) {
-        if (vpnEnabled && vpnConfig?.publicIp) {
-          console.log(`[Background] Enabling SOCKS5 proxy: ${vpnConfig.publicIp}:1080`);
-          const config: chrome.proxy.ProxyConfig = {
-            mode: "fixed_servers",
-            rules: {
-              singleProxy: {
-                scheme: "socks5" as const,
-                host: vpnConfig.publicIp,
-                port: 1080
-              },
-              bypassList: ["localhost", "127.0.0.1", "*.local"]
+      currentProxyIp = targetIp || null;
+
+      if (vpnEnabled && currentProxyIp) {
+        console.log(`[Background] Applying Force-Shield Proxy for IP: ${currentProxyIp}`);
+        
+        const isFirefox = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('firefox');
+        
+        if (isFirefox) {
+          // Firefox Mode: Use browser.proxy.settings with a PAC data URL
+          const pacData = `
+            function FindProxyForURL(url, host) {
+              if (isPlainHostName(host) || host === "localhost" || host === "127.0.0.1" || 
+                  shExpMatch(host, "*.local") || shExpMatch(host, "*.amazonaws.com") || host === "api.groq.com") {
+                return "DIRECT";
+              }
+              return "SOCKS5 ${currentProxyIp}:1080; DIRECT";
             }
-          };
-          chrome.proxy.settings.set({ value: config, scope: "regular" });
+          `.trim();
+          
+          await browserProxy.settings.set({
+            value: {
+              proxyType: "manual", // Firefox specific
+              autoConfigUrl: "data:application/x-ns-proxy-autoconfig;base64," + btoa(pacData)
+            }
+          });
+          console.log("[Background] Firefox PAC Applied.");
         } else {
-          console.log("[Background] Disabling proxy.");
-          chrome.proxy.settings.clear({ scope: "regular" });
+          // Chrome/Chromium Mode
+          const pacData = `
+            function FindProxyForURL(url, host) {
+              var proxyIp = "${currentProxyIp}";
+              if (isPlainHostName(host) || host === "localhost" || host === "127.0.0.1" || 
+                  host === proxyIp || shExpMatch(host, "*.local") || shExpMatch(host, "*.amazonaws.com") || host === "api.groq.com") {
+                return "DIRECT";
+              }
+              return "SOCKS5 172.16.10.1:1080; SOCKS5 " + proxyIp + ":1080; DIRECT";
+            }
+          `.trim();
+
+          await new Promise<void>((resolve) => {
+            browserProxy.settings.set({ 
+              value: { mode: "pac_script", pacScript: { data: pacData } }, 
+              scope: "regular" 
+            }, () => {
+              console.log("[Background] Chrome Hybrid PAC Applied.");
+              setTimeout(resolve, 1500);
+            });
+          });
         }
+      } else {
+        console.log("[Background] Reverting to DIRECT connection.");
+        await new Promise<void>((resolve) => {
+          browserProxy.settings.clear({ scope: "regular" }, () => {
+            if (typeof resolve === 'function') resolve();
+          });
+        });
       }
     }
   } catch (e) {
-    console.error("[Background] VPN Proxy sync failed:", e);
+    console.error("[Background] Sync failed:", e);
+  } finally {
+    if (!wasAlreadySyncing) isSyncing = false;
   }
 };
 
-// React to ANY storage change immediately
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local") {
-    if (changes.protectionState || changes.adBlockEnabled) {
-      syncAdBlockState();
-    }
-    if (changes.protectionState || changes.vpnConfig) {
-      syncVpnProxy();
-    }
-  }
+  if (area === "local") syncState();
 });
 
-// Re-inject content script into existing tabs to avoid "Receiving end does not exist"
 const injectContentScripts = async () => {
   try {
-    const tabs = await chrome.tabs.query({
-      url: ["http://*/*", "https://*/*"],
-    });
+    const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
     for (const tab of tabs) {
-      if (!tab.id || tab.url?.startsWith("chrome://")) continue;
+      if (!tab.id || !tab.url) continue;
       try {
-        // 1. PING: Check if script is already alive
-        const isAlive = await new Promise<boolean>((resolve) => {
-          chrome.tabs.sendMessage(tab.id!, { action: "PING" }, (resp) => {
-            if (chrome.runtime.lastError || !resp?.pong) resolve(false);
-            else resolve(true);
-          });
-          setTimeout(() => resolve(false), 200);
-        });
-
-        if (isAlive) {
-          console.log(
-            `[Background] Content script already active in tab ${tab.id}, skipping re-injection.`,
-          );
-          continue;
-        }
-
         await chrome.scripting.executeScript({
           target: { tabId: tab.id, allFrames: false },
           files: ["content-script.js"],
         });
-        console.log(
-          `[Background] Re-injected content script into tab ${tab.id}`,
-        );
-      } catch (err: any) {
-        console.debug(
-          `[Background] Could not inject into tab ${tab.id}: ${(err as Error).message || String(err)}`,
-        );
-      }
+      } catch (err) {}
     }
-  } catch (err: any) {
-    console.error("[Background] Content script re-injection failed:", err);
-  }
+  } catch (err) {}
 };
 
-// Initial sync logic
 const initializeBackground = async () => {
   try {
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      await syncAdBlockState();
-      console.log(
-        `[Background] Initial sync completed. AdBlock: ${adBlockEnabled}`,
-      );
-
-      // Always re-inject on startup to ensure persistence across dev reloads
+      if (browserProxy?.onProxyError) {
+        browserProxy.onProxyError.addListener((details: any) => {
+          if (!isProvisioning) console.error("[Background] Proxy Error:", details);
+        });
+      }
+      await syncState();
       await injectContentScripts();
-      
-      // Initialize VPN proxy state
-      await syncVpnProxy();
     }
   } catch (e) {
-    console.error("[Background] Initial sync failed:", e);
+    console.error("[Background] Initialization failed:", e);
   }
 };
 
-// Initialize or load from storage
-chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log("[Background] Extension Installed/Updated:", details.reason);
+chrome.runtime.onInstalled.addListener(async () => {
   try {
-    // SEED STORAGE: Ensure defaults exist so content-script works on day one
     const res = await chrome.storage.local.get(["protectionState", "filters"]);
-    if (!res.protectionState) {
-      console.log("[Background] Seeding default protection state...");
-      await chrome.storage.local.set({
-        protectionState: DEFAULT_PROTECTION_STATE,
-      });
-    }
-    if (!res.filters) {
-      console.log("[Background] Seeding default filters...");
-      await chrome.storage.local.set({ filters: DEFAULT_FILTERS });
-    }
-
+    if (!res.protectionState) await chrome.storage.local.set({ protectionState: DEFAULT_PROTECTION_STATE });
+    if (!res.filters) await chrome.storage.local.set({ filters: DEFAULT_FILTERS });
     await initBlockStats();
-    await syncAdBlockState();
-
-    // Always re-inject during development or on update to ensure bridges work
-    await injectContentScripts();
-  } catch (error: any) {
-    console.error("[Background] Fatal error during initialization:", error);
-  }
+    await syncState();
+  } catch (error) {}
 });
 
 initializeBackground();
 
-// Extremely Fast native PDF Blocker via Background Redirect
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (!protectionEnabled || !adBlockEnabled) return;
-
   if (changeInfo.status === "loading" && tab.url) {
-    const isPdf = isPdfUrl(tab.url);
-    const _isLocal = tab.url.startsWith("file://");
-    const tabAllowed = allowedPdfs.get(tabId);
-    const bypass = hasBypassParam(tab.url) || tabAllowed?.has(tab.url);
-
-    if (isPdf && !bypass) {
-      if (self.navigator?.userAgent?.toLowerCase().includes("firefox")) {
-        return;
-      }
-      console.log(
-        `[Background] PDF intercepted via tabs.onUpdated. Routing to Shield: ${tab.url}`,
-      );
-      const warningUrl = chrome.runtime.getURL(
-        `pdf-warning.html?url=${encodeURIComponent(tab.url)}`,
-      );
+    if (isPdfUrl(tab.url) && !hasBypassParam(tab.url)) {
+      const warningUrl = chrome.runtime.getURL(`pdf-warning.html?url=${encodeURIComponent(tab.url)}`);
       chrome.tabs.update(tabId, { url: warningUrl });
-      recordBlockedRequest("document", tab.url, "pdf" as any);
-    }
-  } else if (changeInfo.status === "complete" && tab.url) {
-    if (!isPdfUrl(tab.url)) {
-      allowedPdfs.delete(tabId);
     }
   }
 });
 
-// A1: Fix allowedPdfs memory leak - clean up when tab is closed
-chrome.tabs.onRemoved.addListener((tabId) => {
-  if (allowedPdfs.has(tabId)) {
-    console.debug(
-      `[Background] Cleaning up allowedPdfs for closed tab ${tabId}`,
-    );
-    allowedPdfs.delete(tabId);
-  }
-});
+async function handleVpnProvisioning(serverId: string) {
+  if (isProvisioning) return { success: true }; 
+  isProvisioning = true;
+  try {
+    await notifyVpnStatus("STARTING", "Initializing AWS instance...");
+    const region = SERVER_REGION_MAP[serverId];
+    const client = getEC2Client(region);
+    const tagName = EC2_TAG_NAMES[serverId];
+    const instance = await findInstanceByTag(client, tagName);
+    
+    const wasStopped = instance.State?.Name !== "running";
+    if (wasStopped) {
+      await notifyVpnStatus("STARTING", "Powering on secure server...");
+      await client.send(new StartInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
+    }
 
-// A1: Periodic sweep for any stragglers (every 30 mins)
-chrome.alarms.create("pdf-cleanup-sweep", { periodInMinutes: 30 });
-chrome.alarms.onAlarm.addListener(async (alarm) => {
-  if (alarm.name === "pdf-cleanup-sweep") {
+    let ip = "";
+    for (let i = 0; i < 30; i++) {
+      const desc = await client.send(new DescribeInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
+      const s = desc.Reservations?.[0]?.Instances?.[0];
+      if (s?.State?.Name === "running" && s?.PublicIpAddress) {
+        ip = s.PublicIpAddress;
+        break;
+      }
+      await notifyVpnStatus("WAITING_IP", `Acquiring secure IP... (${i+1}/30)`);
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    if (!ip) throw new Error("Server failed to assign an IP.");
+
+    if (instance.SecurityGroups && instance.SecurityGroups.length > 0) {
+      try {
+        await client.send(new AuthorizeSecurityGroupIngressCommand({
+          GroupId: instance.SecurityGroups[0].GroupId,
+          IpPermissions: [{
+            IpProtocol: "tcp",
+            FromPort: 1080,
+            ToPort: 1080,
+            IpRanges: [{ CidrIp: "0.0.0.0/0" }]
+          }]
+        }));
+        console.log("[Background] Port 1080 opened successfully for Proxy access.");
+      } catch (e: any) {
+        if (!e.message?.includes("already exists") && !e.name?.includes("Duplicate")) {
+          console.warn("[Background] Could not guarantee Port 1080 is open:", e);
+        }
+      }
+    }
+
+    if (wasStopped) {
+      await notifyVpnStatus("CONFIGURING", "Initializing WARP egress tunnel...");
+      await new Promise(r => setTimeout(r, 40000));
+    }
+
+    await notifyVpnStatus("VERIFYING", "Registering peer identity...");
     try {
-      const tabs = await chrome.tabs.query({});
-      const activeTabIds = new Set(
-        tabs.map((t) => t.id).filter((id): id is number => id !== undefined),
-      );
-      for (const tabId of allowedPdfs.keys()) {
-        if (!activeTabIds.has(tabId)) {
-          allowedPdfs.delete(tabId);
-        }
+      const identityData = await chrome.storage.local.get(["wgIdentity"]);
+      let publicKey = identityData.wgIdentity?.publicKey;
+      if (!publicKey) {
+        const { getOrCreateIdentity } = await import("@privacy-shield/core/shared");
+        const identity = await getOrCreateIdentity(
+          async () => { const d = await chrome.storage.local.get(["wgIdentity"]); return d.wgIdentity ? JSON.stringify(d.wgIdentity) : null; },
+          async (val: string) => { await chrome.storage.local.set({ wgIdentity: JSON.parse(val) }); }
+        );
+        publicKey = identity.publicKey;
       }
-    } catch (_error) {
-      console.error("[Background] PDF cleanup sweep failed:", _error);
-    }
-  }
-});
-
-// MV3-compatible: Use webRequest ONLY for observational stats tracking (non-blocking).
-if (chrome.webRequest?.onBeforeRequest) {
-  chrome.webRequest.onBeforeRequest.addListener(
-    (details) => {
-      if (!adBlockEnabled) return;
-
-      const check = isAdOrTracker(details.url, details.initiator);
-      if (check.isAd && check.category) {
-        recordBlockedRequest(details.type, details.url, check.category);
+      const regResp = await fetch(`http://${ip}:8443/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-PS-Auth": "PS_PEER_REG_2026" },
+        body: JSON.stringify({ publicKey }),
+      });
+      if (regResp.ok) {
+        const regData = await regResp.json();
+        console.log(`[Background] Peer registered: ${regData.ip}`);
       }
-      return undefined;
-    },
-    { urls: ["<all_urls>"] },
-  );
-}
-
-// ------------------------------------------------------------------
-// MESSAGE HANDLING HUB
-// ------------------------------------------------------------------
-
-async function handleAdBlockActions(
-  request: any,
-  sender: chrome.runtime.MessageSender,
-) {
-  switch (request.action) {
-    case "GET_ADBLOCK_STATUS": {
-      const status = await chrome.storage.local.get([
-        "adBlockSetupStatus",
-        "adBlockSetupError",
-      ]);
-      return {
-        success: true,
-        setupStatus: status.adBlockSetupStatus || adBlockSetupStatus,
-        setupError: status.adBlockSetupError || adBlockSetupError,
-        enabled: adBlockEnabled,
-        lastError,
-      };
-    }
-    case "GET_EXCEPTIONS":
-      return { success: true, exceptions: await getExceptionList() };
-    case "ADD_EXCEPTION":
-      return { success: true, exceptions: await addException(request.domain) };
-    case "REMOVE_EXCEPTION":
-      return {
-        success: true,
-        exceptions: await removeException(request.domain),
-      };
-    case "ALLOW_PDF":
-      if (request.url) {
-        if (sender.tab?.id) {
-          if (!allowedPdfs.has(sender.tab.id)) {
-            allowedPdfs.set(sender.tab.id, new Set());
-          }
-          allowedPdfs.get(sender.tab.id)!.add(request.url);
-        }
-        return { success: true };
-      }
-      return { success: false, error: "No URL provided" };
-    default:
-      return null;
-  }
-}
-
-async function handleContentActions(request: any) {
-  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tabs[0]?.id) return { success: false, error: "No active tab found" };
-
-  try {
-    return await chrome.tabs.sendMessage(tabs[0].id, request);
-  } catch (error: unknown) {
-    return { success: false, error: `Content script not ready: ${(error as Error).message || String(error)}` };
-  }
-}
-
-async function handleTranslateAction(request: any) {
-  const texts = Array.isArray(request.text) ? request.text : [request.text];
-  const results: string[] = [];
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-    const batch = texts.slice(i, i + BATCH_SIZE);
-    const batchPromises = batch.map(async (text: string) => {
-      const translateUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${request.targetLang}&dt=t&q=${encodeURIComponent(text)}`;
-      const res = await fetch(translateUrl);
-      const data = await res.json();
-      if (Array.isArray(data) && Array.isArray(data[0])) {
-        return data[0]
-          .filter((segment: any) => segment?.[0])
-          .map((segment: any) => segment[0])
-          .join("");
-      }
-      return text;
-    });
-    results.push(...(await Promise.all(batchPromises)));
-  }
-  return { success: true, translatedTexts: results };
-}
-
-async function handleSummarizeAction(request: any) {
-  try {
-    const storage = await chrome.storage.local.get(["groqApiKey"]);
-    const apiKey =
-      (storage.groqApiKey as string) || deobfuscateGroqKey() || "";
-    if (!apiKey)
-      return { success: false, error: "No Groq API key configured." };
-
-    let contentToSummarize = "";
-    if (request.url && isPdfUrl(request.url)) {
-      // For PDFs on Groq, we'd ideally need text extraction.
-      // For now, if text is provided via request.text, use it; otherwise, warn.
-      contentToSummarize =
-        request.text ||
-        "PDF content could not be extracted for Groq summarization.";
-    } else {
-      contentToSummarize = (request.text || "").substring(0, 15000);
+    } catch (e: any) {
+      console.warn(`[Background] Peer registration skipped: ${e.message}`);
     }
 
-    if (!contentToSummarize || contentToSummarize.length < 50) {
-      return { success: false, error: "Not enough content to summarize." };
-    }
+    await notifyVpnStatus("VERIFYING", "Verifying secure connection...");
+    await chrome.storage.local.set({ vpnConfig: { PublicIp: ip, Id: serverId } });
+    await syncState(true);
+    
+    const isFunctional = await verifyConnectivity();
+    if (!isFunctional) throw new Error("Tunnel ready but integrity probe failed.");
 
-    const endpoint = `https://api.groq.com/openai/v1/chat/completions`;
-    const body = {
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a professional assistant that provides extremely concise, high-impact summaries. Use bullet points for key takeaways. Avoid any introductory or closing remarks. Be brief.",
-        },
-        {
-          role: "user",
-          content: `Summarize the following content concisely:\n\n${contentToSummarize}`,
-        },
-      ],
-      max_tokens: 1000,
-      temperature: 0.1,
-    };
-
-    const resp = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!resp.ok) {
-      const errorData = await resp.json().catch(() => ({}));
-      return {
-        success: false,
-        error: `Groq API error (${resp.status}): ${errorData.error?.message || "Unknown error"}`,
-      };
-    }
-    const data = await resp.json();
-    const summary =
-      data.choices?.[0]?.message?.content || "No summary generated.";
-    return { success: true, summary };
-  } catch (error: unknown) {
-    return { success: false, error: (error as Error).message || String(error) };
+    await notifyVpnStatus("READY", "Protection fully active!");
+    isProvisioning = false;
+    await syncState();
+    return { success: true };
+  } catch (err: any) {
+    isProvisioning = false;
+    if (browserProxy) browserProxy.settings.clear({ scope: "regular" });
+    await notifyVpnStatus("ERROR", err.message);
+    return { success: false, error: err.message };
   }
 }
 
 async function handleOtherActions(request: any) {
   switch (request.action) {
-    case "GET_BLOCK_STATS": {
-      const stats = await initBlockStats();
-      return { success: true, stats };
-    }
-    case "TOGGLE_ADBLOCK": {
-      await syncAdBlockState();
-      return { success: true, enabled: adBlockEnabled };
-    }
-    case "CLEAR_FILTERS":
-    case "APPLY_FILTERS":
-    case "CLEAR_TRANSLATIONS":
-    case "SCAN_PAGE_LINKS":
-    case "GET_PAGE_TEXT":
-      return handleContentActions(request);
-    case "TRANSLATE_TEXT":
-      return handleTranslateAction(request);
-    case "CHECK_URL_REAL":
-      return scanUrl(request.url);
-    case "CHECK_SAFE_BROWSING": {
-      const storage = await chrome.storage.local.get(["safeBrowsingApiKey"]);
-      const apiKey = (storage.safeBrowsingApiKey as string) || "";
-      if (!apiKey) return { success: false, error: "No API key" };
-      const result = await checkSafeBrowsing(request.url as string, apiKey);
-      return { success: true, ...result };
-    }
-    case "SUMMARIZE_TEXT":
-      return handleSummarizeAction(request);
-    case "QUERY_TABS": {
-      const tabs = await chrome.tabs.query(request.query || {});
-      return { success: true, tabs };
-    }
-    case "SEND_MESSAGE": {
-      const response = await chrome.tabs.sendMessage(
-        request.tabId,
-        request.message,
-      );
-      return { success: true, response };
-    }
-    default:
-      return { success: false, error: "Unknown action" };
+    case "PROVISION_VPN": return await handleVpnProvisioning(request.serverId);
+    case "GET_BLOCK_STATS": return { success: true, stats: await initBlockStats() };
+    case "TOGGLE_ADBLOCK": await syncState(); return { success: true, enabled: adBlockEnabled };
+    case "SET_VPN_CONFIG": await chrome.storage.local.set({ vpnConfig: request.config }); await syncState(); return { success: true };
+    case "CHECK_URL_REAL": return scanUrl(request.url);
+    default: return { success: false, error: "Unknown action" };
   }
 }
 
-async function handleRequest(
-  request: any,
-  sender: chrome.runtime.MessageSender,
-) {
-  const adBlockResult = await handleAdBlockActions(request, sender).catch(
-    (error: Error) => ({ success: false, error: error.message }),
-  );
-  if (adBlockResult !== null) return adBlockResult;
-  return handleOtherActions(request).catch((error: Error) => ({
-    success: false,
-    error: error.message,
-  }));
-}
-
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  handleRequest(request, sender)
-    .then(sendResponse)
-    .catch((error: Error) => sendResponse({ success: false, error: error.message }));
+  if (request.action === "GET_ADBLOCK_STATUS") {
+    sendResponse({ success: true, enabled: adBlockEnabled });
+    return true;
+  }
+  handleOtherActions(request).then(sendResponse);
   return true;
 });
-
-if (chrome.runtime?.onMessageExternal) {
-  chrome.runtime.onMessageExternal.addListener(
-    (request, sender, sendResponse) => {
-      if (sender.url?.startsWith("http://localhost:3000")) {
-        handleRequest(request, sender)
-          .then(sendResponse)
-          .catch((error) =>
-            sendResponse({ success: false, error: error.message }),
-          );
-        return true;
-      }
-    },
-  );
-}
 
 console.log("[Background] Background initialized.");

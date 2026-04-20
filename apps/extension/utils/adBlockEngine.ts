@@ -4,7 +4,7 @@ import { WebExtensionBlocker } from "@ghostery/adblocker-webextension";
 import { Request } from "@ghostery/adblocker";
 import type { ProtectionState, BlockStats } from "@privacy-shield/core";
 export type { BlockStats };
-import { COMPREHENSIVE_DOMAINS, computeBlockDelta } from "@privacy-shield/core";
+import { COMPREHENSIVE_DOMAINS, computeBlockDelta } from "@privacy-shield/core/shared";
 
 let blocker: WebExtensionBlocker | null = null;
 let engineReady = false;
@@ -66,8 +66,8 @@ const createEmptyStats = (): BlockStats => ({
 
 const getStatsFromLocalStorage = (): BlockStats => {
   try {
-    if (typeof localStorage === "undefined") return createEmptyStats();
-    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (typeof globalThis.localStorage === "undefined") return createEmptyStats();
+    const raw = globalThis.localStorage.getItem(STATS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as BlockStats;
       if (!parsed.blockedByType.pdf) parsed.blockedByType.pdf = 0;
@@ -81,8 +81,8 @@ const getStatsFromLocalStorage = (): BlockStats => {
 
 const saveStatsToLocalStorage = (stats: BlockStats): void => {
   try {
-    if (typeof localStorage !== "undefined") {
-      localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+    if (typeof globalThis.localStorage !== "undefined") {
+      globalThis.localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
     }
   } catch (err) {
     console.debug("[AdBlock] LocalStorage stats save failed:", err);
@@ -137,20 +137,22 @@ export const recordBlockedRequest = async (
 
   console.log(`[AdBlock] Blocked ${category}: ${url.substring(0, 50)}... (${(size / 1024).toFixed(1)}KB saved)`);
 
-    if (saveTimeout) window.clearTimeout(saveTimeout);
-    saveTimeout = window.setTimeout(async () => {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
       if (isChromeStorageAvailable()) {
         await chrome.storage.local.set({ blockStats: memoryStats });
       } else {
         saveStatsToLocalStorage(memoryStats!);
       }
 
-      const api = (globalThis.window as any)?.electron;
-      if (api?.systemAdBlock?.recordBlock) {
-        try {
-          await api.systemAdBlock.recordBlock({ size, category });
-        } catch (err) {
-          console.debug("[AdBlock] Failed to record block to Electron:", err);
+      if (typeof globalThis.window !== "undefined") {
+        const api = (globalThis.window as any)?.electron;
+        if (api?.systemAdBlock?.recordBlock) {
+          try {
+            await api.systemAdBlock.recordBlock({ size, category });
+          } catch (err) {
+            console.debug("[AdBlock] Failed to record block to Electron:", err);
+          }
         }
       }
       

@@ -4,7 +4,9 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../*"]
+      "@/*": ["../*"],
+      "@privacy-shield/core": ["../../packages/core/src/index.ts"],
+      "@privacy-shield/core/*": ["../../packages/core/*"]
     },
     "types": ["node"]
   },

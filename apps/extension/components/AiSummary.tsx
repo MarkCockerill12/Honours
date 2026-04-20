@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Button } from "@privacy-shield/core";
-import { Sparkles, Loader2, ChevronDown, ChevronUp, Settings as SettingsIcon } from "lucide-react";
+import { Sparkles, Loader2, ChevronDown, ChevronUp, Brain, Globe, AlertCircle } from "lucide-react";
 import { useTheme } from "@privacy-shield/core";
 import anime from "animejs";
 import { chromeBridge } from "../utils/chromeBridge";
@@ -12,39 +11,18 @@ export function AiSummary() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(true);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [groqApiKey, setGroqApiKey] = useState("");
   const summaryRef = useRef<HTMLDivElement>(null);
-  const { colors } = useTheme();
-
-  // Load API key from storage
-  useEffect(() => {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      chrome.storage.local.get(["groqApiKey"], (result: { [key: string]: any }) => {
-        if (typeof result.groqApiKey === "string") {
-          setGroqApiKey(result.groqApiKey);
-        }
-      });
-    }
-  }, []);
-
-  const saveApiKey = () => {
-    if (typeof chrome !== "undefined" && chrome.storage?.local) {
-      chrome.storage.local.set({ groqApiKey }, () => {
-        setShowApiKeyInput(false);
-      });
-    }
-  };
+  const { colors, theme } = useTheme();
 
   // Summary entrance animation
   useEffect(() => {
     if (!summaryRef.current || !summary) return;
     anime({
       targets: summaryRef.current,
-      translateY: [10, 0],
+      translateY: [20, 0],
       opacity: [0, 1],
-      duration: 500,
-      easing: "easeOutExpo",
+      duration: 600,
+      easing: "easeOutQuart",
     });
   }, [summary]);
 
@@ -58,7 +36,7 @@ export function AiSummary() {
     if (textResp?.success) {
       return { success: true, url, text: textResp.text };
     }
-    return { success: false, error: "Could not extract page text. Refresh and try again." };
+    return { success: false, error: "Could not extract text from this page." };
   };
 
   const handleSummarize = async () => {
@@ -68,7 +46,7 @@ export function AiSummary() {
 
     try {
       if (!chromeBridge.isAvailable()) {
-        setError("Chrome extension environment required.");
+        setError("Extension context unavailable.");
         setIsLoading(false);
         return;
       }
@@ -78,12 +56,6 @@ export function AiSummary() {
 
       if (!pageData.success) {
         setError(pageData.error!);
-        setIsLoading(false);
-        return;
-      }
-
-      if (!pageData.text && !pageData.url?.toLowerCase().endsWith(".pdf")) {
-        setError("Not enough text content on this page to summarize.");
         setIsLoading(false);
         return;
       }
@@ -100,85 +72,62 @@ export function AiSummary() {
         setError(resp?.error || "Summary generation failed.");
       }
     } catch (err: any) {
-      setError(`Failed: ${err.message}`);
+      setError(`Summarization failed: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const onAccentColor = theme === 'dark' ? '#005762' : '#ffffff';
+
   return (
-    <div className="w-full space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-purple-400" />
-          <span className={`text-sm font-black tracking-tight uppercase ${colors.text}`}>AI Summary</span>
-        </div>
-        <button 
-          onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-          className={`p-1 rounded-md hover:bg-white/10 transition-colors ${showApiKeyInput ? 'text-purple-400' : colors.textSecondary}`}
-        >
-          <SettingsIcon className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {showApiKeyInput && (
-        <div className={`p-3 rounded-xl border ${colors.border} ${colors.bgSecondary} space-y-2 animate-in fade-in slide-in-from-top-1`}>
-          <div className="text-[9px] font-black uppercase tracking-widest text-zinc-500">Groq API Key</div>
-          <div className="flex gap-2">
-            <input 
-              type="password"
-              placeholder="gsk_..."
-              value={groqApiKey}
-              onChange={(e) => setGroqApiKey(e.target.value)}
-              className="flex-1 bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-xs font-mono focus:outline-none focus:border-purple-500/50"
-            />
-            <Button size="sm" className="h-7 px-3 bg-purple-600 hover:bg-purple-500 text-[10px] font-bold" onClick={saveApiKey}>
-              SAVE
-            </Button>
-          </div>
-          <p className="text-[8px] text-zinc-500 leading-tight">
-            Key is stored locally in your browser. Get one at groq.com.
-          </p>
-        </div>
-      )}
-
-      <Button
-        className="w-full bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/20 flex items-center gap-2"
+    <div className="w-full space-y-4">
+      {/* Primary Action */}
+      <button 
         onClick={handleSummarize}
         disabled={isLoading}
+        className={`group relative w-full h-14 rounded-2xl flex items-center justify-center gap-3 shadow-md hover:shadow-lg active:scale-95 transition-all overflow-hidden ${theme === 'dark' ? 'bg-gradient-to-br from-[#81ecff] to-[#00d4ec]' : colors.accent}`}
       >
+        <div className="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
         {isLoading ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: onAccentColor }} />
         ) : (
-          <Sparkles className="h-4 w-4" />
+          <Brain className="w-5 h-5 group-hover:scale-110 transition-transform" style={{ fill: onAccentColor, color: onAccentColor }} />
         )}
-        {isLoading ? "Generating Summary..." : "Summarize This Page"}
-      </Button>
+        <span className="font-headline font-black text-sm tracking-tight" style={{ color: onAccentColor }}>
+          {isLoading ? "ANALYZING CONTENT..." : "SUMMARIZE PAGE"}
+        </span>
+      </button>
 
       {error && (
-        <div className="p-2.5 text-[10px] bg-red-500/10 text-red-400 border border-red-500/20 rounded-xl font-bold uppercase tracking-wider">
-          {error}
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
+          <AlertCircle className="text-red-500 w-5 h-5 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Processing Error</span>
+            <span className="text-xs text-red-400 font-medium">{error}</span>
+          </div>
         </div>
       )}
 
       {summary && (
-        <div ref={summaryRef} className={`${colors.bgSecondary} border ${colors.border} rounded-xl overflow-hidden`} style={{ opacity: 0 }}>
+        <div ref={summaryRef} className={`${colors.bgSecondary} border ${colors.border} rounded-2xl overflow-hidden shadow-sm`} style={{ opacity: 0 }}>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="w-full flex items-center justify-between p-3 text-left hover:opacity-80 transition-opacity"
+            className="w-full flex items-center justify-between p-4 text-left hover:bg-zinc-500/5 transition-colors"
           >
-            <span className="text-[10px] font-black uppercase tracking-widest text-purple-400 flex items-center gap-1.5">
-              <Sparkles className="h-3 w-3" /> AI Summary
-            </span>
+            <div className="flex items-center gap-2">
+              <Sparkles className={`h-4 w-4 ${colors.success}`} />
+              <span className={`text-[10px] font-black uppercase tracking-widest ${colors.success}`}>AI Insight Report</span>
+            </div>
             {isExpanded ? (
-              <ChevronUp className={`h-3 w-3 ${colors.textSecondary}`} />
+              <ChevronUp className={`h-4 w-4 ${colors.textSecondary} opacity-50`} />
             ) : (
-              <ChevronDown className={`h-3 w-3 ${colors.textSecondary}`} />
+              <ChevronDown className={`h-4 w-4 ${colors.textSecondary} opacity-50`} />
             )}
           </button>
           {isExpanded && (
-            <div className={`px-4 pb-4 text-xs ${colors.text} leading-relaxed border-t ${colors.border} pt-3 prose prose-sm prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5`}>
-              {renderSafeSummary(summary, colors.textSecondary)}
+            <div className={`px-5 pb-5 text-xs ${colors.text} leading-relaxed border-t ${colors.border} pt-4 max-h-[300px] overflow-y-auto custom-scrollbar`}>
+              {renderSafeSummary(summary, colors.success)}
             </div>
           )}
         </div>
@@ -187,7 +136,7 @@ export function AiSummary() {
   );
 }
 
-function renderSafeSummary(text: string, secondaryColor: string) {
+function renderSafeSummary(text: string, accentColorClass: string) {
   if (!text) return null;
 
   const lines = text.split("\n");
@@ -197,7 +146,7 @@ function renderSafeSummary(text: string, secondaryColor: string) {
   const flushList = (listIndex: number) => {
     if (currentList.length > 0) {
       result.push(
-        <ul key={`ul-${listIndex}`} className="list-disc pl-5 my-2 space-y-1">
+        <ul key={`ul-${listIndex}`} className="list-disc pl-5 my-3 space-y-1.5">
           {currentList}
         </ul>
       );
@@ -207,11 +156,19 @@ function renderSafeSummary(text: string, secondaryColor: string) {
 
   lines.forEach((line, i) => {
     const trimmed = line.trim();
+    const isTriggerWarning = trimmed.toUpperCase().startsWith("TRIGGER WARNING:");
     const lineHash = `line-${i}-${trimmed.substring(0, 10).replaceAll(/\s/g, "-")}`;
 
-    if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
+    if (isTriggerWarning) {
+      result.push(
+        <div key={`tw-${i}`} className="mb-4 p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 font-black text-[10px] tracking-widest uppercase flex items-center gap-2">
+          <AlertCircle size={14} />
+          {trimmed}
+        </div>
+      );
+    } else if (trimmed.startsWith("* ") || trimmed.startsWith("- ")) {
       const content = trimmed.substring(2);
-      currentList.push(<li key={`li-${i}-${lineHash}`}>{parseInline(content)}</li>);
+      currentList.push(<li key={`li-${i}-${lineHash}`} className="marker:text-primary">{parseInline(content)}</li>);
     } else {
       flushList(i);
       if (trimmed === "") {
@@ -220,7 +177,7 @@ function renderSafeSummary(text: string, secondaryColor: string) {
         }
       } else {
         result.push(
-          <p key={`p-${i}-${lineHash}`} className="my-1">
+          <p key={`p-${i}-${lineHash}`} className="my-2 font-medium">
             {parseInline(line)}
           </p>
         );
@@ -237,12 +194,11 @@ function parseInline(text: string) {
   return parts.map((part, i) => {
     const key = `inline-${i}`;
     if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={key}>{part.slice(2, -2)}</strong>;
+      return <strong key={key} className="font-black text-primary">{part.slice(2, -2)}</strong>;
     }
     if (part.startsWith("*") && part.endsWith("*")) {
-      return <em key={key}>{part.slice(1, -1)}</em>;
+      return <em key={key} className="italic opacity-90">{part.slice(1, -1)}</em>;
     }
     return part;
   });
 }
-

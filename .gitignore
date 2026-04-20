@@ -66,5 +66,18 @@ tmp/
 bin/
 *.conf
 vpn_infrastructure_docs.md
+apps/desktop/electron/_env.js
 
 keysETC/
+
+# native
+android/
+ios/
+
+infrastructure/
+
+
+REPORT/
+# Agent Memory
+.agent_memory.json
+

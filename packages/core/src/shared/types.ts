@@ -72,6 +72,8 @@ export interface ServerLocation {
   load: number;
   x: number;
   y: number;
+  lat: number;
+  lng: number;
   status?: "off" | "starting" | "active";
   ip?: string;
   publicKey?: string;

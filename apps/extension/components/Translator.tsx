@@ -1,7 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Button } from "@privacy-shield/core";
+import React, { useState, useEffect } from "react";
 import {
   Select,
   SelectContent,
@@ -9,7 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@privacy-shield/core";
-import { Languages, RefreshCw, CheckCircle2, X } from "lucide-react";
+import { Languages, RefreshCw, Zap, ZapOff, CheckCircle2, AlertCircle } from "lucide-react";
 import { useTheme } from "@privacy-shield/core";
 import anime from "animejs";
 import { chromeBridge } from "../utils/chromeBridge";
@@ -30,142 +29,39 @@ const SUPPORTED_LANGUAGES = [
 
 export function Translator() {
   const [targetLang, setTargetLang] = useState("es");
+  const [isAutoTranslate, setIsAutoTranslate] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [isTranslationActive, setIsTranslationActive] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
-  const [translatedCount, setTranslatedCount] = useState(0);
+  const [status, setStatus] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const { theme, colors } = useTheme();
 
   // Load persistence
   useEffect(() => {
     const loadState = async () => {
-      if (!chromeBridge.isAvailable()) return;
-      const res = await chrome.storage.local.get(["translatorTargetLang", "isTranslationActive", "translatedCount"]);
-      if (typeof res.translatorTargetLang === "string") setTargetLang(res.translatorTargetLang);
-      if (typeof res.isTranslationActive === "boolean") setIsTranslationActive(res.isTranslationActive);
-      if (typeof res.translatedCount === "number") setTranslatedCount(res.translatedCount);
+      if (typeof chrome !== "undefined" && chrome.storage?.local) {
+        const res = await chrome.storage.local.get(["translatorTargetLang", "isAutoTranslate"]);
+        if (res.translatorTargetLang) setTargetLang(res.translatorTargetLang);
+        if (typeof res.isAutoTranslate === "boolean") setIsAutoTranslate(res.isAutoTranslate);
+      }
     };
     loadState();
   }, []);
 
-  // Save persistence
-  useEffect(() => {
-    if (chromeBridge.isAvailable()) {
-      chrome.storage.local.set({ 
-        translatorTargetLang: targetLang, 
-        isTranslationActive, 
-        translatedCount 
-      });
+  const toggleAuto = () => {
+    const newVal = !isAutoTranslate;
+    setIsAutoTranslate(newVal);
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      chrome.storage.local.set({ isAutoTranslate: newVal });
     }
-  }, [targetLang, isTranslationActive, translatedCount]);
-  
-  const glassCardClass = useMemo(() => {
-    switch (theme) {
-      case "dark": return "glass-card";
-      case "vaporwave": return "glass-card-vaporwave";
-      case "frutiger-aero": return "glass-card-frutiger";
-      case "cyberpunk": return "glass-card-cyberpunk";
-      default: return "glass-card-light";
-    }
-  }, [theme]);
-  
-  const statusRef = useRef<HTMLDivElement>(null);
-  const activeBannerRef = useRef<HTMLDivElement>(null);
-  const translateBtnRef = useRef<HTMLButtonElement>(null);
-  const progressRef = useRef<HTMLDivElement>(null);
-
-  const selectedLang = useMemo(() => SUPPORTED_LANGUAGES.find((l) => l.code === targetLang), [targetLang]);
-
-  // Status message animation
-  useEffect(() => {
-    if (!statusRef.current || !status) return;
-    anime({
-      targets: statusRef.current,
-      translateY: [-5, 0],
-      opacity: [0, 1],
-      duration: 400,
-      easing: "easeOutExpo",
-    });
-  }, [status]);
-
-  // Active banner animation
-  useEffect(() => {
-    if (!activeBannerRef.current) return;
-    if (isTranslationActive) {
-      anime({
-        targets: activeBannerRef.current,
-        height: [0, 44],
-        opacity: [0, 1],
-        duration: 400,
-        easing: "easeOutExpo",
-      });
-    }
-  }, [isTranslationActive]);
-
-  // Progress animation
-  useEffect(() => {
-    if (!progressRef.current) return;
-    if (isTranslating) {
-      progressRef.current.style.display = "block";
-      progressRef.current.style.opacity = "1"; // Ensure visible
-      anime({
-        targets: progressRef.current,
-        width: ["0%", "90%"],
-        duration: 8000,
-        easing: "easeOutQuad",
-      });
-    } else if (translatedCount > 0 && isTranslationActive) {
-      // If we were just translating, animate to 100% and hide
-      if (isTranslating) {
-        anime({
-          targets: progressRef.current,
-          width: "100%",
-          duration: 300,
-          easing: "easeOutQuad",
-          complete: () => handleProgressCompletion(),
-        });
-      } else {
-        // Restored from persistence: show full bar without hiding
-        progressRef.current.style.display = "block";
-        progressRef.current.style.width = "100%";
-        progressRef.current.style.opacity = "1";
-      }
-    } else {
-      progressRef.current.style.display = "none";
-      progressRef.current.style.width = "0%";
-    }
-  }, [isTranslating, translatedCount, isTranslationActive]);
-
-  const handleProgressCompletion = () => {
-    setTimeout(() => {
-      if (!progressRef.current) return;
-      anime({
-        targets: progressRef.current,
-        opacity: 0,
-        duration: 500,
-        complete: () => {
-          if (!progressRef.current) return;
-          progressRef.current.style.display = "none";
-          progressRef.current.style.opacity = "1";
-          progressRef.current.style.width = "0%";
-        },
-      });
-    }, 600);
+    // Logic for auto-translation is handled in content.ts init
   };
 
   const handleTranslate = async () => {
     setIsTranslating(true);
-    setStatus("Translating...");
-    // Clear previous count to reset bar
-    setTranslatedCount(0);
-
-    if (translateBtnRef.current) {
-      anime({ targets: translateBtnRef.current, rotate: 360, duration: 600, easing: "easeOutExpo" });
-    }
+    setStatus(null);
 
     if (!chromeBridge.isAvailable()) {
       setIsTranslating(false);
-      setStatus("Chrome APIs not available.");
+      setStatus({ type: 'error', text: "Extension context required." });
       return;
     }
 
@@ -173,7 +69,7 @@ export function Translator() {
       const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
       if (!tabs[0]?.id) {
         setIsTranslating(false);
-        setStatus("Error: No active tab.");
+        setStatus({ type: 'error', text: "No active tab found." });
         return;
       }
 
@@ -184,96 +80,84 @@ export function Translator() {
 
       setIsTranslating(false);
       if (response?.success) {
-        setIsTranslationActive(true);
-        setTranslatedCount(response.count);
-        setStatus(`✓ Translated ${response.count} elements.`);
+        setStatus({ type: 'success', text: `Successfully translated ${response.count} items.` });
+        setTimeout(() => setStatus(null), 5000);
       } else {
-        setStatus("Translation failed.");
+        setStatus({ type: 'error', text: response?.error || "Translation failed." });
       }
     } catch (err: any) {
       setIsTranslating(false);
-      setStatus(`Failed: ${err.message}`);
+      setStatus({ type: 'error', text: "Service unavailable." });
     }
   };
 
-  const handleClearTranslation = async () => {
-    setStatus("Clearing...");
-    if (!chromeBridge.isAvailable()) return;
-
-    try {
-      const tabs = await chromeBridge.queryTabs({ active: true, currentWindow: true });
-      if (tabs[0]?.id) await chromeBridge.sendMessage(tabs[0].id, { action: "CLEAR_TRANSLATIONS" });
-
-      if (activeBannerRef.current) {
-        anime({
-          targets: activeBannerRef.current,
-          height: 0, opacity: 0, duration: 300, easing: "easeInQuad",
-          complete: () => { setIsTranslationActive(false); setTranslatedCount(0); }
-        });
-      } else {
-        setIsTranslationActive(false);
-        setTranslatedCount(0);
-      }
-      setStatus("Translations cleared.");
-    } catch (err: any) {
-      setStatus(`Failed: ${err.message}`);
-    }
-  };
+  const currentLangName = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || "Select Language";
 
   return (
-    <div className="w-full text-zinc-100 space-y-3">
-      {isTranslationActive && (
-        <div ref={activeBannerRef} className="overflow-hidden" style={{ height: 0, opacity: 0 }}>
-          <div className="flex items-center justify-between p-2.5 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-            <div className="flex items-center gap-2">
-              <Languages className="h-3.5 w-3.5 text-blue-400" />
-              <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">
-                {selectedLang?.flag} {selectedLang?.name} Active ({translatedCount})
-              </span>
+    <section className={`${colors.bgSecondary} rounded-2xl p-4 space-y-4 border ${colors.border} shadow-sm`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Languages className={`${colors.success} w-5 h-5`} />
+          <span className={`text-[11px] font-black uppercase tracking-widest ${colors.success}`}>Smart Translator</span>
+        </div>
+      </div>
+      
+      <div className="flex flex-col gap-3">
+        {/* Toggle & Action Row */}
+        <div className="flex items-center gap-2.5">
+          <button 
+            onClick={toggleAuto}
+            className={`flex-1 flex items-center justify-between px-4 py-2.5 rounded-xl border transition-all duration-300 hover:scale-[1.02] active:scale-95 ${isAutoTranslate ? 'bg-amber-500/10 border-amber-500/30 text-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : colors.bg + ' ' + colors.border + ' ' + colors.textSecondary}`}
+          >
+            <div className="flex items-center gap-2.5">
+              {isAutoTranslate ? <Zap size={14} fill="currentColor" /> : <ZapOff size={14} />}
+              <span className="text-[10px] font-black uppercase tracking-wider">Auto Detect</span>
             </div>
-            <Button variant="ghost" size="icon" className="h-6 w-6 hover:bg-blue-500/20" onClick={handleClearTranslation}>
-              <X className="h-3 w-3 text-blue-400" />
-            </Button>
+            <div className={`w-8 h-4 rounded-full relative transition-colors ${isAutoTranslate ? 'bg-amber-500' : 'bg-zinc-700'}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${isAutoTranslate ? 'left-4.5' : 'left-0.5'}`} />
+            </div>
+          </button>
+
+          <button 
+            onClick={handleTranslate} 
+            disabled={isTranslating}
+            className={`p-3 rounded-xl ${colors.accent} ${theme === 'dark' ? 'text-[#005762]' : 'text-white'} shadow-md hover:shadow-lg active:scale-90 transition-all disabled:opacity-50 disabled:scale-100`}
+            title="Manual Translate Now"
+          >
+            <RefreshCw className={`w-5 h-5 ${isTranslating ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+
+        {/* Language Selection Row */}
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <Select value={targetLang} onValueChange={(val) => {
+              setTargetLang(val);
+              if (typeof chrome !== "undefined" && chrome.storage?.local) {
+                chrome.storage.local.set({ translatorTargetLang: val });
+              }
+            }}>
+              <SelectTrigger className={`${colors.bg} border ${colors.border} rounded-xl px-4 py-2.5 h-10 w-full border-none shadow-inner pointer-events-auto hover:bg-zinc-500/5 transition-colors`}>
+                <SelectValue className={`text-[10px] font-bold ${colors.text}`} placeholder={currentLangName} />
+              </SelectTrigger>
+              <SelectContent className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100`}>
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <SelectItem key={lang.code} value={lang.code} className={`text-[10px] uppercase font-bold tracking-wider ${theme === 'dark' || theme === 'vaporwave' ? 'text-white' : 'text-zinc-900'}`}>
+                    {lang.flag} {lang.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
-      )}
-
-      <div className="flex gap-2">
-        <Select value={targetLang} onValueChange={setTargetLang}>
-          <SelectTrigger className={`h-10 text-[10px] font-black tracking-widest border-none uppercase ${theme === "light" ? "bg-slate-100 text-slate-900" : "bg-zinc-950 text-zinc-400"}`}>
-            <SelectValue placeholder="Language" />
-          </SelectTrigger>
-          <SelectContent className={`${glassCardClass} ${colors.text} border-zinc-800/50`}>
-            {SUPPORTED_LANGUAGES.map((lang) => (
-              <SelectItem key={lang.code} value={lang.code} className={`text-xs uppercase font-bold tracking-wider ${theme === "light" ? "focus:bg-slate-200 focus:text-slate-900" : "focus:bg-zinc-800 focus:text-white"}`}>{lang.flag} {lang.name}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Button
-          ref={translateBtnRef}
-          className="bg-blue-600 hover:bg-blue-500 text-white shrink-0 w-10 h-10 p-0 shadow-lg"
-          onClick={handleTranslate}
-          disabled={isTranslating}
-        >
-          <RefreshCw className={`h-4 w-4 ${isTranslating ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
-
-      <div className="relative h-1 bg-zinc-900 rounded-full overflow-hidden">
-        <div ref={progressRef} className="absolute top-0 left-0 h-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]" style={{ width: "0%", display: "none" }} />
       </div>
 
       {status && (
-        <div ref={statusRef} className={`text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border flex items-center gap-2
-          ${status.includes("✓") || status.includes("cleared") ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-red-500/10 border-red-500/20 text-red-400"}`}
-          style={{ opacity: 0 }}
-        >
-          <CheckCircle2 className="h-3 w-3" />
-          {status}
+        <div className={`flex items-center gap-2 px-4 py-3 rounded-xl border animate-in fade-in slide-in-from-top-2 ${status.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>
+          {status.type === 'success' ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
+          <span className="text-[10px] font-bold uppercase tracking-wider">{status.text}</span>
         </div>
       )}
-    </div>
+    </section>
   );
 }
-

@@ -3,25 +3,36 @@ const chokidar = require("chokidar");
 const fs = require("fs");
 const path = require("path");
 
-// Load .env.local manually if it exists
+// Load .env and .env.local manually if they exist
 try {
-  const envPath = path.resolve(__dirname, "../.env.local");
-  if (fs.existsSync(envPath)) {
-    console.log("📝 Loading environment variables from .env.local...");
-    const envContent = fs.readFileSync(envPath, "utf-8");
-    envContent.split("\n").forEach((line) => {
-      const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
-      if (match) {
-        const key = match[1];
-        let value = match[2] || "";
-        if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
-        if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
-        process.env[key] = value.trim();
-      }
-    });
-  }
+  const envPaths = [
+    path.resolve(__dirname, "../../../.env"),
+    path.resolve(__dirname, "../../../.env.local"),
+    path.resolve(__dirname, "../.env"),
+    path.resolve(__dirname, "../.env.local")
+  ];
+  
+  envPaths.forEach(envPath => {
+    if (fs.existsSync(envPath)) {
+      console.log(`📝 Loading environment variables from ${path.basename(envPath)}...`);
+      const envContent = fs.readFileSync(envPath, "utf-8");
+      envContent.split("\n").forEach((line) => {
+        const match = line.match(/^\s*([\w.-]+)\s*=\s*(.*)?\s*$/);
+        if (match) {
+          const key = match[1];
+          let value = match[2] || "";
+          if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+          if (value.startsWith("'") && value.endsWith("'")) value = value.slice(1, -1);
+          // Don't overwrite existing env vars to respect hierarchy (.env.local > .env)
+          if (!process.env[key]) {
+            process.env[key] = value.trim();
+          }
+        }
+      });
+    }
+  });
 } catch (err) {
-  console.warn("⚠️ Failed to load .env.local:", err.message);
+  console.warn("⚠️ Failed to load environment files:", err.message);
 }
 
 const watchMode = process.argv.includes("--watch");
@@ -43,6 +54,21 @@ function obfuscateKey(key) {
   };
 }
 
+// SHIELD Obfuscation (XOR matching core/security.ts)
+const SHIELD_MASK = "B4ST10N_PR0T0C0L";
+const PREFIX = "SHIELD:";
+
+function encodeShieldKey(input) {
+  if (!input) return "";
+  const cleanInput = input.trim();
+  if (cleanInput.startsWith(PREFIX)) return cleanInput;
+  const hex = cleanInput.split('').map((char, i) => {
+    const code = char.charCodeAt(0) ^ SHIELD_MASK.charCodeAt(i % SHIELD_MASK.length);
+    return code.toString(16).padStart(2, '0');
+  }).join('');
+  return PREFIX + hex;
+}
+
 const groqObf = obfuscateKey(process.env.GROQ_API_KEY || "");
 
 const buildConfig = {
@@ -57,9 +83,15 @@ const buildConfig = {
   logLevel: "info",
   define: {
     "process.env.GEMINI_API_KEY": JSON.stringify(process.env.GEMINI_API_KEY || ""),
-    "process.env.GROQ_API_KEY": "undefined",
+    "process.env.GROQ_API_KEY": JSON.stringify(process.env.GROQ_API_KEY || ""),
     "process.env.GROQ_CIPHER": JSON.stringify(groqObf.cipher),
     "process.env.GROQ_NONCE": JSON.stringify(groqObf.nonce),
+    "process.env.AWS_ACCESS_KEY_ID": JSON.stringify(encodeShieldKey(process.env.AWS_ACCESS_KEY_ID || "")),
+    "process.env.AWS_SECRET_ACCESS_KEY": JSON.stringify(encodeShieldKey(process.env.AWS_SECRET_ACCESS_KEY || "")),
+  },
+  alias: {
+    "@privacy-shield/core": path.resolve(__dirname, "../../../packages/core/src/index.ts"),
+    "@privacy-shield/core/shared": path.resolve(__dirname, "../../../packages/core/src/shared/index.ts"),
   },
   tsconfig: path.resolve(__dirname, "../tsconfig.json"),
 };

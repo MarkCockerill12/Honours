@@ -5,7 +5,7 @@
 $ErrorActionPreference = "Continue"
 $LogFile = "C:\Users\Mark\OneDrive - University of Dundee\yr4\Honours\CODE\Honours\apps\desktop\vpn_health.log"
 $WGPath = "c:\Users\Mark\OneDrive - University of Dundee\yr4\Honours\CODE\Honours\apps\desktop\bin\wireguard.exe"
-$GW = "10.150.0.1"
+$GW = "172.16.10.1"
 $InternetNode = "8.8.8.8"
 
 function Write-Log {

@@ -5,64 +5,64 @@ import type { Theme, ThemeColors } from "../shared";
 
 const themeConfigs: Record<Theme, ThemeColors> = {
   dark: {
-    bg: "bg-zinc-950",
-    bgSecondary: "bg-zinc-900",
-    text: "text-zinc-50",
-    textSecondary: "text-zinc-400",
-    accent: "bg-emerald-500",
-    accentSecondary: "bg-emerald-600",
-    border: "border-zinc-800",
-    success: "text-emerald-400",
-    warning: "text-amber-400",
-    danger: "text-red-500",
+    bg: "bg-[#09090b]",
+    bgSecondary: "bg-[#18181b]",
+    text: "text-[#fafafa]",
+    textSecondary: "text-[#a1a1aa]",
+    accent: "bg-[#2dd4bf]",
+    accentSecondary: "bg-[#047857]",
+    border: "border-white/10",
+    success: "text-[#2dd4bf]",
+    warning: "text-[#fbbf24]",
+    danger: "text-[#f87171]",
   },
   light: {
-    bg: "bg-white",
-    bgSecondary: "bg-slate-50",
-    text: "text-slate-900",
-    textSecondary: "text-slate-600",
-    accent: "bg-blue-600",
-    accentSecondary: "bg-blue-700",
-    border: "border-slate-200",
-    success: "text-emerald-600",
-    warning: "text-orange-600",
-    danger: "text-red-600",
+    bg: "bg-[#ffffff]",
+    bgSecondary: "bg-[#f4f4f5]",
+    text: "text-[#09090b]",
+    textSecondary: "text-[#52525b]",
+    accent: "bg-[#3b82f6]",
+    accentSecondary: "bg-[#bfdbfe]",
+    border: "border-black/10",
+    success: "text-[#16a34a]",
+    warning: "text-[#d97706]",
+    danger: "text-[#dc2626]",
   },
   vaporwave: {
-    bg: "bg-purple-950",
-    bgSecondary: "bg-fuchsia-900/40",
-    text: "text-pink-100",
-    textSecondary: "text-cyan-300",
-    accent: "bg-gradient-to-r from-pink-500 to-purple-500",
-    accentSecondary: "bg-cyan-400",
-    border: "border-pink-500/50",
-    success: "text-cyan-400",
-    warning: "text-pink-400",
-    danger: "text-rose-500",
+    bg: "bg-[#2b0b3f]",
+    bgSecondary: "bg-[#4a154b]",
+    text: "text-[#00ffff]",
+    textSecondary: "text-[#ffb8ff]",
+    accent: "bg-[#ff00ff]",
+    accentSecondary: "bg-[#b800b8]",
+    border: "border-[#ff00ff]/30",
+    success: "text-[#00ffff]",
+    warning: "text-[#ffee00]",
+    danger: "text-[#ff0055]",
   },
   "frutiger-aero": {
-    bg: "bg-gradient-to-br from-blue-50 via-sky-100 to-emerald-50",
-    bgSecondary: "bg-white/70 backdrop-blur-xl shadow-glass",
-    text: "text-slate-800",
-    textSecondary: "text-sky-700",
-    accent: "bg-gradient-to-b from-sky-400 to-blue-500 shadow-inner",
-    accentSecondary: "bg-emerald-400",
-    border: "border-white/50",
-    success: "text-emerald-600",
-    warning: "text-amber-600",
-    danger: "text-red-600",
+    bg: "bg-[#0369a1]", 
+    bgSecondary: "bg-white/80",
+    text: "text-[#002d44]", 
+    textSecondary: "text-[#004d6e]",
+    accent: "bg-[#22c55e]",
+    accentSecondary: "bg-white/95",
+    border: "border-white/90",
+    success: "text-[#166534]",
+    warning: "text-[#854d0e]",
+    danger: "text-[#991b1b]",
   },
   cyberpunk: {
-    bg: "bg-yellow-400", // The classic Cyberpunk 2077 bright UI background
-    bgSecondary: "bg-zinc-950", // High contrast dark cards
-    text: "text-zinc-950", // Inverse text for yellow bg
-    textSecondary: "text-zinc-800",
-    accent: "bg-cyan-400", // Glitch cyan
-    accentSecondary: "bg-red-500", // Danger red
-    border: "border-zinc-950", // Aggressive borders
-    success: "text-cyan-600",
-    warning: "text-red-600",
-    danger: "text-red-700",
+    bg: "bg-[#000000]",
+    bgSecondary: "bg-[#111111]",
+    text: "text-[#00ff00]",
+    textSecondary: "text-[#eab308]",
+    accent: "bg-[#eab308]",
+    accentSecondary: "bg-[#000000]",
+    border: "border-[#eab308]/50",
+    success: "text-[#00ff00]",
+    warning: "text-[#eab308]",
+    danger: "text-[#ff0000]",
   },
 };
 
@@ -89,12 +89,20 @@ export function ThemeProvider({
   theme: Theme;
   setTheme: (theme: Theme) => void;
 }) {
-  // Toggle .dark class on root element so CSS variables (--popover, --accent, etc.)
-  // resolve correctly for shadcn/radix components like Select, Tabs, etc.
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const isDark = theme !== "light" && theme !== "frutiger-aero";
+    const isDark = theme === "dark" || theme === "vaporwave" || theme === "frutiger-aero";
     document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.setAttribute("data-theme", theme);
+    
+    const bgMap = {
+      dark: "#09090b",
+      light: "#ffffff",
+      vaporwave: "#2b0b3f",
+      "frutiger-aero": "#0369a1",
+      cyberpunk: "#000000"
+    };
+    document.body.style.backgroundColor = bgMap[theme];
   }, [theme]);
 
   return (

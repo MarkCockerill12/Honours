@@ -1,8 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Privacy Protector (Dev)",
-  "version": "1.0",
-  "description": "Honours Project Dev Build",
+  "name": "Privacy Sentinel",
+  "version": "1.2.0",
+  "description": "Zero-trust privacy protection with VPN (WARP-chained), expert adblock, and AI security scanning.",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
   "permissions": [
     "storage",
     "activeTab",
@@ -11,12 +17,13 @@
     "declarativeNetRequestWithHostAccess",
     "declarativeNetRequestFeedback",
     "webRequest",
-    "alarms"
+    "alarms",
+    "proxy"
   ],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "extension.html",
-    "default_title": "Open Blocker"
+    "default_title": "Privacy Sentinel"
   },
   "background": {
     "service_worker": "background.js"
@@ -31,11 +38,14 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["content-script.js", "blocked.html"],
+      "resources": ["content-script.js", "blocked.html", "pdf-warning.html"],
       "matches": ["<all_urls>"]
     }
   ],
-  "externally_connectable": {
-    "matches": ["http://localhost:3000/*"]
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sentinel@privacy-sentinel.com",
+      "strict_min_version": "109.0"
+    }
   }
 }

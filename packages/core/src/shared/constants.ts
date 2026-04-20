@@ -1,4 +1,4 @@
-export const APP_NAME = "Privacy Shield";
+export const APP_NAME = "Privacy Sentinel";
 export const APP_VERSION = "1.0.43-STABLE";
 
 import { SmartFilter, ProtectionState } from "./types";

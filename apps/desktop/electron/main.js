@@ -5,9 +5,14 @@ const { exec } = require("node:child_process");
 const { promisify } = require("node:util");
 const fs = require("node:fs");
 
-// Environment Variables
+// Environment Variables — try .env.local for dev, fall back to embedded values
 const envPath = path.resolve(__dirname, "../../../.env.local");
-require("dotenv").config({ path: envPath, override: true });
+if (fs.existsSync(envPath)) {
+  require("dotenv").config({ path: envPath, override: true });
+}
+try { require('./_env.js'); } catch (e) {
+  console.log("[Env] No _env.js found, relying on local env vars.");
+}
 
 // Modular Handlers
 const { setupVpnHandlers } = require("./ipc/vpnHandlers");
@@ -120,7 +125,7 @@ async function removeBypassRoute(serverIp) {
 
 async function verifyConnectivity(retries = 3) {
   console.log(`[Connectivity] Verification starting (ping 8.8.8.8)...`);
-  const pingCmd = process.platform === 'win32' ? "ping -n 1 -w 2000 8.8.8.8" : "ping -c 1 -W 2 8.8.8.8";
+  const pingCmd = process.platform === 'win32' ? "ping -n 1 -w 5000 8.8.8.8" : "ping -c 1 -W 5 8.8.8.8";
   
   for (let i = 0; i < retries; i++) {
     try {
@@ -169,19 +174,42 @@ async function stopVpn() {
   return { success: true, message: "Disconnected." };
 }
 
+const SHIELD_MASK = "B4ST10N_PR0T0C0L";
+const SHIELD_PREFIX = "SHIELD:";
+
+function decodeShield(obfuscated) {
+  if (!obfuscated) return "";
+  const input = obfuscated.trim();
+  if (!input.startsWith(SHIELD_PREFIX)) return input;
+  const payload = input.slice(SHIELD_PREFIX.length);
+  let result = "";
+  for (let i = 0; i < payload.length; i += 2) {
+    const code = parseInt(payload.slice(i, i + 2), 16) ^ SHIELD_MASK.charCodeAt((i / 2) % SHIELD_MASK.length);
+    result += String.fromCharCode(code);
+  }
+  return result.trim();
+}
+
 function generateWgConfig(config, dnsServers) {
-  const subnet = config.Subnet || "10.150.0";
+  const clientPrivateKey = decodeShield(process.env.WG_CLIENT_PRIVATE_KEY) || "";
+  if (!clientPrivateKey) {
+    throw new Error("WG_CLIENT_PRIVATE_KEY not configured in environment");
+  }
+
+  const clientIp = "172.16.10.2";
+  console.log(`[VPN Config] Using environment client key, address: ${clientIp}`);
+
   return `
 [Interface]
-PrivateKey = ${(process.env.WG_CLIENT_PRIVATE_KEY || "").trim()}
-Address = ${subnet}.2/24
+PrivateKey = ${clientPrivateKey}
+Address = ${clientIp}
 DNS = ${dnsServers}
-MTU = 1420
+MTU = 1280
 
 [Peer]
 PublicKey = ${config.PublicKey}
-Endpoint = ${config.PublicIp}:443
-AllowedIPs = 0.0.0.0/1, 128.0.0.0/1
+Endpoint = ${config.PublicIp}:${config.Port || 443}
+AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 `.trim();
 }
@@ -223,20 +251,33 @@ async function startVpn(config) {
   
   console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp} (DNS: ${useAdGuard ? 'Protected' : 'Standard'})`);
   const confContent = generateWgConfig(config, dnsServers);
+  console.log(`[VPN Toggle] 📝 Generated Config (First 50 chars): ${confContent.substring(0, 50)}...`);
 
   const vpnDataDir = path.join(app.getPath("userData"), "vpn");
   if (!fs.existsSync(vpnDataDir)) fs.mkdirSync(vpnDataDir, { recursive: true });
   const tunnelName = `ps-${config.Id}`;
   const persistentPath = path.join(vpnDataDir, `${tunnelName}.conf`);
-  fs.writeFileSync(persistentPath, confContent);
+  
+  try {
+    fs.writeFileSync(persistentPath, confContent, { encoding: "utf8" });
+    console.log(`[VPN Toggle] ✅ Config written to ${persistentPath}`);
+  } catch (err) {
+    console.error(`[VPN Toggle] ❌ Failed to write config to ${persistentPath}: ${err.message}`);
+    throw err;
+  }
   
   let tunnelConfigPath = persistentPath;
   if (process.platform === 'win32') {
     const bridgeDir = "C:\\Users\\Public\\PrivacyShield";
     if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
     tunnelConfigPath = path.join(bridgeDir, `${tunnelName}.conf`);
-    fs.writeFileSync(tunnelConfigPath, confContent);
-    state.activeVpnBridgeFile = tunnelConfigPath;
+    try {
+      fs.writeFileSync(tunnelConfigPath, confContent, { encoding: "utf8" });
+      state.activeVpnBridgeFile = tunnelConfigPath;
+      console.log(`[VPN Toggle] ✅ Bridge config written to ${tunnelConfigPath}`);
+    } catch (err) {
+      console.error(`[VPN Toggle] ❌ Failed to write bridge config: ${err.message}`);
+    }
   }
 
   state.activeVpnFile = persistentPath;
@@ -262,20 +303,35 @@ async function startVpn(config) {
   console.log(`[VPN Toggle] Wait for interface to initialize...`);
   await new Promise(r => setTimeout(r, 5000));
   
-  const gwIp = `${config.Subnet || "10.150.0"}.1`;
-  const { ok, gw, time } = await pollGateway([gwIp, "10.150.0.1", "10.0.0.1"]);
+  // Diagnostic Ping: Check if Public IP is even reachable first
+  const publicPingCmd = process.platform === 'win32' ? `ping -n 1 -w 1000 ${config.PublicIp}` : `ping -c 1 -W 1 ${config.PublicIp}`;
+  try {
+    await execAsync(publicPingCmd);
+    console.log(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is reachable.`);
+  } catch (err) {
+    console.warn(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is NOT reachable. Server might be down or blocking ICMP.`);
+  }
+
+  const { ok, gw, time } = await pollGateway(["172.16.10.1"]);
 
   if (!ok) {
-    console.error(`[VPN Toggle] ERROR: Handshake Timeout. Gateway ${gwIp} did not reply.`);
-    return { success: true, message: "Connected (Establishing...)" };
+    console.error(`[VPN Toggle] ERROR: Handshake Timeout. Unified Gateway 172.16.10.1 did not reply.`);
+    console.error(`[VPN Toggle] TIP: Server may need time to initialize WireGuard after cold start.`);
+    await stopVpn();
+    return { success: false, message: "Connection failed — server did not respond. Try again in 30 seconds." };
   }
 
   console.log(`[Connectivity] OK: Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
   
   const isOnline = await verifyConnectivity();
   if (isOnline) return { success: true, message: "Connected & Verified." };
-  
-  return { success: true, message: "Connected (Limited Connectivity)." };
+
+  console.warn(`[VPN Toggle] Tunnel established but no internet. WARP egress may need more time.`);
+  const retryOnline = await verifyConnectivity(2);
+  if (retryOnline) return { success: true, message: "Connected & Verified." };
+
+  await stopVpn();
+  return { success: false, message: "Tunnel established but internet unreachable. Server may still be initializing WARP — try again in 60 seconds." };
 }
 
 async function handleVpnToggle(config) {
@@ -311,7 +367,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    title: "Privacy Shield",
+    title: "Privacy Sentinel",
   });
   const startUrl = process.env.ELECTRON_START_URL || `http://localhost:3000`;
   mainWindow.loadURL(startUrl).catch(() => {
@@ -329,9 +385,33 @@ function loadStats() {
   }
 }
 
+async function forceCleanupTunnels() {
+  if (process.platform !== 'win32') return;
+  console.log("[CleanUp] Force-cleaning any legacy tunnels...");
+  try {
+    const wg = await getWgCmd();
+    if (!wg) return;
+    
+    // Get all running tunnel services
+    const { stdout } = await execAsync('powershell -Command "Get-Service WireGuardTunnel$* | Select-Object -ExpandProperty Name"').catch(() => ({ stdout: "" }));
+    const services = stdout.trim().split(/\r?\n/).filter(s => s.startsWith("WireGuardTunnel$"));
+    
+    for (const svc of services) {
+      const tunnelName = svc.replace("WireGuardTunnel$", "");
+      console.log(`[CleanUp] Force-removing stuck tunnel: ${tunnelName}`);
+      // Uninstall is the most reliable way to clear the interface and routes
+      await execAsync(`${wg.path} /uninstalltunnelservice "${tunnelName}"`).catch(() => {});
+    }
+    await execAsync("ipconfig /flushdns").catch(() => {});
+  } catch (err) {
+    console.debug("[CleanUp] Legacy cleanup skipped:", err.message);
+  }
+}
+
 app.on("ready", async () => {
   await checkAdmin();
   // Ensure system is in a clean state on startup
+  await forceCleanupTunnels();
   try {
     await adblockTools.safeResetDNS();
     if (process.platform === 'win32') {
@@ -345,14 +425,43 @@ app.on("ready", async () => {
 });
 
 app.on("before-quit", async (e) => {
+  if (state.isQuitting) return;
   e.preventDefault();
+  state.isQuitting = true;
+  
+  console.log("[CleanUp] Shutdown sequence initiated...");
+  
   try {
-    if (state.activeVpnFile) await handleVpnToggle(null);
+    // Attempt graceful VPN stop
+    if (state.activeVpnFile) {
+      console.log("[CleanUp] Stopping active VPN...");
+      await Promise.race([
+        handleVpnToggle(null),
+        new Promise(r => setTimeout(r, 5000))
+      ]);
+    }
+    
+    // Attempt deprovisioning
+    if (state.deprovisionAll) {
+      console.log("[CleanUp] Deprovisioning regional spokes...");
+      await Promise.race([
+        state.deprovisionAll(),
+        new Promise(r => setTimeout(r, 10000))
+      ]);
+    }
+
+    // Restore System DNS
     await adblockTools.safeResetDNS();
+    
+    // Nuclear option for Windows: forcefully uninstall any leftover PS services
+    await forceCleanupTunnels();
+    
+    console.log("[CleanUp] System restored. Exiting.");
   } catch (err) {
-    console.error("[CleanUp] Failed during quit:", err.message);
+    console.error("[CleanUp] Fatal error during shutdown:", err.message);
   } finally {
-    app.exit();
+    // Ensure the process actually dies
+    setTimeout(() => app.exit(0), 1000);
   }
 });
 

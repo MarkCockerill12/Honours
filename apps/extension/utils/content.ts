@@ -2,584 +2,464 @@ import { SmartFilter, DEFAULT_PROTECTION_STATE, DEFAULT_FILTERS } from "@privacy
 import { initYouTubeAdBlocker, enableYouTubeAdBlocker, disableYouTubeAdBlocker } from "./youtubeAdBlocker";
 import { scanUrl } from "./security";
 
-// --- INTERNAL STATE ---
-let currentProtectionState: any = null;
-let currentFilters: SmartFilter[] = [];
-let currentBlurMethod: string = "blur";
-let lastAppliedFilterHash = "";
-let pageWarningBypassed = false;
-let pageWarningOverlay: HTMLElement | null = null;
-let _filtersActive = false;
-const appliedElements: WeakRef<HTMLElement>[] = [];
-const originalContentMap = new WeakMap<HTMLElement, DocumentFragment>();
+let _isProtectionActive = false;
+let _isFilteringEnabled = false;
+let _filters: SmartFilter[] = [];
+let _blurMethod: "blur" | "blackbar" | "kitten" | "warning" = "blur";
+let _isAutoScanEnabled = false;
+let _isAutoTranslate = false;
+let _targetLang = "es";
 
-// A2: Periodic pruning of dead elements from the appliedElements array
-setInterval(() => {
-  if (appliedElements.length > 50) {
-    const initialLength = appliedElements.length;
-    for (let i = appliedElements.length - 1; i >= 0; i--) {
-      if (!appliedElements[i].deref()) {
-        appliedElements.splice(i, 1);
-      }
-    }
-    if (appliedElements.length < initialLength) {
-      console.debug(`[Content] Pruned ${initialLength - appliedElements.length} dead element references.`);
-    }
-  }
-}, 30000); // Every 30 seconds if array is getting large
+// RECURSION & BYPASS STATE
+let _isApplying = false;
+let _isTempBypass = false;
+
+// TRACKING STATE
 const translatedElements = new Map<HTMLElement, string>();
 let _isTranslationActive = false;
-let domObserver: MutationObserver | null = null;
 
-// --- SHARED UTILS ---
-const isContextValid = () => {
-    try { return !!chrome.runtime?.id; } catch { return false; }
-};
+const applyFiltering = (root: Node = document.body) => {
+  if (_isApplying || _isTempBypass || !_isProtectionActive || !_isFilteringEnabled || _filters.length === 0) return;
+  if (document.getElementById("ps-block-overlay")) return;
 
-const safeSendMessage = (message: any): Promise<any> => {
-  return new Promise((resolve) => {
-    try {
-      chrome.runtime.sendMessage(message, (response) => {
-        if (chrome.runtime.lastError) {
-          console.debug("[Content] SendMessage error (ignoring):", chrome.runtime.lastError.message);
-          resolve({ success: false });
-        } else {
-          resolve(response || { success: false });
-        }
-      });
-      } catch (error) { 
-        console.warn("[Content] Style cleanup failed:", (error as Error).message); 
-      }
-  });
-};
+  const activeFilters = _filters.filter(f => f.enabled && f.blockTerm.trim().length > 0);
+  if (activeFilters.length === 0) return;
 
-// --- FILTERING ENGINE ---
-
-const blockWord = (textNode: Text, filters: SmartFilter[], method: string) => {
-  const parent = textNode.parentElement;
-  if (!parent || parent.closest('[data-content-filtered]')) return [];
+  _isApplying = true;
   
-  let content = textNode.textContent || "";
-  let hasMatch = false;
-  const elements: HTMLElement[] = [];
+  // Temporary stop observation to prevent recursion during replacement
+  observer.disconnect();
 
-  const sortedFilters = [...filters].sort((a,b) => b.blockTerm.length - a.blockTerm.length);
-  const fragment = globalThis.document.createDocumentFragment();
-  let lastIndex = 0;
-
-  const terms = sortedFilters.map(f => f.blockTerm.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)).join('|');
-  const regex = new RegExp(`(${terms})`, 'gi');
-  
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    hasMatch = true;
-    if (match.index > lastIndex) {
-      fragment.appendChild(globalThis.document.createTextNode(content.substring(lastIndex, match.index)));
-    }
-
-    const term = match[0];
-    const span = globalThis.document.createElement("span");
-    span.textContent = term;
-    span.dataset.contentFiltered = "true";
-    span.dataset.originalTerm = term;
-    
-    const isRedact = method === "redact" || method === "blackbar";
-    
-    if (isRedact) {
-      span.style.backgroundColor = "#000";
-      span.style.color = "#000";
-    } else if (method === "kitten") {
-      span.textContent = "🐱";
-    } else {
-      span.style.filter = "blur(6px)";
-    }
-
-    span.title = "Content hidden by Privacy Shield";
-    span.style.cursor = "help";
-    span.addEventListener("click", (e) => {
-      e.stopPropagation();
-      span.style.filter = "none";
-      span.style.background = "transparent";
-      span.style.color = "inherit";
-      if (method === "kitten") span.textContent = span.dataset.originalTerm || "";
-      span.dataset.userRevealed = "true";
-    });
-
-    fragment.appendChild(span);
-    elements.push(span);
-    lastIndex = regex.lastIndex;
-  }
-
-  if (hasMatch) {
-    if (lastIndex < content.length) {
-      fragment.appendChild(globalThis.document.createTextNode(content.substring(lastIndex)));
-    }
-    textNode.replaceWith(fragment);
-    return elements;
-  }
-  return [];
-};
-
-const blockParagraph = (textNode: Text, method: string) => {
-  const el = textNode.parentElement;
-  if (!el || el.closest('[data-content-filtered]')) return null;
-  
-  el.dataset.contentFiltered = "true";
-  const isRedact = method === "redact" || method === "blackbar";
-
-  if (isRedact) {
-    el.style.backgroundColor = "#000";
-    el.style.color = "#000";
-  } else if (method === "kitten") {
-     // C4: Store children in DocumentFragment instead of innerHTML string to prevent XSS
-     const fragment = globalThis.document.createDocumentFragment();
-     while (el.firstChild) {
-       fragment.appendChild(el.firstChild);
-     }
-     originalContentMap.set(el, fragment);
-     el.textContent = "🐱 Paragraph hidden for your safety.";
-  } else {
-    el.style.filter = "blur(12px)";
-  }
-  
-  el.style.cursor = "help";
-  el.addEventListener("click", () => {
-    el.style.filter = "none";
-    el.style.backgroundColor = "transparent";
-    el.style.color = "inherit";
-    if (method === "kitten") {
-      const fragment = originalContentMap.get(el);
-      if (fragment) {
-        el.textContent = "";
-        el.appendChild(fragment);
-        originalContentMap.delete(el);
-      }
-    }
-    el.dataset.userRevealed = "true";
-  });
-  return el;
-};
-
-const showPageWarning = (matchedTerms: string[], blurMethod: string) => {
-  if (globalThis.document.getElementById("content-filter-page-warning")) return 0;
-  if (pageWarningBypassed) return 0;
-  
-  console.log("[Content] showPageWarning triggered for:", matchedTerms);
-  pageWarningOverlay = globalThis.document.createElement("div");
-  pageWarningOverlay.id = "content-filter-page-warning";
-  pageWarningOverlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;z-index:999999;background:rgba(0,0,0,0.92);backdrop-filter:blur(20px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:24px;font-family:sans-serif;";
-  
-  const container = globalThis.document.createElement("div");
-  container.style.maxWidth = "80%";
-  
-  const icon = globalThis.document.createElement("div");
-  icon.style.fontSize = "64px";
-  icon.style.marginBottom = "20px";
-  icon.textContent = blurMethod === "kitten" ? "🐱" : "⚠️";
-  
-  const title = globalThis.document.createElement("h1");
-  title.style.cssText = "font-size:32px;margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:2px;color:#60a5fa;";
-  title.textContent = "Content Protected";
-  
-  const desc = globalThis.document.createElement("p");
-  desc.style.cssText = "font-size:16px;color:#aaa;margin-bottom:24px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;";
-  desc.textContent = "Terms Detected:";
-  
-  const termsDiv = globalThis.document.createElement("div");
-  termsDiv.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:32px;";
-  
-  matchedTerms.forEach(t => {
-    const badge = globalThis.document.createElement("span");
-    badge.style.cssText = "background:rgba(255,255,255,0.1);padding:6px 16px;border-radius:100px;font-size:14px;font-weight:900;color:#fff;border:1px solid rgba(255,255,255,0.2);text-transform:none !important;filter:none !important;backdrop-filter:none !important;";
-    badge.textContent = t;
-    termsDiv.appendChild(badge);
-  });
-  
-  const btn = globalThis.document.createElement("button");
-  btn.id = "privacy-shield-proceed-btn";
-  btn.style.cssText = "padding:16px 48px;cursor:pointer;background:#fff;color:#000;border:none;border-radius:100px;font-size:14px;font-weight:900;text-transform:uppercase;letter-spacing:2px;transition:transform 0.2s;";
-  btn.textContent = "Proceed to Site";
-  
-  container.appendChild(icon);
-  container.appendChild(title);
-  container.appendChild(desc);
-  container.appendChild(termsDiv);
-  container.appendChild(btn);
-  pageWarningOverlay.appendChild(container);
-  
-  globalThis.document.body.appendChild(pageWarningOverlay);
-  globalThis.document.body.classList.add("content-filter-warning-active");
-  
-  if (!globalThis.document.getElementById("content-filter-warning-styles")) {
-    const style = globalThis.document.createElement("style");
-    style.id = "content-filter-warning-styles";
-    style.textContent = `body.content-filter-warning-active > :not(#content-filter-page-warning) { filter: blur(25px) !important; pointer-events: none !important; }`;
-    globalThis.document.head.appendChild(style);
-  }
-  
-  pageWarningOverlay.querySelector("#privacy-shield-proceed-btn")?.addEventListener("click", () => { 
-    pageWarningBypassed = true;
-    pageWarningOverlay?.remove();
-    pageWarningOverlay = null;
-    globalThis.document.body.classList.remove("content-filter-warning-active");
-    globalThis.document.getElementById("content-filter-warning-styles")?.remove();
-    console.log("[Content] Warning bypassed. Triggering re-sync.");
-    syncState(currentProtectionState, currentFilters, currentBlurMethod);
-  });
-  
-  return 1;
-};
-
-const checkPageWarnings = (rootElement: HTMLElement, active: SmartFilter[], pageText: string, blurMethod: string) => {
-  const pageFilters = active.filter(f => f.blockScope === "page-warning");
-  if (pageFilters.length > 0 && !pageWarningBypassed && rootElement === globalThis.document.body) {
-    const matched = pageFilters.filter(f => pageText.includes(f.blockTerm.toLowerCase())).map(f => f.blockTerm);
-    if (matched.length > 0) {
-      showPageWarning(matched, blurMethod);
-    }
-  }
-};
-
-const collectTextNodes = (rootElement: HTMLElement): Text[] => {
-  const walker = globalThis.document.createTreeWalker(rootElement, NodeFilter.SHOW_TEXT, null);
-  const textNodes: Text[] = [];
-  let node;
-  while ((node = walker.nextNode())) {
-    textNodes.push(node as Text);
-  }
-  return textNodes;
-};
-
-const processTextNode = (textNode: Text, wordFilters: SmartFilter[], blurMethod: string) => {
-  const content = textNode.textContent?.toLowerCase() || "";
-  const matches = wordFilters.filter(f => {
-    const isMatch = content.includes(f.blockTerm.toLowerCase());
-    if (isMatch && f.exceptWhen && content.includes(f.exceptWhen.toLowerCase())) {
-      return false;
-    }
-    return isMatch;
-  });
-
-  if (matches.length > 0) {
-    const hasParagraphScope = matches.some(f => f.blockScope === "paragraph");
-    if (hasParagraphScope) {
-      const added = blockParagraph(textNode, blurMethod);
-      if (added) {
-        appliedElements.push(new WeakRef(added));
-        return true;
-      }
-    } else {
-      const added = blockWord(textNode, matches, blurMethod);
-      added.forEach(e => appliedElements.push(new WeakRef(e)));
-      return added.length > 0;
-    }
-  }
-  return false;
-};
-
-export const blurContent = (rootElement: HTMLElement, filters: SmartFilter[], blurMethod: string = "blur") => {
-  if (!filters?.length) return 0;
-  const active = filters.filter(f => f.enabled);
-  if (!active.length) return 0;
-
-  const pageText = (rootElement.textContent || "").toLowerCase();
-  const hasMatches = active.some(f => pageText.includes(f.blockTerm.toLowerCase()));
-  if (!hasMatches) return 0;
-
-  checkPageWarnings(rootElement, active, pageText, blurMethod);
-
-  const wordFilters = active.filter(f => f.blockScope === "word" || f.blockScope === "paragraph" || !f.blockScope);
-  if (wordFilters.length === 0) return 0;
-
-  const textNodes = collectTextNodes(rootElement);
-  let count = 0;
-  for (const textNode of textNodes) {
-    if (textNode.parentElement?.closest('[data-content-filtered]')) continue;
-    if (processTextNode(textNode, wordFilters, blurMethod)) {
-      count++;
-    }
-  }
-  
-  console.log(`[Content] blurContent: scanned ${textNodes.length} nodes, modified ${count}. (Bypassed: ${pageWarningBypassed})`);
-  _filtersActive = true;
-  return count;
-};
-
-export const clearBlurContent = () => {
-  appliedElements.forEach(ref => {
-    const el = ref.deref();
-    if (el) {
-      el.style.filter = "none";
-      el.style.background = "transparent";
-      el.style.color = "inherit";
-      delete el.dataset.contentFiltered;
-      
-      // Restore kitten content if cleared via UI toggle
-      const fragment = originalContentMap.get(el);
-      if (fragment) {
-        el.textContent = "";
-        el.appendChild(fragment);
-        originalContentMap.delete(el);
-      }
-    }
-  });
-  appliedElements.length = 0;
-  _filtersActive = false;
-};
-
-export const deactivateFiltering = () => {
-  clearBlurContent();
-  lastAppliedFilterHash = "";
-  pageWarningBypassed = false;
-  pageWarningOverlay?.remove();
-  pageWarningOverlay = null;
-  globalThis.document.body.classList.remove("content-filter-warning-active");
-};
-
-export const syncState = (protection: any, filters: SmartFilter[], method: string) => {
-  if (globalThis.window === undefined || globalThis.location.protocol === "chrome-extension:") return;
-  
-  const activeFiltering = (protection?.isActive ?? false) && (protection?.filteringEnabled !== false);
-  const filterHash = JSON.stringify({ 
-    filters, 
-    method, 
-    activeFiltering, 
-    pageWarningBypassed, 
-    isActive: protection?.isActive 
-  });
-  
-  if (activeFiltering && filters?.length > 0) {
-    if (filterHash !== lastAppliedFilterHash) {
-      console.log("[Content] syncState: applying filters...");
-      clearBlurContent();
-      blurContent(globalThis.document.body, filters, method);
-      lastAppliedFilterHash = filterHash;
-      startDomObserver();
-    }
-  } else if (lastAppliedFilterHash !== "") {
-    deactivateFiltering();
-    stopDomObserver();
-  }
-};
-
-const startDomObserver = () => {
-    if (domObserver !== undefined || globalThis.window === undefined) return;
-    
-    domObserver = new MutationObserver((mutations) => {
-        if (!isContextValid() || !currentProtectionState?.isActive || currentProtectionState?.filteringEnabled === false) return;
-        
-        for (const mutation of mutations) {
-            for (const node of Array.from(mutation.addedNodes)) {
-                if (node.nodeType === Node.ELEMENT_NODE) {
-                    blurContent(node as HTMLElement, currentFilters, currentBlurMethod);
-                }
-            }
-        }
-    });
-
-    domObserver.observe(globalThis.document.body, {
-        childList: true,
-        subtree: true
-    });
-    console.log("[Content] DOM Observer started.");
-};
-
-const stopDomObserver = () => {
-    if (domObserver) {
-        domObserver.disconnect();
-        domObserver = null;
-        console.log("[Content] DOM Observer stopped.");
-    }
-};
-
-// --- INITIALIZATION ---
-if (globalThis.window !== undefined) {
-  let isInitialSyncCompleted = false;
-  let isSyncInProgress = false;
-
-  const runInitialSync = async (trigger: string) => {
-    if (isSyncInProgress || !isContextValid()) return;
-    if (isInitialSyncCompleted && (trigger === "DOMContentLoaded" || trigger === "load")) return;
-
-    // Robust wait for body
-    if (!globalThis.document.body) {
-      console.log("[Content] Body not ready, waiting for body...");
-      await new Promise(resolve => {
-        const check = () => {
-          if (globalThis.document.body) resolve(null);
-          else requestAnimationFrame(check);
-        };
-        check();
-      });
-    }
-
-    isSyncInProgress = true;
-    try {
-      chrome.storage.local.get(["protectionState", "filters", "blurMethod"], (res: any) => {
-        if (!isContextValid()) return;
-        currentProtectionState = res.protectionState || DEFAULT_PROTECTION_STATE;
-        currentFilters = res.filters || DEFAULT_FILTERS;
-        currentBlurMethod = res.blurMethod || "blur";
-        
-        console.log(`[Content] Initial Sync (${trigger}): active=${currentProtectionState.isActive}, filters=${currentFilters.length}`);
-        syncState(currentProtectionState, currentFilters, currentBlurMethod);
-        
-        isInitialSyncCompleted = true;
-        isSyncInProgress = false;
-      });
-    } catch (error) {
-      console.error("[Content] Initial sync fatal error:", error);
-      isSyncInProgress = false;
-    }
-  };
-
-  // Immediate start on injection
-  runInitialSync("startup");
-  initYouTubeAdBlocker();
-  
-  // Standard event hooks
-  globalThis.document.addEventListener("DOMContentLoaded", () => runInitialSync("DOMContentLoaded"));
-  globalThis.window.addEventListener("load", () => runInitialSync("load"));
-
-  // Real-time Storage Sync
-  if (chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener((changes, area) => {
-          if (area !== "local" || !isContextValid()) return;
-          
-          let needsSync = false;
-          if (changes.protectionState) {
-              currentProtectionState = changes.protectionState.newValue;
-              needsSync = true;
-              
-              const adblockEnabled = currentProtectionState?.isActive && currentProtectionState?.adblockEnabled;
-              if (adblockEnabled) enableYouTubeAdBlocker();
-              else disableYouTubeAdBlocker();
-          }
-          if (changes.filters) {
-              currentFilters = (changes.filters.newValue as SmartFilter[]) || [];
-              needsSync = true;
-          }
-          if (changes.blurMethod) {
-              currentBlurMethod = (changes.blurMethod.newValue as string) || "blur";
-              needsSync = true;
-          }
-
-          if (needsSync) {
-              console.log("[Content] Storage changed, syncing state...");
-              syncState(currentProtectionState, currentFilters, currentBlurMethod);
-          }
-      });
-  }
-
-  const handleMessage = (req: any, _sender: chrome.runtime.MessageSender, resp: (response?: any) => void) => {
-    switch (req.action) {
-      case "PING":
-        resp({ success: true, pong: true });
-        break;
-      case "APPLY_FILTERS":
-        handleApplyFilters(req, resp);
-        break;
-      case "ENABLE_ADBLOCK":
-        enableYouTubeAdBlocker();
-        resp({ success: true });
-        break;
-      case "DISABLE_ADBLOCK":
-        disableYouTubeAdBlocker();
-        resp({ success: true });
-        break;
-      case "CLEAR_FILTERS":
-        deactivateFiltering();
-        resp({ success: true });
-        break;
-      case "GET_PAGE_TEXT":
-        resp({ success: true, text: globalThis.document.body.innerText });
-        break;
-      case "SCAN_PAGE_LINKS":
-        handleScanLinks(resp);
-        break;
-      case "TRANSLATE_PAGE":
-        handleTranslatePage(req, resp);
-        break;
-      case "CLEAR_TRANSLATIONS":
-        handleClearTranslations(resp);
-        break;
-      default:
-        return false;
-    }
-    return true;
-  };
-
-  const handleApplyFilters = (req: any, resp: (response?: any) => void) => {
-    console.log("[Content] Message: APPLY_FILTERS received.");
-    const isActive = req.isActive ?? req.protectionState?.isActive ?? currentProtectionState?.isActive;
-    const filteringEnabled = req.filteringEnabled ?? req.protectionState?.filteringEnabled ?? currentProtectionState?.filteringEnabled;
-    
-    const protection = { isActive, filteringEnabled };
-    currentProtectionState = protection;
-    currentFilters = req.filters || currentFilters;
-    currentBlurMethod = req.blurMethod || currentBlurMethod;
-
-    lastAppliedFilterHash = ""; // Force re-sync
-    syncState(protection, currentFilters, currentBlurMethod);
-    resp({ success: true });
-  };
-
-  const handleScanLinks = (resp: (response?: any) => void) => {
-    const links = Array.from(globalThis.document.querySelectorAll("a"));
-    const results = links.map(a => scanUrl(a.href));
-    const malicious = results.filter(r => !r.isSafe);
-    resp({
-      success: true,
-      type: "WEB",
-      linkCount: results.length,
-      maliciousCount: malicious.length,
-      maliciousLinks: malicious,
-      safeLinks: results.filter(r => r.isSafe)
-    });
-  };
-
-  const handleTranslatePage = (req: any, resp: (response?: any) => void) => {
-    const walker = globalThis.document.createTreeWalker(globalThis.document.body, NodeFilter.SHOW_TEXT, null);
-    const textNodes: Text[] = [];
+  try {
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
     let node;
-    while ((node = walker.nextNode())) {
-      const text = node.textContent?.trim();
-      if (text && text.length > 3) textNodes.push(node as Text);
-    }
+    let pageBlocked = false;
 
-    const batchSize = 10;
-    let translatedCount = 0;
+    while ((node = walk.nextNode()) && !pageBlocked) {
+      const text = node.textContent;
+      const parent = node.parentElement;
+      if (!text || !parent || parent.tagName === "SCRIPT" || parent.tagName === "STYLE" || parent.hasAttribute("data-ps-filtered")) continue;
 
-    const processTranslation = async () => {
-      for (let i = 0; i < textNodes.length; i += batchSize) {
-        const batch = textNodes.slice(i, i + batchSize);
-        const texts = batch.map(n => n.textContent || "");
-        const response = await safeSendMessage({ action: "TRANSLATE_TEXT", text: texts, targetLang: req.targetLang });
+      for (const filter of activeFilters) {
+        if (text.toLowerCase().includes(filter.blockTerm.toLowerCase())) {
+          if (filter.blockScope === "page-warning") {
+            const overlay = document.createElement("div");
+            overlay.id = "ps-block-overlay";
+            overlay.style.cssText = "position:fixed;inset:0;background:#020617;color:#fafafa;display:flex;align-items:center;justify-content:center;z-index:2147483647;flex-direction:column;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:40px;";
+            overlay.innerHTML = `
+                <div style="margin-bottom:32px;padding:24px;background:rgba(129,236,255,0.1);border-radius:100%;border:2px solid rgba(129,236,255,0.2);box-shadow:0 0 40px rgba(129,236,255,0.1);">
+                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#81ecff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                </div>
+                <h1 style="color:#81ecff;margin-bottom:16px;font-size:36px;font-weight:900;letter-spacing:0.02em;text-transform:uppercase;">Privacy Sentinel Active</h1>
+                <p style="font-size:18px;opacity:0.7;max-width:500px;line-height:1.6;margin-bottom:32px;">This page has been blocked because it contains content restricted by your Smart Filters.</p>
+                
+                <div style="margin-bottom:40px;padding:16px 32px;background:rgba(129,236,255,0.05);border:1px solid rgba(129,236,255,0.15);border-radius:16px;display:inline-block;">
+                  <span style="font-size:11px;text-transform:uppercase;font-weight:800;color:#81ecff;opacity:0.6;display:block;margin-bottom:6px;letter-spacing:0.1em;">Detection Match</span>
+                  <span style="font-size:20px;font-weight:bold;color:#fff;">"${filter.blockTerm}"</span>
+                </div>
 
-        if (response?.success && response.translatedTexts) {
-          batch.forEach((node, idx) => {
-            if (response.translatedTexts[idx]) {
-              if (!translatedElements.has(node.parentElement!)) translatedElements.set(node.parentElement!, node.textContent || "");
-              node.textContent = response.translatedTexts[idx];
-              translatedCount++;
+                <div style="display:flex;gap:16px;width:100%;max-width:440px;justify-content:center;">
+                  <button id="ps-ignore-btn" style="padding:16px 48px;background:#81ecff;color:#020617;border:none;border-radius:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.2s;font-size:14px;box-shadow:0 8px 20px rgba(129,236,255,0.2);">Continue Anyway</button>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            document.body.style.overflow = "hidden";
+            
+            document.getElementById("ps-ignore-btn")?.addEventListener("click", () => {
+              _isTempBypass = true;
+              document.getElementById("ps-block-overlay")?.remove();
+              document.body.style.overflow = "auto";
+              observer.observe(document.body, { childList: true, subtree: true });
+            });
+
+            pageBlocked = true;
+            break;
+          } else if (filter.blockScope === "paragraph") {
+            parent.style.filter = _blurMethod === "blur" ? "blur(8px)" : "none";
+            if (_blurMethod === "blackbar") {
+              parent.style.backgroundColor = "black";
+              parent.style.color = "black";
             }
-          });
+            parent.setAttribute("data-ps-filtered", "true");
+          } else {
+            const regex = new RegExp(`(${filter.blockTerm})`, "gi");
+            const parts = text.split(regex);
+            const fragment = document.createDocumentFragment();
+            let hasMatch = false;
+            
+            parts.forEach(part => {
+              if (part.toLowerCase() === filter.blockTerm.toLowerCase()) {
+                hasMatch = true;
+                const span = document.createElement("span");
+                span.textContent = part;
+                span.style.filter = _blurMethod === "blur" ? "blur(4px)" : "none";
+                if (_blurMethod === "blackbar") {
+                  span.style.backgroundColor = "black";
+                  span.style.color = "black";
+                }
+                span.setAttribute("data-ps-filtered", "true");
+                fragment.appendChild(span);
+              } else if (part.length > 0) {
+                fragment.appendChild(document.createTextNode(part));
+              }
+            });
+            
+            if (hasMatch) {
+              parent.replaceChild(fragment, node);
+            }
+          }
+          break;
         }
       }
-      _isTranslationActive = true;
-      resp({ success: true, count: translatedCount });
-    };
-    processTranslation();
-  };
+    }
+  } finally {
+    _isApplying = false;
+    // Resume observation if page wasn't blocked
+    if (!document.getElementById("ps-block-overlay")) {
+      observer.observe(document.body, { childList: true, subtree: true });
+    }
+  }
+};
 
-  const handleClearTranslations = (resp: (response?: any) => void) => {
-    translatedElements.forEach((originalText, element) => { element.textContent = originalText; });
-    translatedElements.clear();
-    _isTranslationActive = false;
-    resp({ success: true });
+const observer = new MutationObserver((mutations) => {
+  if (!_isProtectionActive || !_isFilteringEnabled) return;
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        applyFiltering(node);
+      }
+    }
+  }
+});
+
+function injectAutoScanBanner(isSafe: boolean, details?: string, stats?: { total: number, warnings: number, threats: number }) {
+  const existing = document.getElementById("ps-scan-banner");
+  if (existing) existing.remove();
+
+  const container = document.createElement("div");
+  container.id = "ps-scan-banner";
+  container.style.position = "fixed";
+  container.style.top = "0";
+  container.style.left = "0";
+  container.style.width = "100%";
+  container.style.zIndex = "2147483647";
+  container.style.pointerEvents = "none";
+
+  const shadow = container.attachShadow({ mode: "open" });
+  
+  const banner = document.createElement("div");
+  banner.style.padding = "6px 20px";
+  banner.style.fontSize = "10px";
+  banner.style.fontWeight = "900";
+  banner.style.fontFamily = "system-ui, -apple-system, sans-serif";
+  banner.style.display = "flex";
+  banner.style.alignItems = "center";
+  banner.style.justifyContent = "center";
+  banner.style.gap = "16px";
+  banner.style.pointerEvents = "auto";
+  banner.style.boxShadow = "0 4px 20px rgba(0,0,0,0.3)";
+  banner.style.transition = "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)";
+  banner.style.transform = "translateY(-100%)";
+  banner.style.textTransform = "uppercase";
+  banner.style.letterSpacing = "0.08em";
+  banner.style.backdropFilter = "blur(12px)";
+
+  const isScanning = details === "Scanning Page...";
+
+  if (isScanning) {
+    banner.style.backgroundColor = "rgba(15, 23, 42, 0.9)";
+    banner.style.color = "#81ecff";
+    banner.style.borderBottom = "1px solid rgba(129, 236, 255, 0.2)";
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;">
+        <svg class="spin" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="animation: ps-spin 1s linear infinite;"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+        <span>Scanning Content...</span>
+      </div>
+    `;
+  } else if (isSafe && (!stats || stats.threats === 0)) {
+    banner.style.backgroundColor = "rgba(15, 23, 42, 0.9)";
+    banner.style.color = "#81ecff";
+    banner.style.borderBottom = "1px solid rgba(129, 236, 255, 0.2)";
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          <span>Connection Secure</span>
+        </div>
+        <div style="width:1px;height:12px;background:rgba(129,236,255,0.2);"></div>
+        <div style="display:flex;gap:10px;opacity:0.8;">
+          <span>${stats?.total} Links</span>
+          <span style="color:${stats?.warnings ? '#fbbf24' : 'inherit'}">${stats?.warnings} Trackers</span>
+        </div>
+      </div>
+    `;
+  } else {
+    const hasThreats = stats && stats.threats > 0;
+    banner.style.backgroundColor = hasThreats ? "rgba(239, 68, 68, 0.95)" : "rgba(129, 236, 255, 0.95)";
+    banner.style.color = hasThreats ? "#ffffff" : "#020617";
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span>${hasThreats ? 'CRITICAL THREATS FOUND' : 'Potential Risks'}</span>
+        </div>
+        <div style="width:1px;height:12px;background:rgba(0,0,0,0.1);"></div>
+        <div style="display:flex;gap:10px;">
+          <span>${stats?.total} Scanned</span>
+          <span style="font-weight:900;">${stats?.threats} Threats</span>
+          <span>${stats?.warnings} Trackers</span>
+        </div>
+      </div>
+    `;
+
+    if (hasThreats) {
+      flashScreenRed();
+    }
+  }
+
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes ps-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes ps-flash-red { 
+      0% { background: transparent; }
+      20% { background: rgba(239, 68, 68, 0.4); }
+      100% { background: transparent; }
+    }
+  `;
+  shadow.appendChild(style);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.innerText = "✕";
+  closeBtn.style.background = "none";
+  closeBtn.style.border = "none";
+  closeBtn.style.color = "inherit";
+  closeBtn.style.cursor = "pointer";
+  closeBtn.style.fontSize = "12px";
+  closeBtn.style.fontWeight = "bold";
+  closeBtn.style.marginLeft = "10px";
+  closeBtn.onclick = () => { banner.style.transform = "translateY(-100%)"; setTimeout(() => container.remove(), 400); };
+  banner.appendChild(closeBtn);
+
+  shadow.appendChild(banner);
+  document.documentElement.appendChild(container);
+
+  setTimeout(() => {
+    banner.style.transform = "translateY(0)";
+  }, 100);
+
+  if (!isScanning && (!stats || stats.threats === 0)) {
+    setTimeout(() => {
+      banner.style.transform = "translateY(-100%)";
+      setTimeout(() => container.remove(), 400);
+    }, 5000);
+  }
+}
+
+function flashScreenRed() {
+  const flash = document.createElement("div");
+  flash.style.position = "fixed";
+  flash.style.inset = "0";
+  flash.style.zIndex = "2147483646";
+  flash.style.pointerEvents = "none";
+  flash.style.animation = "ps-flash-red 0.8s ease-out forwards";
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 1000);
+}
+
+async function runAutoScan() {
+  if (!_isAutoScanEnabled || !_isProtectionActive) return;
+  
+  injectAutoScanBanner(true, "Scanning Page...");
+  
+  // Collect and scan links
+  const links = Array.from(document.querySelectorAll("a")).map(a => a.href).filter(h => h.startsWith('http'));
+  const results = links.map(l => scanUrl(l));
+  const currentUrlResult = scanUrl(window.location.href);
+  
+  const stats = {
+    total: links.length,
+    warnings: results.filter(r => r.threatType === 'tracker' || r.threatType === 'redirect').length,
+    threats: results.filter(r => r.threatType === 'phishing' || r.threatType === 'malware').length + (!currentUrlResult.isSafe && currentUrlResult.isMalicious ? 1 : 0)
+  };
+  
+  const isPageSafe = currentUrlResult.isSafe && stats.threats === 0;
+
+  setTimeout(() => {
+    injectAutoScanBanner(isPageSafe, isPageSafe ? undefined : currentUrlResult.details, stats);
+  }, 1200);
+}
+
+async function runAutoTranslate() {
+  if (!_isAutoTranslate || !_isProtectionActive) return;
+  
+  const docLang = document.documentElement.lang?.toLowerCase().split('-')[0];
+  if (docLang && docLang !== _targetLang && docLang !== "und") {
+    console.log(`[Content] Auto-translating from ${docLang} to ${_targetLang}`);
+    performTranslation(_targetLang);
+  }
+}
+
+// MAIN INITIALIZATION
+const init = async () => {
+  // Listen for storage changes
+  if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+    chrome.storage.onChanged.addListener((changes) => {
+      if (changes.autoscan_enabled) {
+        _isAutoScanEnabled = changes.autoscan_enabled.newValue === "true";
+        if (_isAutoScanEnabled && _isProtectionActive) runAutoScan();
+      }
+      if (changes.protectionState) {
+        const oldState = _isFilteringEnabled;
+        _isProtectionActive = changes.protectionState.newValue?.isActive ?? false;
+        _isFilteringEnabled = changes.protectionState.newValue?.filteringEnabled ?? false;
+        
+        // Handle instant toggle reaction
+        if (_isProtectionActive && _isFilteringEnabled) {
+          applyFiltering(document.body);
+          observer.observe(document.body, { childList: true, subtree: true });
+        } else if (oldState && !_isFilteringEnabled) {
+          document.getElementById("ps-block-overlay")?.remove();
+          document.body.style.overflow = "auto";
+          observer.disconnect();
+        }
+      }
+      if (changes.filters) {
+        _filters = changes.filters.newValue || [];
+        if (_isProtectionActive && _isFilteringEnabled) applyFiltering(document.body);
+      }
+    });
+  }
+
+  // Sync state from storage
+  if (typeof chrome !== "undefined" && chrome.storage?.local) {
+    const data = await chrome.storage.local.get(["protectionState", "filters", "blurMethod", "autoscan_enabled", "isAutoTranslate", "translatorTargetLang"]);
+    _isProtectionActive = data.protectionState?.isActive ?? false;
+    _isFilteringEnabled = data.protectionState?.filteringEnabled ?? false;
+    _filters = data.filters ?? DEFAULT_FILTERS;
+    _blurMethod = data.blurMethod ?? "blur";
+    _isAutoScanEnabled = data.autoscan_enabled === "true";
+    _isAutoTranslate = data.isAutoTranslate ?? false;
+    _targetLang = data.translatorTargetLang ?? "es";
+
+    if (_isProtectionActive) {
+      initYouTubeAdBlocker();
+      if (data.protectionState?.adblockEnabled) enableYouTubeAdBlocker();
+      runAutoScan();
+      runAutoTranslate();
+      if (_isFilteringEnabled) {
+        applyFiltering();
+        observer.observe(document.body, { childList: true, subtree: true });
+      }
+    }
+  }
+
+  const handleMessage = (request: any, _sender: any, resp: any) => {
+    if (request.action === "PING") {
+      resp({ pong: true });
+      return;
+    }
+
+    if (request.action === "APPLY_FILTERS") {
+      _isProtectionActive = request.isActive;
+      _isFilteringEnabled = request.filteringEnabled;
+      _filters = request.filters || _filters;
+      _blurMethod = request.blurMethod || _blurMethod;
+      
+      if (_isProtectionActive && _isFilteringEnabled) {
+        applyFiltering(document.body);
+        observer.observe(document.body, { childList: true, subtree: true });
+      } else {
+        document.getElementById("ps-block-overlay")?.remove();
+        document.body.style.overflow = "auto";
+        observer.disconnect();
+      }
+      
+      resp({ success: true });
+      return;
+    }
+
+    if (request.action === "GET_PAGE_TEXT") {
+      resp({ success: true, text: document.body.innerText });
+      return;
+    }
+
+    if (request.action === "TRANSLATE_PAGE") {
+      performTranslation(request.targetLang).then(resp);
+      return true;
+    }
+
+    if (request.action === "CLEAR_TRANSLATIONS") {
+      clearTranslations(resp);
+      return true;
+    }
+
+    if (request.action === "SCAN_PAGE_LINKS") {
+      const links = Array.from(document.querySelectorAll("a")).map(a => a.href);
+      const results = links.map(l => scanUrl(l));
+      resp({
+        type: "WEB",
+        linkCount: results.length,
+        maliciousCount: results.filter(r => !r.isSafe).length,
+        maliciousLinks: results.filter(r => !r.isSafe),
+        safeLinks: results.filter(r => r.isSafe)
+      });
+      return;
+    }
   };
 
   if (chrome.runtime?.onMessage) {
     chrome.runtime.onMessage.addListener(handleMessage);
   }
-}
+};
+
+const performTranslation = async (targetLang: string) => {
+  if (_isTranslationActive) return { success: false, error: "Already active" };
+  _isTranslationActive = true;
+
+  const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+  let node;
+  const textNodes: { node: Node; text: string }[] = [];
+
+  while ((node = walk.nextNode())) {
+    const text = node.textContent?.trim();
+    if (text && text.length > 3 && node.parentElement?.tagName !== "SCRIPT" && node.parentElement?.tagName !== "STYLE") {
+      textNodes.push({ node, text });
+    }
+  }
+
+  const batchSize = 10;
+  let count = 0;
+  for (let i = 0; i < textNodes.length; i += batchSize) {
+    const batch = textNodes.slice(i, i + batchSize);
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: "TRANSLATE_TEXT",
+        text: batch.map(b => b.text),
+        targetLang
+      });
+
+      if (response?.success) {
+        batch.forEach((b, idx) => {
+          if (response.translatedTexts[idx]) {
+            translatedElements.set(b.node as any, b.text);
+            b.node.textContent = response.translatedTexts[idx];
+            count++;
+          }
+        });
+      }
+    } catch (err) {
+      console.error("Translation failed", err);
+    }
+  }
+
+  return { success: true, count };
+};
+
+const clearTranslations = (resp: any) => {
+  translatedElements.forEach((originalText, element) => { element.textContent = originalText; });
+  translatedElements.clear();
+  _isTranslationActive = false;
+  resp({ success: true });
+};
+
+init();
