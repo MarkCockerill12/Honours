@@ -1,11 +1,5 @@
 const { ipcMain } = require("electron");
-const { EC2Client, StartInstancesCommand, StopInstancesCommand, DescribeInstancesCommand, ModifyInstanceAttributeCommand } = require("@aws-sdk/client-ec2");
-const fs = require("node:fs");
-const path = require("node:path");
-const { exec } = require("node:child_process");
-const { promisify } = require("node:util");
-
-const execAsync = promisify(exec);
+const { EC2Client, StartInstancesCommand, StopInstancesCommand, DescribeInstancesCommand } = require("@aws-sdk/client-ec2");
 
 // VPN Configuration
 const SERVER_REGION_MAP = {
@@ -63,12 +57,11 @@ const ec2Clients = {};
 function getEC2Client(region) {
   const accessKey = decode(process.env.AWS_ACCESS_KEY_ID) || "";
   const secretKey = decode(process.env.AWS_SECRET_ACCESS_KEY) || "";
-  
+
   if (!accessKey || !secretKey) {
     console.error(`[AWS Diagnostics] ❌ Missing credentials for client in ${region}.`);
   } else {
-    const akMasked = `${accessKey.slice(0, 4)}...${accessKey.slice(-4)}`;
-    console.log(`[AWS Diagnostics] Initializing client for ${region} (Credentials Securely Loaded)`);
+    console.log(`[AWS Diagnostics] Initializing EC2 client for ${region} (Credentials OK)`);
   }
 
   if (!ec2Clients[region]) {

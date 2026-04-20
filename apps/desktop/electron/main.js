@@ -1,5 +1,5 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
-const { app, BrowserWindow, ipcMain } = require("electron");
+ 
+const { app, BrowserWindow } = require("electron");
 const path = require("node:path");
 const { exec } = require("node:child_process");
 const { promisify } = require("node:util");
@@ -10,7 +10,7 @@ const envPath = path.resolve(__dirname, "../../../.env.local");
 if (fs.existsSync(envPath)) {
   require("dotenv").config({ path: envPath, override: true });
 }
-try { require('./_env.js'); } catch (e) {
+try { require('./_env.js'); } catch {
   console.log("[Env] No _env.js found, relying on local env vars.");
 }
 
@@ -308,7 +308,7 @@ async function startVpn(config) {
   try {
     await execAsync(publicPingCmd);
     console.log(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is reachable.`);
-  } catch (err) {
+  } catch {
     console.warn(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is NOT reachable. Server might be down or blocking ICMP.`);
   }
 
@@ -417,7 +417,7 @@ app.on("ready", async () => {
     if (process.platform === 'win32') {
       await execAsync("ipconfig /flushdns").catch(() => {});
     }
-  } catch (e) {
+  } catch {
     console.debug("[Startup] DNS cleanup skipped.");
   }
   loadStats();

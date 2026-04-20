@@ -22,7 +22,7 @@ import {
 } from "@aws-sdk/client-ec2";
 
 // Firefox polyfill for proxy.settings
-// @ts-ignore
+// @ts-expect-error browser object may not exist in Chrome
 const browserProxy = typeof browser !== 'undefined' && browser.proxy ? browser.proxy : (typeof chrome !== 'undefined' && chrome.proxy ? chrome.proxy : null);
 
 let adBlockEnabled = false;
@@ -105,29 +105,34 @@ async function findInstanceByTag(client: EC2Client, tagName: string) {
 }
 
 async function verifyConnectivity(): Promise<boolean> {
-  console.log("[Background] --- [DIAGNOSTIC] INITIATING NETWORK INTEGRITY PROBE ---");
+  console.log("[Background] [Probe] Testing SOCKS5 proxy connectivity...");
   const endpoints = [
     "https://www.cloudflare.com/cdn-cgi/trace",
-    "https://www.google.com/generate_204",
     "https://detectportal.firefox.com/canonical.html"
   ];
-  
+
+  let successCount = 0;
   for (const url of endpoints) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 12000);
-      const resp = await fetch(url, { 
+      const resp = await fetch(url, {
         signal: controller.signal,
         cache: "no-store"
       });
       clearTimeout(timeoutId);
-      console.log(`[Background] [PROBE] ${url} -> SUCCESS. Status: ${resp.status}`);
-      return true;
+      if (resp.ok) {
+        console.log(`[Background] [Probe] ${url} -> OK (${resp.status})`);
+        successCount++;
+      }
     } catch (err: any) {
-      console.warn(`[Background] [PROBE] ${url} -> FAILED: ${err.message}`);
+      console.warn(`[Background] [Probe] ${url} -> FAIL: ${err.message}`);
     }
   }
-  return false;
+
+  const isValid = successCount >= 2;
+  console.log(`[Background] [Probe] Result: ${successCount}/2 endpoints reachable. Status: ${isValid ? "PASS" : "FAIL"}`);
+  return isValid;
 }
 
 const syncState = async (forceProxyApply: boolean = false) => {
@@ -251,9 +256,13 @@ const injectContentScripts = async () => {
           target: { tabId: tab.id, allFrames: false },
           files: ["content-script.js"],
         });
-      } catch (err) {}
+      } catch {
+        // Tab may be restricted or closed
+      }
     }
-  } catch (err) {}
+  } catch {
+    // Extension context may be invalid
+  }
 };
 
 const initializeBackground = async () => {
@@ -279,7 +288,9 @@ chrome.runtime.onInstalled.addListener(async () => {
     if (!res.filters) await chrome.storage.local.set({ filters: DEFAULT_FILTERS });
     await initBlockStats();
     await syncState();
-  } catch (error) {}
+  } catch {
+    console.error("[Background] Failed to initialize on install");
+  }
 });
 
 initializeBackground();
@@ -348,32 +359,7 @@ async function handleVpnProvisioning(serverId: string) {
       await new Promise(r => setTimeout(r, 40000));
     }
 
-    await notifyVpnStatus("VERIFYING", "Registering peer identity...");
-    try {
-      const identityData = await chrome.storage.local.get(["wgIdentity"]);
-      let publicKey = identityData.wgIdentity?.publicKey;
-      if (!publicKey) {
-        const { getOrCreateIdentity } = await import("@privacy-shield/core/shared");
-        const identity = await getOrCreateIdentity(
-          async () => { const d = await chrome.storage.local.get(["wgIdentity"]); return d.wgIdentity ? JSON.stringify(d.wgIdentity) : null; },
-          async (val: string) => { await chrome.storage.local.set({ wgIdentity: JSON.parse(val) }); }
-        );
-        publicKey = identity.publicKey;
-      }
-      const regResp = await fetch(`http://${ip}:8443/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-PS-Auth": "PS_PEER_REG_2026" },
-        body: JSON.stringify({ publicKey }),
-      });
-      if (regResp.ok) {
-        const regData = await regResp.json();
-        console.log(`[Background] Peer registered: ${regData.ip}`);
-      }
-    } catch (e: any) {
-      console.warn(`[Background] Peer registration skipped: ${e.message}`);
-    }
-
-    await notifyVpnStatus("VERIFYING", "Verifying secure connection...");
+    await notifyVpnStatus("VERIFYING", "Configuring SOCKS5 proxy...");
     await chrome.storage.local.set({ vpnConfig: { PublicIp: ip, Id: serverId } });
     await syncState(true);
     

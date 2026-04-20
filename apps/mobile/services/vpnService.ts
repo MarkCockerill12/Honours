@@ -8,7 +8,6 @@ import {
 } from "@aws-sdk/client-ec2";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
-import { getOrCreateIdentity, registerPeer, type WgIdentity } from "@privacy-shield/core/src/shared/vpn_keys";
 import { decodeKey } from "@privacy-shield/core/src/shared/utils/security";
 import { VPN_SERVERS } from "@privacy-shield/core/src/shared";
 
@@ -73,13 +72,6 @@ export function setStatusCallback(cb: (update: VpnStatusUpdate) => void) {
 
 function notify(stage: VpnStage, message: string) {
   _onStatus?.({ stage, message });
-}
-
-async function getIdentity(): Promise<WgIdentity> {
-  return getOrCreateIdentity(
-    () => SecureStore.getItemAsync("wg_identity"),
-    (val) => SecureStore.setItemAsync("wg_identity", val)
-  );
 }
 
 export async function provisionServer(serverId: string): Promise<{ ip: string } | null> {
@@ -152,18 +144,23 @@ export async function connectVpn(serverId: string, useAdGuard: boolean = true): 
     const provision = await provisionServer(serverId);
     if (!provision) return false;
 
-    const identity = await getIdentity();
-    notify("REGISTERING", "Registering peer identity...");
-    const regResult = await registerPeer(provision.ip, identity.publicKey);
-    const clientIp = regResult.success && regResult.ip ? regResult.ip : "172.16.10.2";
+    // Use shared client key (same as desktop - slot #2)
+    const clientPrivateKey = decodeKey(extra.wgClientPrivateKey || "");
+    const clientIp = "172.16.10.2";
 
-    const spokePublicKey = decodeKey(extra[`wg${serverId.charAt(0).toUpperCase() + serverId.slice(1)}PublicKey`] || "");
+    if (!clientPrivateKey) {
+      notify("ERROR", "WireGuard key not configured in app.config.js");
+      return false;
+    }
+
+    // Server public key is same for all spokes
+    const spokePublicKey = decodeKey(extra.wgServerPublicKey || "");
 
     notify("CONNECTING", "Establishing WireGuard tunnel...");
     const dns = useAdGuard ? ["94.140.14.14", "94.140.15.15"] : ["1.1.1.1", "8.8.8.8"];
 
     await WireGuardVpn.connect({
-      privateKey: identity.privateKey,
+      privateKey: clientPrivateKey,
       publicKey: spokePublicKey,
       endpoint: `${provision.ip}:443`,
       address: `${clientIp}/32`,

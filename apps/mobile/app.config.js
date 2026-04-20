@@ -47,13 +47,9 @@ module.exports = {
     extra: {
       awsAccessKeyId: encode(process.env.AWS_ACCESS_KEY_ID || 'MISSING'),
       awsSecretAccessKey: encode(process.env.AWS_SECRET_ACCESS_KEY || 'MISSING'),
-      wgKeyVersion: '3',
+      wgKeyVersion: '5',
       wgClientPrivateKey: encode(process.env.WG_CLIENT_PRIVATE_KEY || 'MISSING'),
-      wgUsPublicKey: encode(process.env.WG_US_PUBLIC_KEY || 'MISSING'),
-      wgUkPublicKey: encode(process.env.WG_UK_PUBLIC_KEY || 'MISSING'),
-      wgDePublicKey: encode(process.env.WG_DE_PUBLIC_KEY || 'MISSING'),
-      wgJpPublicKey: encode(process.env.WG_JP_PUBLIC_KEY || 'MISSING'),
-      wgAuPublicKey: encode(process.env.WG_AU_PUBLIC_KEY || 'MISSING'),
+      wgServerPublicKey: encode(process.env.WG_US_PUBLIC_KEY || 'MISSING'), // Same key for all spokes
     }
   }
 };
