@@ -42,11 +42,18 @@ export default function Tutorial({ onClose }: TutorialProps) {
   const current = STEPS[step];
   const Icon = current.icon;
 
+  const handleClose = () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('ps_tutorial_seen', 'true');
+    }
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 backdrop-blur-md animate-in fade-in duration-300">
       <div className={`w-full max-w-md ${colors.bgSecondary} border border-white/10 p-8 rounded-3xl flex flex-col items-center gap-6 shadow-2xl mx-6 relative`}>
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="absolute top-4 right-4 p-2 rounded-lg hover:bg-white/5 transition-colors"
         >
           <X className={`w-4 h-4 ${colors.textSecondary}`} />
@@ -95,7 +102,7 @@ export default function Tutorial({ onClose }: TutorialProps) {
             </button>
           ) : (
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="flex items-center gap-2 px-6 py-3.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-2xl font-black text-xs tracking-widest transition-all active:scale-95 shadow-lg shadow-emerald-500/20"
             >
               GET STARTED
@@ -103,7 +110,7 @@ export default function Tutorial({ onClose }: TutorialProps) {
           )}
         </div>
 
-        <button onClick={onClose} className={`text-[10px] font-black ${colors.textSecondary} tracking-widest opacity-40 hover:opacity-100 transition-opacity`}>
+        <button onClick={handleClose} className={`text-[10px] font-black ${colors.textSecondary} tracking-widest opacity-40 hover:opacity-100 transition-opacity`}>
           SKIP
         </button>
       </div>

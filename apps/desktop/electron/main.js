@@ -342,17 +342,43 @@ async function handleVpnToggle(config) {
   }
 }
 
-async function restartVpnIfActive() {
-  if (state.activeVpnFile && state.activeVpnConfig) {
-    const saved = { ...state.activeVpnConfig };
-    await handleVpnToggle(null);
-    await handleVpnToggle(saved);
+async function updateVpnDnsIfActive() {
+  // Update DNS without restarting the tunnel by modifying Windows network adapter DNS directly
+  if (!state.activeVpnFile || !state.activeVpnConfig) return;
+
+  const tunnelName = path.basename(state.activeVpnFile, '.conf');
+  const useAdGuard = state.adblockEnabled;
+  const dnsServers = useAdGuard ? "94.140.14.14,94.140.15.15" : "1.1.1.1,8.8.8.8";
+
+  try {
+    // Use netsh to update DNS on the WireGuard adapter without restarting
+    const adapterName = `WireGuardTunnel$${tunnelName}`;
+    console.log(`[VPN DNS Update] Changing DNS to: ${useAdGuard ? 'Protected' : 'Standard'} on ${adapterName}`);
+
+    // Clear existing DNS
+    await execAsync(`netsh interface ipv4 delete dns "${adapterName}" all`).catch(() => {});
+
+    // Add new DNS servers
+    const servers = dnsServers.split(',');
+    for (let i = 0; i < servers.length; i++) {
+      const cmd = i === 0
+        ? `netsh interface ipv4 set dns "${adapterName}" static ${servers[i]}`
+        : `netsh interface ipv4 add dns "${adapterName}" ${servers[i]} index=${i + 1}`;
+      await execAsync(cmd).catch(() => {});
+    }
+
+    // Flush DNS cache
+    await execAsync('ipconfig /flushdns').catch(() => {});
+    console.log(`[VPN DNS Update] ✅ DNS updated successfully without tunnel restart`);
+  } catch (err) {
+    console.warn(`[VPN DNS Update] Failed to update DNS dynamically: ${err.message}`);
+    console.log(`[VPN DNS Update] Note: DNS will apply on next VPN connect`);
   }
 }
 
 // Setup Modular Handlers
 setupVpnHandlers(state, handleVpnToggle);
-const adblockTools = setupAdblockHandlers(state, restartVpnIfActive);
+const adblockTools = setupAdblockHandlers(state, updateVpnDnsIfActive);
 
 // -------------------------
 // Lifecycle & UI

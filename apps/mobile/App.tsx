@@ -72,6 +72,7 @@ function PrivacySentinelApp() {
   const [showDnsConfig, setShowDnsConfig] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [shouldFlashTutorial, setShouldFlashTutorial] = useState(false);
   const [pings, setPings] = useState<Record<string, number>>({});
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -81,7 +82,10 @@ function PrivacySentinelApp() {
 
   useEffect(() => {
     SecureStore.getItemAsync('has_seen_tutorial').then(seen => {
-      if (!seen) setShowTutorial(true);
+      if (!seen) {
+        setShouldFlashTutorial(true);
+        setTimeout(() => setShouldFlashTutorial(false), 5000);
+      }
     });
     SecureStore.getItemAsync('app_theme').then(saved => {
       if (saved && Object.keys(THEMES).includes(saved)) setTheme(saved as Theme);
@@ -207,8 +211,17 @@ function PrivacySentinelApp() {
             <Text style={[styles.brandText, { color: ct.text }]}>PRIVACY SENTINEL</Text>
           </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={() => { setTutorialStep(0); setShowTutorial(true); }} style={[styles.circleBtn, { backgroundColor: ct.secondary }]}>
-              <InfoIcon size={18} color={ct.accent} />
+            <TouchableOpacity
+              onPress={() => { setTutorialStep(0); setShowTutorial(true); }}
+              style={[
+                styles.circleBtn,
+                { backgroundColor: ct.secondary },
+                shouldFlashTutorial && { backgroundColor: ct.accent, opacity: 0.8 }
+              ]}
+            >
+              <Animated.View style={shouldFlashTutorial ? { opacity: pulseAnim } : {}}>
+                <InfoIcon size={18} color={shouldFlashTutorial ? (theme === 'light' ? '#fff' : '#000') : ct.accent} />
+              </Animated.View>
             </TouchableOpacity>
             <TouchableOpacity onPress={cycleTheme} style={[styles.circleBtn, { backgroundColor: ct.secondary }]}>
               <PaletteIcon size={18} color={ct.accent} />

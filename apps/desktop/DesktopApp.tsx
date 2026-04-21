@@ -40,10 +40,13 @@ export function DesktopApp({
   const { theme, colors } = useTheme();
   const [isMapMode, setIsMapMode] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [shouldFlashTutorial, setShouldFlashTutorial] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && !localStorage.getItem('ps_tutorial_seen')) {
-      setShowTutorial(true);
+      setShouldFlashTutorial(true);
+      const timer = setTimeout(() => setShouldFlashTutorial(false), 5000);
+      return () => clearTimeout(timer);
     }
   }, []);
   
@@ -164,10 +167,10 @@ export function DesktopApp({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowTutorial(true)}
-              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95`}
+              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95 ${shouldFlashTutorial ? 'animate-pulse' : ''}`}
               title="Help"
             >
-              <HelpCircle className={`w-4 h-4 ${colors.textSecondary}`} />
+              <HelpCircle className={`w-4 h-4 ${shouldFlashTutorial ? colors.accent.replace('bg-', 'text-') : colors.textSecondary}`} />
             </button>
             <button
               onClick={() => {
