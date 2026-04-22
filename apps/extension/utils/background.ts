@@ -328,6 +328,12 @@ const initializeBackground = async () => {
           if (!isProvisioning) console.error("[Background] Proxy Error:", details);
         });
       }
+      
+      const data = await chrome.storage.local.get("cachedWordlists");
+      if (!data.cachedWordlists) {
+        await fetchAndCacheWordlists();
+      }
+
       await syncState();
       await injectContentScripts();
     }
@@ -343,16 +349,29 @@ async function fetchAndCacheWordlists() {
   try {
     const resp = await fetch(WORDLIST_URL);
     if (!resp.ok) throw new Error(`Failed to fetch wordlist: ${resp.status}`);
-    const words = await resp.json();
+    const wordsRaw = await resp.json();
     
-    // Process and store in local storage
+    // Process: Group words by category for faster access
+    const categorized: Record<string, string[]> = {};
+    if (Array.isArray(wordsRaw)) {
+      wordsRaw.forEach((entry: any) => {
+        if (entry.word && Array.isArray(entry.categories)) {
+          entry.categories.forEach((cat: string) => {
+            if (!categorized[cat]) categorized[cat] = [];
+            categorized[cat].push(entry.word.toLowerCase());
+          });
+        }
+      });
+    }
+    
+    // Store processed wordlists
     await chrome.storage.local.set({ 
-      cachedWordlists: words,
+      cachedWordlists: categorized,
       wordlistsLastUpdated: Date.now() 
     });
-    console.log("[Background] Wordlists cached successfully.");
+    console.log("[Background] Wordlists categorized and cached successfully.");
     
-    // Notify content scripts that filters might need updating
+    // Notify content scripts
     const tabs = await chrome.tabs.query({});
     tabs.forEach(tab => {
       if (tab.id) chrome.tabs.sendMessage(tab.id, { action: "WORDLISTS_UPDATED" }).catch(() => {});

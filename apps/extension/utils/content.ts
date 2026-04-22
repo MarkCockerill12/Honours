@@ -89,11 +89,13 @@ const applyFiltering = (root: Node = document.body) => {
 
         if (termsToMatch.length === 0) continue;
 
-        // Efficient matching
-        const lowerText = text.toLowerCase();
-        const matchedTerm = termsToMatch.find(term => lowerText.includes(term));
+        // Efficient matching using Regex for speed and word boundaries
+        const pattern = termsToMatch.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+        const regex = new RegExp(`\\b(${pattern})\\b`, "gi");
+        const matches = text.match(regex);
 
-        if (matchedTerm) {
+        if (matches && matches.length > 0) {
+          const matchedTerm = matches[0].toLowerCase();
           if (filter.blockScope === "page-warning") {
             showBlockOverlay(matchedTerm, filter.blockTerm || "Smart Filters");
             pageBlocked = true;
@@ -448,6 +450,10 @@ const init = async () => {
       }
       if (changes.filterDomainExclusions) {
         _filterDomainExclusions = changes.filterDomainExclusions.newValue || [];
+      }
+      if (changes.cachedWordlists) {
+        _cachedWordlists = changes.cachedWordlists.newValue || {};
+        if (_isProtectionActive && _isFilteringEnabled) applyFiltering(document.body);
       }
     });
   }
