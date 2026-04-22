@@ -181,12 +181,14 @@ export function SmartFilters({ filters, onFiltersChange }: SmartFiltersProps) {
                 {filter.blockTerm}
               </span>
               <div className="flex items-center gap-1.5 flex-shrink-0">
-                <button
-                  className="text-zinc-500 hover:text-red-500 transition-all p-1"
-                  onClick={() => removeFilter(filter.id)}
-                >
-                  <Trash2 size={13} />
-                </button>
+                {!filter.isPreset && (
+                  <button
+                    className="text-zinc-500 hover:text-red-500 transition-all p-1"
+                    onClick={() => removeFilter(filter.id)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
                 <Switch
                   checked={filter.enabled}
                   onCheckedChange={(val) => onFiltersChange(filters.map(f => f.id === filter.id ? {...f, enabled: val} : f))}

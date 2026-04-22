@@ -12,6 +12,42 @@ export const DEFAULT_PROTECTION_STATE: ProtectionState = {
 
 export const DEFAULT_FILTERS: SmartFilter[] = [
   {
+    id: "preset-nsfw",
+    blockTerm: "nsfw",
+    exceptWhen: "",
+    enabled: true,
+    isPreset: true,
+    blockScope: "page-warning",
+    filterStyle: "blur",
+  },
+  {
+    id: "preset-violence",
+    blockTerm: "violence",
+    exceptWhen: "",
+    enabled: true,
+    isPreset: true,
+    blockScope: "paragraph",
+    filterStyle: "blur",
+  },
+  {
+    id: "preset-drugs",
+    blockTerm: "drugs",
+    exceptWhen: "",
+    enabled: true,
+    isPreset: true,
+    blockScope: "word",
+    filterStyle: "redact",
+  },
+  {
+    id: "preset-swearing",
+    blockTerm: "swear words",
+    exceptWhen: "",
+    enabled: true,
+    isPreset: true,
+    blockScope: "word",
+    filterStyle: "blur",
+  },
+  {
     id: "1",
     blockTerm: "facebook",
     exceptWhen: "",
@@ -24,20 +60,6 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     exceptWhen: "",
     enabled: true,
     blockScope: "redact",
-  },
-  {
-    id: "3",
-    blockTerm: "malware",
-    exceptWhen: "",
-    enabled: true,
-    blockScope: "page-warning",
-  },
-  {
-    id: "4",
-    blockTerm: "doubleclick",
-    exceptWhen: "",
-    enabled: true,
-    blockScope: "blur",
   },
 ];
 

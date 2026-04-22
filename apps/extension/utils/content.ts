@@ -28,6 +28,19 @@ const applyFiltering = (root: Node = document.body) => {
   const activeFilters = _filters.filter(f => f.enabled && f.blockTerm.trim().length > 0);
   if (activeFilters.length === 0) return;
 
+  // Specific NSFW domain/search blocking
+  const nsfwFilter = activeFilters.find(f => f.id === "preset-nsfw");
+  if (nsfwFilter) {
+    const url = window.location.href.toLowerCase();
+    const adultTerms = ["porn", "sex", "xvideos", "pornhub", "xnxx"];
+    const isAdultSite = adultTerms.some(term => url.includes(term));
+    
+    if (isAdultSite) {
+      showBlockOverlay("NSFW Content detected in URL/Domain", "nsfw");
+      return;
+    }
+  }
+
   _isApplying = true;
   
   // Temporary stop observation to prevent recursion during replacement
@@ -61,35 +74,7 @@ const applyFiltering = (root: Node = document.body) => {
         if (text.toLowerCase().includes(filter.blockTerm.toLowerCase())) {
           // page-warning scope or page-warning style both trigger block
           if (filter.blockScope === "page-warning") {
-            const overlay = document.createElement("div");
-            overlay.id = "ps-block-overlay";
-            overlay.style.cssText = "position:fixed;inset:0;background:#020617;color:#fafafa;display:flex;align-items:center;justify-content:center;z-index:2147483647;flex-direction:column;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:40px;";
-            overlay.innerHTML = `
-                <div style="margin-bottom:32px;padding:24px;background:rgba(129,236,255,0.1);border-radius:100%;border:2px solid rgba(129,236,255,0.2);box-shadow:0 0 40px rgba(129,236,255,0.1);">
-                  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#81ecff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                </div>
-                <h1 style="color:#81ecff;margin-bottom:16px;font-size:36px;font-weight:900;letter-spacing:0.02em;text-transform:uppercase;">Privacy Sentinel Active</h1>
-                <p style="font-size:18px;opacity:0.7;max-width:500px;line-height:1.6;margin-bottom:32px;">This page has been blocked because it contains content restricted by your Smart Filters.</p>
-                
-                <div style="margin-bottom:40px;padding:16px 32px;background:rgba(129,236,255,0.05);border:1px solid rgba(129,236,255,0.15);border-radius:16px;display:inline-block;">
-                  <span style="font-size:11px;text-transform:uppercase;font-weight:800;color:#81ecff;opacity:0.6;display:block;margin-bottom:6px;letter-spacing:0.1em;">Detection Match</span>
-                  <span style="font-size:20px;font-weight:bold;color:#fff;">"${filter.blockTerm}"</span>
-                </div>
-
-                <div style="display:flex;gap:16px;width:100%;max-width:440px;justify-content:center;">
-                  <button id="ps-ignore-btn" style="padding:16px 48px;background:#81ecff;color:#020617;border:none;border-radius:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.2s;font-size:14px;box-shadow:0 8px 20px rgba(129,236,255,0.2);">Continue Anyway</button>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-            document.body.style.overflow = "hidden";
-            
-            document.getElementById("ps-ignore-btn")?.addEventListener("click", () => {
-              _isTempBypass = true;
-              document.getElementById("ps-block-overlay")?.remove();
-              document.body.style.overflow = "auto";
-              observer.observe(document.body, { childList: true, subtree: true });
-            });
-
+            showBlockOverlay(filter.blockTerm, "Smart Filters");
             pageBlocked = true;
             break;
           } else if (filter.blockScope === "paragraph") {
@@ -200,14 +185,50 @@ const applyFiltering = (root: Node = document.body) => {
     _isApplying = false;
     // Resume observation if page wasn't blocked
     if (!document.getElementById("ps-block-overlay")) {
-      observer.observe(document.body, { childList: true, subtree: true });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
   }
+};
+
+const showBlockOverlay = (term: string, category: string) => {
+  if (document.getElementById("ps-block-overlay")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "ps-block-overlay";
+  overlay.style.cssText = "position:fixed;inset:0;background:#020617;color:#fafafa;display:flex;align-items:center;justify-content:center;z-index:2147483647;flex-direction:column;font-family:system-ui,-apple-system,sans-serif;text-align:center;padding:40px;";
+  overlay.innerHTML = `
+      <div style="margin-bottom:32px;padding:24px;background:rgba(129,236,255,0.1);border-radius:100%;border:2px solid rgba(129,236,255,0.2);box-shadow:0 0 40px rgba(129,236,255,0.1);">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#81ecff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      </div>
+      <h1 style="color:#81ecff;margin-bottom:16px;font-size:36px;font-weight:900;letter-spacing:0.02em;text-transform:uppercase;">Privacy Sentinel Active</h1>
+      <p style="font-size:18px;opacity:0.7;max-width:500px;line-height:1.6;margin-bottom:32px;">This page has been blocked because it contains content restricted by your ${category}.</p>
+      
+      <div style="margin-bottom:40px;padding:16px 32px;background:rgba(129,236,255,0.05);border:1px solid rgba(129,236,255,0.15);border-radius:16px;display:inline-block;">
+        <span style="font-size:11px;text-transform:uppercase;font-weight:800;color:#81ecff;opacity:0.6;display:block;margin-bottom:6px;letter-spacing:0.1em;">Detection Match</span>
+        <span style="font-size:20px;font-weight:bold;color:#fff;">"${term}"</span>
+      </div>
+
+      <div style="display:flex;gap:16px;width:100%;max-width:440px;justify-content:center;">
+        <button id="ps-ignore-btn" style="padding:16px 48px;background:#81ecff;color:#020617;border:none;border-radius:14px;font-weight:900;cursor:pointer;text-transform:uppercase;letter-spacing:0.05em;transition:all 0.2s;font-size:14px;box-shadow:0 8px 20px rgba(129,236,255,0.2);">Continue Anyway</button>
+      </div>
+  `;
+  document.body.appendChild(overlay);
+  document.body.style.overflow = "hidden";
+  
+  document.getElementById("ps-ignore-btn")?.addEventListener("click", () => {
+    _isTempBypass = true;
+    document.getElementById("ps-block-overlay")?.remove();
+    document.body.style.overflow = "auto";
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  });
 };
 
 const observer = new MutationObserver((mutations) => {
   if (!_isProtectionActive || !_isFilteringEnabled) return;
   for (const mutation of mutations) {
+    if (mutation.type === "characterData") {
+      applyFiltering(mutation.target.parentElement || document.body);
+      continue;
+    }
     for (const node of mutation.addedNodes) {
       if (node.nodeType === Node.ELEMENT_NODE) {
         applyFiltering(node);
@@ -400,7 +421,7 @@ const init = async () => {
         // Handle instant toggle reaction
         if (_isProtectionActive && _isFilteringEnabled) {
           applyFiltering(document.body);
-          observer.observe(document.body, { childList: true, subtree: true });
+          observer.observe(document.body, { childList: true, subtree: true, characterData: true });
         } else if (oldState && !_isFilteringEnabled) {
           document.getElementById("ps-block-overlay")?.remove();
           document.body.style.overflow = "auto";
@@ -436,7 +457,7 @@ const init = async () => {
       runAutoTranslate();
       if (_isFilteringEnabled) {
         applyFiltering();
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
       }
     }
   }
@@ -455,7 +476,7 @@ const init = async () => {
       
       if (_isProtectionActive && _isFilteringEnabled) {
         applyFiltering(document.body);
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
       } else {
         document.getElementById("ps-block-overlay")?.remove();
         document.body.style.overflow = "auto";

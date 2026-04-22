@@ -50,10 +50,27 @@ export function DesktopApp({
   useEffect(() => {
     if (typeof window !== 'undefined' && !localStorage.getItem('ps_tutorial_seen')) {
       setShouldFlashTutorial(true);
-      const timer = setTimeout(() => setShouldFlashTutorial(false), 5000);
-      return () => clearTimeout(timer);
+      // Multi-flash sequence
+      anime.timeline({ loop: 3 })
+        .add({
+          targets: '.tut-btn-flash',
+          scale: [1, 1.1, 1],
+          opacity: [1, 0.7, 1],
+          duration: 1000,
+          easing: 'easeInOutQuad'
+        })
+        .add({
+          targets: '.tut-btn-flash',
+          duration: 500
+        });
     }
   }, []);
+
+  const closeTutorial = () => {
+    setShowTutorial(false);
+    if (typeof window !== 'undefined') localStorage.setItem('ps_tutorial_seen', 'true');
+    setShouldFlashTutorial(false);
+  };
   
   const powerBtnRef = useRef<HTMLButtonElement>(null);
   const powerBtnContainerRef = useRef<HTMLDivElement>(null);
@@ -249,13 +266,14 @@ export function DesktopApp({
             <span className={`font-headline font-extrabold text-xl tracking-tighter ${colors.text}`}>PRIVACY SENTINEL</span>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             <button
               onClick={() => setShowTutorial(true)}
-              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95 ${shouldFlashTutorial ? 'animate-pulse' : ''}`}
+              className={`tut-btn-flash flex items-center gap-2 px-5 py-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95 ${shouldFlashTutorial ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400' : ''}`}
               title="Help"
             >
-              <HelpCircle className={`w-4 h-4 ${shouldFlashTutorial ? colors.accent.replace('bg-', 'text-') : colors.textSecondary}`} />
+              <HelpCircle className={`w-5 h-5 ${shouldFlashTutorial ? 'text-emerald-400' : colors.textSecondary}`} />
+              <span className={`text-[10px] font-black tracking-widest ${shouldFlashTutorial ? 'text-emerald-400' : colors.textSecondary}`}>TUTORIAL</span>
             </button>
             <button
               onClick={() => {
@@ -263,120 +281,128 @@ export function DesktopApp({
                 const next = themes[(themes.indexOf(theme as Theme) + 1) % themes.length];
                 setTheme?.(next);
               }}
-              className={`p-2.5 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95`}
+              className={`p-3 rounded-xl transition-all border ${colors.border} ${colors.bgSecondary} hover:scale-105 active:scale-95`}
               title={`Theme: ${theme}`}
             >
-              <Palette className={`w-4 h-4 ${colors.textSecondary}`} />
+              <Palette className={`w-5 h-5 ${colors.textSecondary}`} />
             </button>
           </div>
         </nav>
 
         {/* Central Controller Hub */}
-        <div className="flex flex-col items-center max-w-4xl w-full px-6">
-          <div ref={powerBtnContainerRef} className="relative w-96 h-96 flex items-center justify-center anim-entry">
-            {protection.isActive && !loading && (
-               <div className={`absolute inset-0 shield-orbit-ring scale-100 opacity-20 ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
-            )}
-            { (protection.isActive && loading) && (
-              <>
-                <div className={`absolute inset-0 shield-orbit-ring scale-100 opacity-20 animate-radar-sweep ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
-                <div className={`absolute inset-12 shield-orbit-ring scale-100 opacity-30 animate-radar-sweep [animation-direction:reverse] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
-                <div className={`absolute inset-24 shield-orbit-ring scale-100 opacity-50 animate-radar-sweep [animation-duration:3s] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
-              </>
-            )}
+        <div className="flex flex-col items-center max-w-5xl w-full px-12">
+          
+          <div className="w-full flex flex-row items-center justify-between gap-12">
             
-            <button 
-              ref={powerBtnRef}
-              onClick={handleProtectionToggleWithLightning}
-              onMouseEnter={() => handleInteraction(powerBtnRef.current, 'enter')}
-              onMouseLeave={() => handleInteraction(powerBtnRef.current, 'leave')}
-              onMouseDown={() => handleInteraction(powerBtnRef.current, 'down')}
-              onMouseUp={() => handleInteraction(powerBtnRef.current, 'up')}
-              disabled={loading}
-              className={`
-                relative group w-48 h-48 rounded-full p-[2px] transition-all shadow-xl
-                ${protection.isActive 
-                  ? (isDark ? 'bg-linear-to-br from-cyan-400 to-blue-500 shadow-[0_0_60px_rgba(0,229,255,0.4)]' : 'bg-linear-to-br from-blue-500 to-emerald-500 shadow-[0_0_40px_rgba(37,99,235,0.3)]')
-                  : 'bg-linear-to-br from-slate-700 to-slate-800 opacity-80'}
-              `}
-            >
-              <div className={`
-                w-full h-full rounded-full flex flex-col items-center justify-center gap-2 transition-colors
-                ${protection.isActive ? "bg-transparent" : `${colors.bgSecondary} group-hover:bg-transparent`}
-              `}>
-                {loading ? (
-                  <RefreshCw className={`w-12 h-12 animate-spin ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />
-                ) : (
-                  <Shield className={`w-12 h-12 transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`} />
-                )}
-                <span className={`font-headline font-bold text-xs tracking-[0.2em] transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`}>
-                  {protection.isActive ? "SECURE" : "SHIELD"}
-                </span>
-              </div>
-            </button>
-            {(loading || statusMessage) && (
-              <div className="absolute bottom-0 translate-y-full pt-4 flex items-center gap-2 justify-center w-full">
-                {loading && <RefreshCw className={`w-3 h-3 animate-spin flex-shrink-0 ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />}
-                <span className={`font-label text-[11px] tracking-[0.15em] uppercase animate-pulse text-center ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}>
-                  {statusMessage || (loading ? 'Connecting...' : '')}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Analytics & Controls Section */}
-          <div className="mt-12 w-full grid grid-cols-1 md:grid-cols-2 gap-8 items-start anim-entry">
-            <div className="flex flex-col gap-6">
-              <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Security Analytics</div>
-              <div className="grid grid-cols-1 gap-4">
-                <div className={`${colors.bgSecondary} backdrop-blur-md p-6 rounded-xl border ${colors.border} shadow-inner flex justify-between items-center hover:scale-[1.02] hover:shadow-lg transition-all duration-300 cursor-default`}>
-                  <div className={`font-label text-[10px] tracking-wider ${colors.textSecondary} uppercase`}>Latency</div>
-                  <div className={`font-headline text-3xl font-extrabold ${colors.success} mb-1`}>{selectedServer ? (pings[selectedServer.id] || 0) : 0} ms</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-col gap-6">
-              <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Vault Controls</div>
-              <div className="flex flex-col gap-3">
-                <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-4 rounded-xl border ${colors.border} shadow-inner hover:scale-[1.02] hover:shadow-lg transition-all duration-300`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <Map className={`w-5 h-5 ${colors.success}`} />
-                      <span className={`font-medium text-sm ${colors.text}`}>VPN Encryption</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <button 
-                        onClick={() => setIsMapMode(true)}
-                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${isDark ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'} border text-[10px] font-black hover:bg-opacity-20 transition-all uppercase tracking-widest`}
-                      >
-                        <Map className="w-3 h-3" />
-                        Location
-                      </button>
-                      <button 
-                        onClick={onVpnToggle}
-                        className={`w-12 h-6 rounded-full relative transition-colors ${protection.vpnEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100`}
-                      >
-                        <div className={`absolute top-1 w-4 h-4 rounded-full transition-all ${protection.vpnEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
-                      </button>
+            {/* Left Column: Toggles on top, Latency below */}
+            <div className="flex-1 flex flex-col gap-8 anim-entry">
+              
+              <div className="flex flex-col gap-4">
+                <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Vault Controls</div>
+                <div className="flex flex-col gap-3">
+                  <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-5 rounded-2xl border ${colors.border} shadow-inner hover:scale-[1.02] hover:shadow-lg transition-all duration-300`}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <Map className={`w-6 h-6 ${colors.success}`} />
+                        <span className={`font-bold text-sm tracking-wide ${colors.text}`}>VPN Encryption</span>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <button 
+                          onClick={() => setIsMapMode(true)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-xl ${isDark ? 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400' : 'bg-blue-500/10 border-blue-500/20 text-blue-600'} border text-[10px] font-black hover:bg-opacity-20 transition-all uppercase tracking-widest`}
+                        >
+                          <Map className="w-3.5 h-3.5" />
+                          Location
+                        </button>
+                        <button 
+                          onClick={onVpnToggle}
+                          className={`w-14 h-7 rounded-full relative transition-colors ${protection.vpnEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100`}
+                        >
+                          <div className={`absolute top-1 w-5 h-5 rounded-full transition-all ${protection.vpnEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-4 rounded-xl flex items-center justify-between border ${colors.border} shadow-inner hover:scale-[1.02] hover:shadow-lg transition-all duration-300`}>
-                  <div className="flex items-center gap-4">
-                    <Shield className={`w-5 h-5 ${colors.success}`} />
-                    <span className={`font-medium text-sm ${colors.text}`}>Adblock Protocol</span>
+                  <div className={`${colors.bgSecondary} backdrop-blur-md px-6 py-5 rounded-2xl flex items-center justify-between border ${colors.border} shadow-inner hover:scale-[1.02] hover:shadow-lg transition-all duration-300`}>
+                    <div className="flex items-center gap-4">
+                      <Shield className={`w-6 h-6 ${colors.success}`} />
+                      <span className={`font-bold text-sm tracking-wide ${colors.text}`}>Adblock Protocol</span>
+                    </div>
+                    <button
+                      onClick={onAdblockToggle}
+                      className={`w-14 h-7 rounded-full relative transition-colors ${protection.adblockEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100 cursor-pointer`}
+                    >
+                      <div className={`absolute top-1 w-5 h-5 rounded-full transition-all ${protection.adblockEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
+                    </button>
                   </div>
-                  <button
-                    onClick={onAdblockToggle}
-                    className={`w-12 h-6 rounded-full relative transition-colors ${protection.adblockEnabled ? (isDark ? 'bg-cyan-400' : 'bg-blue-600') : 'bg-slate-700/50'} active:scale-90 duration-100 cursor-pointer`}
-                  >
-                    <div className={`absolute top-1 w-4 h-4 rounded-full transition-all ${protection.adblockEnabled ? 'right-1 bg-white shadow-sm' : 'left-1 bg-slate-400'}`}></div>
-                  </button>
-                </div>              </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                <div className={`font-label text-[10px] tracking-widest uppercase font-bold ${colors.textSecondary} pl-2`}>Security Analytics</div>
+                <div className={`${colors.bgSecondary} backdrop-blur-md p-8 rounded-2xl border ${colors.border} shadow-inner flex justify-between items-center hover:scale-[1.02] hover:shadow-lg transition-all duration-300 cursor-default`}>
+                  <div className={`font-label text-[10px] tracking-widest ${colors.textSecondary} uppercase font-black`}>Connection Latency</div>
+                  <div className={`font-headline text-4xl font-extrabold ${colors.success}`}>{selectedServer ? (pings[selectedServer.id] || 0) : 0} <span className="text-sm opacity-60">ms</span></div>
+                </div>
+              </div>
+
             </div>
+
+            {/* Right Column: Power Button */}
+            <div ref={powerBtnContainerRef} className="relative w-[450px] h-[450px] flex items-center justify-center anim-entry">
+              {protection.isActive && !loading && (
+                 <div className={`absolute inset-0 shield-orbit-ring scale-110 opacity-20 ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+              )}
+              { (protection.isActive && loading) && (
+                <>
+                  <div className={`absolute inset-0 shield-orbit-ring scale-110 opacity-20 animate-radar-sweep ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+                  <div className={`absolute inset-16 shield-orbit-ring scale-100 opacity-30 animate-radar-sweep [animation-direction:reverse] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+                  <div className={`absolute inset-32 shield-orbit-ring scale-90 opacity-50 animate-radar-sweep [animation-duration:3s] ${isDark ? 'border-cyan-400' : 'border-blue-500'}`}></div>
+                </>
+              )}
+              
+              <button 
+                ref={powerBtnRef}
+                onClick={handleProtectionToggleWithLightning}
+                onMouseEnter={() => handleInteraction(powerBtnRef.current, 'enter')}
+                onMouseLeave={() => handleInteraction(powerBtnRef.current, 'leave')}
+                onMouseDown={() => handleInteraction(powerBtnRef.current, 'down')}
+                onMouseUp={() => handleInteraction(powerBtnRef.current, 'up')}
+                disabled={loading}
+                className={`
+                  relative group w-64 h-64 rounded-full p-[3px] transition-all shadow-2xl
+                  ${protection.isActive 
+                    ? (isDark ? 'bg-linear-to-br from-cyan-400 to-blue-500 shadow-[0_0_80px_rgba(0,229,255,0.5)]' : 'bg-linear-to-br from-blue-500 to-emerald-500 shadow-[0_0_50px_rgba(37,99,235,0.4)]')
+                    : 'bg-linear-to-br from-slate-700 to-slate-800 opacity-90'}
+                `}
+              >
+                <div className={`
+                  w-full h-full rounded-full flex flex-col items-center justify-center gap-3 transition-colors
+                  ${protection.isActive ? "bg-transparent" : `${colors.bgSecondary} group-hover:bg-transparent`}
+                `}>
+                  {loading ? (
+                    <RefreshCw className={`w-16 h-16 animate-spin ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />
+                  ) : (
+                    <Shield className={`w-16 h-16 transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`} />
+                  )}
+                  <span className={`font-headline font-black text-sm tracking-[0.3em] transition-colors ${protection.isActive ? (theme === 'frutiger-aero' || theme === 'light' ? 'text-white' : 'text-[#00363d]') : (isDark ? "text-cyan-400" : "text-blue-600") + " group-hover:text-white"}`}>
+                    {protection.isActive ? "ACTIVE" : "PROTECT"}
+                  </span>
+                </div>
+              </button>
+              {(loading || statusMessage) && (
+                <div className="absolute bottom-4 flex items-center gap-3 justify-center w-full">
+                  {loading && <RefreshCw className={`w-4 h-4 animate-spin flex-shrink-0 ${isDark ? 'text-cyan-400' : 'text-blue-600'}`} />}
+                  <span className={`font-label text-xs font-black tracking-[0.2em] uppercase animate-pulse text-center ${isDark ? 'text-cyan-400' : 'text-blue-600'}`}>
+                    {statusMessage || (loading ? 'Initializing...' : '')}
+                  </span>
+                </div>
+              )}
+            </div>
+
           </div>
+
         </div>
       </div>
 
@@ -418,10 +444,7 @@ export function DesktopApp({
       </div>
 
       {showTutorial && (
-        <Tutorial onClose={() => {
-          setShowTutorial(false);
-          if (typeof window !== 'undefined') localStorage.setItem('ps_tutorial_seen', 'true');
-        }} />
+        <Tutorial onClose={closeTutorial} />
       )}
     </div>
   );

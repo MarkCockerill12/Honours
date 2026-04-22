@@ -64,6 +64,7 @@ export interface SmartFilter {
   unlessWord: string;   // if this word exists in the same paragraph, skip filtering
   exceptWhen: string;   // domain exclusion list (comma-separated) — kept for legacy
   enabled: boolean;
+  isPreset?: boolean;   // if true, cannot be deleted
   blockScope?: FilterScope;  // what to match: word | paragraph | page-warning
   filterStyle?: FilterStyle; // how to render: blur | redact | highlight | kitten
 }

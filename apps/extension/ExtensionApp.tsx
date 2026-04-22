@@ -362,11 +362,11 @@ export default function ExtensionApp({
                 </div>
                 <div className="flex flex-col items-center min-h-[20px] justify-center mt-0">
                   {vpnLoadingMessage ? (
-                    <span className="text-[8px] text-amber-400 font-black animate-pulse uppercase tracking-widest text-center px-4">
+                    <span className={`text-[8px] ${theme === 'light' || theme === 'frutiger-aero' ? 'text-amber-600' : 'text-amber-400'} font-black animate-pulse uppercase tracking-widest text-center px-4`}>
                       {vpnLoadingMessage}
                     </span>
                   ) : isVpnLoading ? (
-                    <span className="text-[8px] text-amber-400 font-black animate-pulse uppercase tracking-widest">
+                    <span className={`text-[8px] ${theme === 'light' || theme === 'frutiger-aero' ? 'text-amber-600' : 'text-amber-400'} font-black animate-pulse uppercase tracking-widest`}>
                       Initializing Connection...
                     </span>
                   ) : protection.isActive && (

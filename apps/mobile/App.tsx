@@ -144,7 +144,7 @@ function PrivacySentinelApp() {
     );
     rotationLoop.current.start();
 
-    console.log('[VPN] VpnPermission module status:', !!VpnPermission ? 'Loaded' : 'MISSING');
+    console.log('[VPN] VpnPermission module status:', VpnPermission ? 'Loaded' : 'MISSING');
 
     // Listen for native disconnect (from notification bar)
     const subscription = VpnEventEmitter.addListener('onNativeDisconnect', () => {
@@ -462,8 +462,11 @@ function PrivacySentinelApp() {
           <TouchableWithoutFeedback onPress={() => setShowDnsConfig(false)}>
             <View style={styles.modalBackdrop}>
               <TouchableWithoutFeedback>
-                <View style={[styles.modalBody, { backgroundColor: ct.bg, height: height * 0.8 }]}>
-                  <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={[styles.modalBody, { backgroundColor: ct.bg, height: height * 0.85, paddingBottom: 20 }]}>
+                  <ScrollView 
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={{ paddingBottom: 60 }}
+                  >
                     <Text style={[styles.modalTitle, { color: ct.text }]}>DNS-LEVEL AD BLOCKING</Text>
                     <Text style={[styles.dnsDesc, { color: ct.text }]}>
                       DNS ad blocking works across your entire device — not just this app. It blocks ads, trackers, and malicious domains at the network level.
@@ -624,7 +627,7 @@ const styles = StyleSheet.create({
   serverCardPing: { fontSize: 12, fontWeight: '800', marginRight: 8 },
   serverActiveIndicator: { width: 8, height: 8, borderRadius: 4 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
-  modalBody: { padding: 32, borderTopLeftRadius: 40, borderTopRightRadius: 40, height: height * 0.7, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
+  modalBody: { padding: 32, borderTopLeftRadius: 40, borderTopRightRadius: 40, height: height * 0.85, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
   modalTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 20 },
   serverRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 22, borderBottomWidth: 0.5, borderBottomColor: 'rgba(255,255,255,0.05)' },
   serverRowName: { fontSize: 15, fontWeight: '700', letterSpacing: 1 },
