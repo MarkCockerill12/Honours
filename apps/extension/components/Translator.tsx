@@ -28,7 +28,8 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 export function Translator() {
-  const [targetLang, setTargetLang] = useState("es");
+  const [targetLang, setTargetLang] = useState("es");   // manual "translate to"
+  const [autoLang, setAutoLang] = useState("es");        // auto-translate default language
   const [isAutoTranslate, setIsAutoTranslate] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [status, setStatus] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -38,8 +39,9 @@ export function Translator() {
   useEffect(() => {
     const loadState = async () => {
       if (typeof chrome !== "undefined" && chrome.storage?.local) {
-        const res = await chrome.storage.local.get(["translatorTargetLang", "isAutoTranslate"]);
+        const res = await chrome.storage.local.get(["translatorTargetLang", "translatorAutoLang", "isAutoTranslate"]);
         if (res.translatorTargetLang) setTargetLang(res.translatorTargetLang);
+        if (res.translatorAutoLang) setAutoLang(res.translatorAutoLang);
         if (typeof res.isAutoTranslate === "boolean") setIsAutoTranslate(res.isAutoTranslate);
       }
     };
@@ -92,6 +94,7 @@ export function Translator() {
   };
 
   const currentLangName = SUPPORTED_LANGUAGES.find(l => l.code === targetLang)?.name || "Select Language";
+  const currentAutoLangName = SUPPORTED_LANGUAGES.find(l => l.code === autoLang)?.name || "Select Language";
 
   return (
     <section className={`${colors.bgSecondary} rounded-2xl p-4 space-y-4 border ${colors.border} shadow-sm`}>
@@ -128,8 +131,9 @@ export function Translator() {
           </button>
         </div>
 
-        {/* Language Selection Row */}
+        {/* Translate To — always visible */}
         <div className="flex items-center gap-2">
+          <span className={`text-[9px] font-black uppercase tracking-widest ${colors.textSecondary} whitespace-nowrap`}>Translate to:</span>
           <div className="flex-1">
             <Select value={targetLang} onValueChange={(val) => {
               setTargetLang(val);
@@ -150,6 +154,32 @@ export function Translator() {
             </Select>
           </div>
         </div>
+
+        {/* Auto default language — only visible when auto is on */}
+        {isAutoTranslate && (
+          <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
+            <span className="text-[9px] font-black uppercase tracking-widest text-amber-500 whitespace-nowrap">Auto to:</span>
+            <div className="flex-1">
+              <Select value={autoLang} onValueChange={(val) => {
+                setAutoLang(val);
+                if (typeof chrome !== "undefined" && chrome.storage?.local) {
+                  chrome.storage.local.set({ translatorAutoLang: val });
+                }
+              }}>
+                <SelectTrigger className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 h-10 w-full shadow-inner pointer-events-auto hover:bg-amber-500/15 transition-colors">
+                  <SelectValue className="text-[10px] font-bold text-amber-500" placeholder={currentAutoLangName} />
+                </SelectTrigger>
+                <SelectContent className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100`}>
+                  {SUPPORTED_LANGUAGES.map((lang) => (
+                    <SelectItem key={lang.code} value={lang.code} className={`text-[10px] uppercase font-bold tracking-wider ${theme === 'dark' || theme === 'vaporwave' ? 'text-white' : 'text-zinc-900'}`}>
+                      {lang.flag} {lang.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        )}
       </div>
 
       {status && (

@@ -1,7 +1,10 @@
 export type Theme = "dark" | "light" | "vaporwave" | "frutiger-aero" | "cyberpunk";
 export type Platform = "extension" | "mobile" | "desktop";
 export type BlurMethod = "blackbar" | "blur" | "kitten" | "warning";
-export type BlockScope = "word" | "paragraph" | "page-warning";
+export type FilterScope = "word" | "paragraph" | "page-warning";
+export type FilterStyle = "blur" | "redact" | "highlight" | "kitten";
+// Legacy alias kept for backwards compatibility
+export type BlockScope = FilterStyle | "page-warning";
 
 export interface ThemeColors {
   bg: string;
@@ -58,9 +61,11 @@ export interface SmartFilter {
   id: string;
   name?: string;
   blockTerm: string;
-  exceptWhen: string;
+  unlessWord: string;   // if this word exists in the same paragraph, skip filtering
+  exceptWhen: string;   // domain exclusion list (comma-separated) — kept for legacy
   enabled: boolean;
-  blockScope?: BlockScope; // 'word' = just the word, 'paragraph' = entire paragraph, 'page-warning' = warn before entering
+  blockScope?: FilterScope;  // what to match: word | paragraph | page-warning
+  filterStyle?: FilterStyle; // how to render: blur | redact | highlight | kitten
 }
 
 export interface ServerLocation {

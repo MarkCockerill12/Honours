@@ -22,5 +22,10 @@ contextBridge.exposeInMainWorld("electron", {
     provision: (serverId) => ipcRenderer.invoke("vpn:provision", serverId),
     deprovision: (serverId) => ipcRenderer.invoke("vpn:deprovision", serverId),
     getStatus: () => ipcRenderer.invoke("vpn:get-status"),
+    onStatus: (callback) => {
+      const listener = (_event, message) => callback(message);
+      ipcRenderer.on("vpn:status", listener);
+      return () => ipcRenderer.removeListener("vpn:status", listener);
+    },
   },
 });

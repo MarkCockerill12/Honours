@@ -3,12 +3,12 @@
 @source "../../../packages/core/src";
 
 /* Import Design Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-headline: "Space Grotesk", sans-serif;
+  --font-headline: "Inter", sans-serif;
   --font-body: "Inter", sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
@@ -157,15 +157,24 @@ html {
   overflow: hidden;
 }
 
+[data-theme="vaporwave"] body,
+[data-theme="vaporwave"] .vaporwave-grid {
+  background:
+    linear-gradient(180deg, transparent 0%, #0a0015 100%),
+    repeating-linear-gradient(90deg, #b967ff22 0px, transparent 1px, transparent 60px),
+    repeating-linear-gradient(0deg, #b967ff22 0px, transparent 1px, transparent 60px);
+  background-size: 100% 100%, 60px 60px, 60px 60px;
+}
+
+[data-theme="frutiger-aero"] body {
+  background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 40%, #bae6fd 100%) !important;
+}
+
 [data-theme="frutiger-aero"] .glass-panel {
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.5) 0%, rgba(255, 255, 255, 0.2) 100%);
   border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow: 0 8px 32px rgba(31, 38, 135, 0.15), inset 0 0 10px rgba(255, 255, 255, 0.4);
   backdrop-filter: blur(8px);
-}
-
-[data-theme="frutiger-aero"] body {
-  background: linear-gradient(180deg, #0ea5e9 0%, #38bdf8 40%, #dcfce7 100%) !important;
 }
 
 /* DESIGN UTILITIES FROM STITCH */

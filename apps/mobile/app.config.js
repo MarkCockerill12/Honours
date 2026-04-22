@@ -50,6 +50,7 @@ module.exports = {
       wgKeyVersion: '5',
       wgClientPrivateKey: encode(process.env.WG_CLIENT_PRIVATE_KEY || 'MISSING'),
       wgServerPublicKey: encode(process.env.WG_US_PUBLIC_KEY || 'MISSING'), // Same key for all spokes
+      wgClientAddress: process.env.WG_CLIENT_ADDRESS || '172.16.10.2',
     }
   }
 };

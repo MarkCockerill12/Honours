@@ -124,7 +124,7 @@ async function safeResetDNS(adapter) {
 
 // --- Main Handler Setup ---
 
-function setupAdblockHandlers(state, _restartVpnIfActive) {
+function setupAdblockHandlers(state, updateVpnDnsIfActive) {
   
   function saveStats() {
     try {
@@ -182,8 +182,8 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
         try { state.adBlocker.disableBlockingInSession(require('electron').session.defaultSession); } catch { /* ignore */ }
         state.adBlocker = null;
       }
-      // If VPN is active, we must restart it to reset DNS in the config
-      if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
+      // If VPN is active, update the tunnel DNS to reflect reset state
+      await updateVpnDnsIfActive();
       
       console.log("[AdBlock] OK: Force Reset complete.");
       return { success: true, message: "System cleaned." };
@@ -216,8 +216,8 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
       const isVpnActive = !!state.activeVpnConfig?.Id;
 
       if (isVpnActive) {
-        console.log("[AdBlock] VPN is active. Restarting tunnel to inject Protected DNS...");
-        if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
+        console.log("[AdBlock] VPN is active. Updating tunnel DNS to inject Protected DNS...");
+        await updateVpnDnsIfActive();
       } else {
         const adapter = await getActiveAdapter();
         if (!adapter) {
@@ -252,12 +252,15 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
     console.log("[AdBlock] Disabling Protection...");
     state.adblockEnabled = false;
     try {
-      await safeResetDNS();
-      
       const isVpnActive = !!state.activeVpnConfig?.Id;
       if (isVpnActive) {
-        console.log("[AdBlock] VPN is active. Restarting tunnel to restore Standard DNS...");
-        if (typeof _restartVpnIfActive === 'function') await _restartVpnIfActive();
+        // Only reset the physical adapter — never wipe the WireGuard tunnel DNS
+        const physicalAdapter = await getActiveAdapter();
+        if (physicalAdapter) await safeResetDNS(physicalAdapter);
+        console.log("[AdBlock] VPN is active. Updating tunnel DNS to restore Standard DNS...");
+        await updateVpnDnsIfActive();
+      } else {
+        await safeResetDNS();
       }
 
       if (state.adBlocker) {
@@ -294,9 +297,12 @@ function setupAdblockHandlers(state, _restartVpnIfActive) {
     }
   });
 
-  ipcMain.handle("adblock:set-intent", (_event, enabled) => {
+  ipcMain.handle("adblock:set-intent", async (_event, enabled) => {
     console.log(`[AdBlock] Intent updated: ${enabled ? 'PROTECT' : 'STANDARD'}`);
     state.adblockEnabled = !!enabled;
+    // We do NOT update the VPN DNS here because if we are enabling AdBlock,
+    // the DNS switch to AdGuard will block the download of the adblock lists (yoyo.org, easylist)
+    // The updateVpnDnsIfActive() call is already handled at the end of the enable() and disable() flows.
     return { success: true };
   });
 

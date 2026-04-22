@@ -5,6 +5,7 @@ import { scanUrl } from "./security";
 let _isProtectionActive = false;
 let _isFilteringEnabled = false;
 let _filters: SmartFilter[] = [];
+let _filterDomainExclusions: string[] = [];
 let _blurMethod: "blur" | "blackbar" | "kitten" | "warning" = "blur";
 let _isAutoScanEnabled = false;
 let _isAutoTranslate = false;
@@ -20,6 +21,8 @@ let _isTranslationActive = false;
 
 const applyFiltering = (root: Node = document.body) => {
   if (_isApplying || _isTempBypass || !_isProtectionActive || !_isFilteringEnabled || _filters.length === 0) return;
+  const currentDomain = window.location.hostname.toLowerCase();
+  if (_filterDomainExclusions.some(d => currentDomain === d || currentDomain.endsWith('.' + d))) return;
   if (document.getElementById("ps-block-overlay")) return;
 
   const activeFilters = _filters.filter(f => f.enabled && f.blockTerm.trim().length > 0);
@@ -35,13 +38,28 @@ const applyFiltering = (root: Node = document.body) => {
     let node;
     let pageBlocked = false;
 
-    while ((node = walk.nextNode()) && !pageBlocked) {
+    // Collect all text nodes upfront so DOM mutations during processing don't invalidate the walker
+    const textNodes: Text[] = [];
+    while ((node = walk.nextNode())) textNodes.push(node as Text);
+
+    for (let ni = 0; ni < textNodes.length && !pageBlocked; ni++) {
+      node = textNodes[ni];
       const text = node.textContent;
       const parent = node.parentElement;
       if (!text || !parent || parent.tagName === "SCRIPT" || parent.tagName === "STYLE" || parent.hasAttribute("data-ps-filtered")) continue;
 
       for (const filter of activeFilters) {
+        if (filter.exceptWhen) {
+          const currentDomain = window.location.hostname.toLowerCase();
+          const safeDomains = filter.exceptWhen.split(',').map(d => d.trim().toLowerCase()).filter(Boolean);
+          if (safeDomains.some(domain => currentDomain === domain || currentDomain.endsWith('.' + domain))) continue;
+        }
+        if (filter.unlessWord?.trim()) {
+          const paragraphText = (parent?.textContent || text).toLowerCase();
+          if (paragraphText.includes(filter.unlessWord.trim().toLowerCase())) continue;
+        }
         if (text.toLowerCase().includes(filter.blockTerm.toLowerCase())) {
+          // page-warning scope or page-warning style both trigger block
           if (filter.blockScope === "page-warning") {
             const overlay = document.createElement("div");
             overlay.id = "ps-block-overlay";
@@ -75,35 +93,101 @@ const applyFiltering = (root: Node = document.body) => {
             pageBlocked = true;
             break;
           } else if (filter.blockScope === "paragraph") {
-            parent.style.filter = _blurMethod === "blur" ? "blur(8px)" : "none";
-            if (_blurMethod === "blackbar") {
-              parent.style.backgroundColor = "black";
-              parent.style.color = "black";
+            // Paragraph scope: blur/redact/kitten the parent element
+            const style = filter.filterStyle || "blur";
+            if (style === "blur") {
+              parent.style.filter = "blur(8px)";
+              parent.style.cursor = "pointer";
+              parent.addEventListener("click", () => {
+                parent.style.filter = "none";
+                parent.style.cursor = "default";
+              }, { once: true });
+            } else if (style === "redact") {
+              parent.style.backgroundColor = "#000";
+              parent.style.color = "#000";
+              parent.style.cursor = "pointer";
+              parent.addEventListener("click", () => {
+                parent.style.backgroundColor = "transparent";
+                parent.style.color = "inherit";
+                parent.style.cursor = "default";
+              }, { once: true });
+            } else if (style === "kitten") {
+              const originalHtml = parent.innerHTML;
+              const catCount = Math.max(3, Math.round((parent.textContent?.length || 20) / 4));
+              parent.setAttribute("data-ps-original-html", originalHtml);
+              parent.textContent = "🐱".repeat(catCount);
+              parent.style.cursor = "pointer";
+              parent.title = "Click to reveal";
+              parent.addEventListener("click", () => {
+                parent.innerHTML = parent.getAttribute("data-ps-original-html") || originalHtml;
+                parent.removeAttribute("data-ps-original-html");
+                parent.style.cursor = "default";
+                parent.title = "";
+              }, { once: true });
             }
             parent.setAttribute("data-ps-filtered", "true");
           } else {
-            const regex = new RegExp(`(${filter.blockTerm})`, "gi");
+            // Word scope (default)
+            const style = filter.filterStyle || (filter.blockScope as string) || "blur";
+            const escaped = filter.blockTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${escaped})`, "gi");
             const parts = text.split(regex);
             const fragment = document.createDocumentFragment();
             let hasMatch = false;
-            
+
             parts.forEach(part => {
               if (part.toLowerCase() === filter.blockTerm.toLowerCase()) {
                 hasMatch = true;
                 const span = document.createElement("span");
                 span.textContent = part;
-                span.style.filter = _blurMethod === "blur" ? "blur(4px)" : "none";
-                if (_blurMethod === "blackbar") {
-                  span.style.backgroundColor = "black";
-                  span.style.color = "black";
-                }
                 span.setAttribute("data-ps-filtered", "true");
+                span.style.cursor = "pointer";
+                span.style.transition = "all 0.3s ease";
+                span.title = "Click to reveal";
+
+                if (style === "blur") {
+                  span.style.filter = "blur(4px)";
+                } else if (style === "redact") {
+                  span.style.backgroundColor = "#000";
+                  span.style.color = "#000";
+                  span.style.padding = "1px 4px";
+                  span.style.borderRadius = "2px";
+                } else if (style === "kitten") {
+                  const catCount = Math.max(1, Math.round(part.length / 3));
+                  span.textContent = "🐱".repeat(catCount);
+                  span.setAttribute("data-ps-original", part);
+                  span.style.cursor = "pointer";
+                  span.title = "Click to reveal";
+                } else if (style === "highlight") {
+                  span.style.backgroundColor = "#fbbf24";
+                  span.style.color = "#000";
+                  span.style.padding = "1px 2px";
+                  span.style.borderRadius = "2px";
+                  span.style.fontWeight = "bold";
+                  span.style.cursor = "default";
+                }
+
+                if (style !== "highlight") {
+                  span.addEventListener("click", () => {
+                    if (style === "kitten") {
+                      span.textContent = span.getAttribute("data-ps-original") || part;
+                    } else {
+                      span.style.filter = "none";
+                      span.style.backgroundColor = "transparent";
+                      span.style.color = "inherit";
+                      span.style.background = "none";
+                    }
+                    span.style.cursor = "default";
+                    span.title = "";
+                  }, { once: true });
+                }
+
                 fragment.appendChild(span);
               } else if (part.length > 0) {
                 fragment.appendChild(document.createTextNode(part));
               }
             });
-            
+
             if (hasMatch) {
               parent.replaceChild(fragment, node);
             }
@@ -327,19 +411,23 @@ const init = async () => {
         _filters = changes.filters.newValue || [];
         if (_isProtectionActive && _isFilteringEnabled) applyFiltering(document.body);
       }
+      if (changes.filterDomainExclusions) {
+        _filterDomainExclusions = changes.filterDomainExclusions.newValue || [];
+      }
     });
   }
 
   // Sync state from storage
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
-    const data = await chrome.storage.local.get(["protectionState", "filters", "blurMethod", "autoscan_enabled", "isAutoTranslate", "translatorTargetLang"]);
+    const data = await chrome.storage.local.get(["protectionState", "filters", "filterDomainExclusions", "blurMethod", "autoscan_enabled", "isAutoTranslate", "translatorAutoLang", "translatorTargetLang"]);
     _isProtectionActive = data.protectionState?.isActive ?? false;
     _isFilteringEnabled = data.protectionState?.filteringEnabled ?? false;
     _filters = data.filters ?? DEFAULT_FILTERS;
+    _filterDomainExclusions = data.filterDomainExclusions ?? [];
     _blurMethod = data.blurMethod ?? "blur";
     _isAutoScanEnabled = data.autoscan_enabled === "true";
     _isAutoTranslate = data.isAutoTranslate ?? false;
-    _targetLang = data.translatorTargetLang ?? "es";
+    _targetLang = data.translatorAutoLang ?? data.translatorTargetLang ?? "es";
 
     if (_isProtectionActive) {
       initYouTubeAdBlocker();
@@ -413,7 +501,15 @@ const init = async () => {
 };
 
 const performTranslation = async (targetLang: string) => {
-  if (_isTranslationActive) return { success: false, error: "Already active" };
+  if (_isTranslationActive) {
+    // Allow manual re-translation to override a previous auto-translate
+    if (_isAutoTranslate) {
+      translatedElements.clear();
+      _isTranslationActive = false;
+    } else {
+      return { success: false, error: "Already active" };
+    }
+  }
   _isTranslationActive = true;
 
   const walk = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);

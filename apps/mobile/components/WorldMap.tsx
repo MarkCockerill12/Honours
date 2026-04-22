@@ -10,11 +10,11 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 type ThemeName = "dark" | "light" | "vaporwave" | "frutiger-aero";
 
-const THEME_MAP_COLORS: Record<ThemeName, { fill: string; stroke: string; accent: string }> = {
-  dark: { fill: "#1e293b", stroke: "#334155", accent: "#00e5ff" },
-  light: { fill: "#cbd5e1", stroke: "#94a3b8", accent: "#2563eb" },
-  vaporwave: { fill: "#3c096c", stroke: "#7b2d8e", accent: "#ff00ff" },
-  "frutiger-aero": { fill: "#bae6fd", stroke: "#38bdf8", accent: "#22c55e" },
+const THEME_MAP_COLORS: Record<ThemeName, { fill: string; stroke: string; accent: string; dot: string }> = {
+  dark: { fill: "#1e293b", stroke: "#334155", accent: "#00e5ff", dot: "#64748b" },
+  light: { fill: "#64748b", stroke: "#475569", accent: "#2563eb", dot: "#334155" },
+  vaporwave: { fill: "#3c096c", stroke: "#7b2d8e", accent: "#ff00ff", dot: "#64748b" },
+  "frutiger-aero": { fill: "#0284c7", stroke: "#0369a1", accent: "#22c55e", dot: "#0c4a6e" },
 };
 
 interface WorldMapProps {
@@ -87,7 +87,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
         </G>
 
         {servers.map((server) => {
-          const coords = projection([server.coordinates.lng, server.coordinates.lat]);
+          if (server.lng == null || server.lat == null) return null;
+          const coords = projection([server.lng, server.lat]);
           if (!coords) return null;
           const [x, y] = coords;
           const isSelected = selectedServer?.id === server.id;
@@ -107,8 +108,8 @@ export const WorldMap: React.FC<WorldMapProps> = ({
                 cx={x}
                 cy={y}
                 r={isSelected ? 4 : 2.5}
-                fill={isSelected ? colors.accent : "#64748b"}
-                opacity={isSelected ? 1 : 0.5}
+                fill={isSelected ? colors.accent : colors.dot}
+                opacity={isSelected ? 1 : 0.7}
               />
             </G>
           );

@@ -32,6 +32,7 @@ declare global {
         provision: (serverId: string) => Promise<{ success: boolean; config?: Record<string, unknown>; error?: string }>;
         deprovision: (serverId: string) => Promise<{ success: boolean; error?: string }>;
         getStatus: () => Promise<{ active: boolean; serverId: string | null; serverIp: string | null }>;
+        onStatus?: (callback: (message: string) => void) => (() => void) | undefined;
       };
     };
   }
@@ -98,6 +99,17 @@ export default function DesktopPage() {
       return null;
     }
   }, [protection.isActive]);
+
+  // Subscribe to live VPN progress messages from the main process
+  useEffect(() => {
+    if (!isElectron()) return;
+    const api = (globalThis.window as Window).electron;
+    if (!api?.vpn?.onStatus) return;
+    const unsubscribe = api.vpn.onStatus((message: string) => {
+      setStatusInfo(message);
+    });
+    return () => { unsubscribe?.(); };
+  }, []);
 
   // Single unified sync loop
   useEffect(() => {
@@ -364,7 +376,8 @@ export default function DesktopPage() {
       const res = await api.vpn.toggle(prov.config!);
       if (res.success) {
         setServerStatuses(prev => ({ ...prev, [server.id]: "active" }));
-        setStatusInfo(res.message);
+        setStatusInfo("CONNECTED");
+        setTimeout(() => setStatusInfo(null), 3000);
       } else {
         setServerStatuses(prev => ({ ...prev, [server.id]: "off" }));
         setError(res.message);
@@ -389,12 +402,6 @@ export default function DesktopPage() {
               <button onClick={() => setError(null)}>×</button>
             </div>
           )}
-          {statusInfo && (
-            <div className="bg-blue-600/90 text-white px-4 py-3 rounded-xl shadow-2xl flex justify-between items-center backdrop-blur-md">
-              <div className="text-sm font-semibold">{statusInfo}</div>
-              <button onClick={() => setStatusInfo(null)}>×</button>
-            </div>
-          )}
         </div>
         <DesktopApp
           protection={protection}
@@ -405,6 +412,7 @@ export default function DesktopPage() {
           onReset={handleReset}
           stats={stats}
           loading={isToggling}
+          statusMessage={statusInfo}
           dnsInfo={currentDns}
           initialDns={initialDns}
           setTheme={setTheme}

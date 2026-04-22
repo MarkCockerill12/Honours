@@ -27,15 +27,15 @@ type Theme = 'dark' | 'light' | 'vaporwave' | 'frutiger-aero';
 const THEMES: Record<Theme, any> = {
   dark: { bg: '#0f172a', secondary: '#1e293b', accent: '#2dd4bf', text: '#f8fafc', dot: '#334155' },
   light: { bg: '#f8fafc', secondary: '#f1f5f9', accent: '#3b82f6', text: '#0f172a', dot: '#e2e8f0' },
-  vaporwave: { bg: '#240b36', secondary: '#4d194d', accent: '#ff00ff', text: '#00ffff', dot: '#5a189a' },
-  'frutiger-aero': { bg: '#e0f2fe', secondary: '#f0f9ff', accent: '#22c55e', text: '#0369a1', dot: '#7dd3fc' },
+  vaporwave: { bg: '#0a0015', secondary: '#1a0030', accent: '#ff6ac1', text: '#ff71ce', dot: '#3d0066' },
+  'frutiger-aero': { bg: '#f0f9ff', secondary: '#ffffff', accent: '#0ea5e9', text: '#1e3a5f', dot: '#bae6fd' },
 };
 
 const THEME_GRADIENTS: Record<Theme, string[]> = {
   dark: ['#0f172a', '#020617'],
   light: ['#f8fafc', '#f1f5f9'],
-  vaporwave: ['#240b36', '#c31432'],
-  'frutiger-aero': ['#e0f2fe', '#ffffff'],
+  vaporwave: ['#0a0015', '#1a0030'],
+  'frutiger-aero': ['#f0f9ff', '#e0f2fe'],
 };
 
 const TUTORIAL_STEPS = [
@@ -79,6 +79,45 @@ function PrivacySentinelApp() {
   const rotation = useRef(new Animated.Value(0)).current;
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
   const rotationLoop = useRef<Animated.CompositeAnimation | null>(null);
+  const LIGHTNING_COUNT = 12;
+  const [showLightning, setShowLightning] = useState(false);
+  const lightningAnims = useRef(Array.from({ length: LIGHTNING_COUNT }, () => ({
+    translateX: new Animated.Value(0),
+    translateY: new Animated.Value(0),
+    opacity: new Animated.Value(0),
+    scale: new Animated.Value(0),
+  }))).current;
+
+  const triggerLightningBurst = () => {
+    lightningAnims.forEach(a => {
+      a.translateX.setValue(0); a.translateY.setValue(0);
+      a.opacity.setValue(0); a.scale.setValue(0);
+    });
+    setShowLightning(true);
+    const RADIUS = 90; // extends well beyond the button
+    const animations = lightningAnims.map((a, i) => {
+      const angleRad = ((360 / LIGHTNING_COUNT) * i * Math.PI) / 180;
+      const dx = Math.sin(angleRad) * RADIUS;
+      const dy = -Math.cos(angleRad) * RADIUS;
+      const delay = (i * 20) + Math.random() * 40;
+      return Animated.sequence([
+        Animated.delay(delay),
+        Animated.parallel([
+          Animated.timing(a.translateX, { toValue: dx, duration: 500, easing: Easing.out(Easing.exp), useNativeDriver: true }),
+          Animated.timing(a.translateY, { toValue: dy, duration: 500, easing: Easing.out(Easing.exp), useNativeDriver: true }),
+          Animated.sequence([
+            Animated.timing(a.opacity, { toValue: 1, duration: 80, useNativeDriver: true }),
+            Animated.timing(a.opacity, { toValue: 0, duration: 420, useNativeDriver: true }),
+          ]),
+          Animated.sequence([
+            Animated.timing(a.scale, { toValue: 1.2, duration: 120, useNativeDriver: true }),
+            Animated.timing(a.scale, { toValue: 0, duration: 380, useNativeDriver: true }),
+          ]),
+        ]),
+      ]);
+    });
+    Animated.parallel(animations).start(() => setShowLightning(false));
+  };
 
   useEffect(() => {
     SecureStore.getItemAsync('has_seen_tutorial').then(seen => {
@@ -120,9 +159,23 @@ function PrivacySentinelApp() {
     };
   }, []);
 
-  const refreshPings = () => {
+  const refreshPings = async () => {
+    const regionMap: Record<string, string> = {
+      us: "us-east-1", uk: "eu-west-2", de: "eu-central-1", jp: "ap-northeast-1", au: "ap-southeast-2"
+    };
     const p: Record<string, number> = {};
-    VPN_SERVERS.forEach(s => { p[s.id] = Math.floor(Math.random() * 150) + 20; });
+    await Promise.all(VPN_SERVERS.map(async (s) => {
+      const start = Date.now();
+      try {
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 3000);
+        await fetch(`https://dynamodb.${regionMap[s.id]}.amazonaws.com`, { method: "HEAD", mode: "no-cors", signal: controller.signal });
+        clearTimeout(tid);
+        p[s.id] = Date.now() - start;
+      } catch {
+        p[s.id] = 999;
+      }
+    }));
     setPings(p);
   };
 
@@ -137,6 +190,7 @@ function PrivacySentinelApp() {
       return;
     }
 
+    triggerLightningBurst();
     setIsStarting(true);
     setVpnStatus('LOADING');
     const success = await connectVpn(selectedServer.id, protection.adblockEnabled);
@@ -198,16 +252,18 @@ function PrivacySentinelApp() {
 
   return (
     <View style={[styles.container, { backgroundColor: ct.bg }]}>
-      <StatusBar translucent backgroundColor="transparent" barStyle={theme === 'light' ? 'dark-content' : 'light-content'} />
+      <StatusBar translucent backgroundColor="transparent" barStyle={theme === 'light' || theme === 'frutiger-aero' ? 'dark-content' : 'light-content'} />
       <LinearGradient colors={THEME_GRADIENTS[theme]} style={StyleSheet.absoluteFill} />
 
       <View style={{ flex: 1, paddingTop: insets.top }}>
+        {/* Background map - centered on screen */}
+        <View style={[styles.mapBackground, { opacity: (theme === 'light' || theme === 'frutiger-aero') ? 0.35 : 0.25 }]}>
+          <WorldMap servers={VPN_SERVERS} selectedServer={selectedServer} isConnected={protection.vpnEnabled && protection.isActive} theme={theme} />
+        </View>
+
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.brandGroup}>
-            <View style={[styles.brandIcon, { backgroundColor: ct.accent }]}>
-              <ShieldIcon size={14} color={theme === 'light' ? '#fff' : '#000'} />
-            </View>
             <Text style={[styles.brandText, { color: ct.text }]}>PRIVACY SENTINEL</Text>
           </View>
           <View style={styles.headerActions}>
@@ -229,72 +285,115 @@ function PrivacySentinelApp() {
           </View>
         </View>
 
-        {/* Hero */}
-        <View style={styles.hero}>
-          <View style={[styles.mapContainer, { opacity: theme === 'light' ? 0.15 : 0.20 }]}>
-            <WorldMap servers={VPN_SERVERS} selectedServer={selectedServer} isConnected={protection.vpnEnabled && protection.isActive} theme={theme} />
-          </View>
-          <View style={styles.orbCenter}>
-            {protection.isActive && (
-              <>
-                <Animated.View style={[styles.radarSweep, { borderColor: ct.accent, transform: [{ rotate }] }]} />
-                <Animated.View style={[styles.glowRing, { borderColor: ct.accent, transform: [{ scale: pulseAnim }] }]} />
-              </>
+        {/* Scrollable content */}
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {/* Hero - power button area */}
+          <View style={styles.hero}>
+            <View style={styles.orbCenter}>
+              {protection.isActive && (
+                <>
+                  <Animated.View style={[styles.radarSweep, { borderColor: ct.accent, transform: [{ rotate }] }]} />
+                  <Animated.View style={[styles.glowRing, { borderColor: ct.accent, transform: [{ scale: pulseAnim }] }]} />
+                </>
+              )}
+              <TouchableOpacity activeOpacity={0.9} onPress={toggleProtection} disabled={isStarting} style={[styles.orb, { borderColor: protection.isActive ? ct.accent : '#334155', opacity: isStarting ? 0.7 : 1 }]}>
+                <View style={[styles.orbInner, { backgroundColor: protection.isActive ? ct.accent : 'transparent' }]}>
+                  <ShieldIcon size={40} color={protection.isActive ? (theme === 'light' ? '#fff' : '#000') : ct.accent} />
+                </View>
+              </TouchableOpacity>
+              {showLightning && lightningAnims.map((a, i) => {
+                const isVaporwave = theme === 'vaporwave';
+                const isDarkTheme = theme === 'dark' || theme === 'vaporwave';
+                const color = i % 2 === 0
+                  ? (isVaporwave ? '#ff71ce' : isDarkTheme ? '#81ecff' : '#3b82f6')
+                  : (isVaporwave ? '#b967ff' : isDarkTheme ? '#a5f3fc' : '#60a5fa');
+                const orbSize = 8 + (i % 3) * 3;
+                return (
+                  <Animated.View
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      width: orbSize,
+                      height: orbSize,
+                      borderRadius: orbSize / 2,
+                      backgroundColor: color,
+                      opacity: a.opacity,
+                      shadowColor: color,
+                      shadowOffset: { width: 0, height: 0 },
+                      shadowOpacity: 1,
+                      shadowRadius: orbSize * 1.5,
+                      elevation: 10,
+                      transform: [
+                        { translateX: a.translateX },
+                        { translateY: a.translateY },
+                        { scale: a.scale },
+                      ],
+                    }}
+                  />
+                );
+              })}
+            </View>
+            {vpnStatus === 'LOADING' ? (
+              <Text style={[styles.orbStatus, styles.orbStatusLoading, { color: ct.accent }]} numberOfLines={2}>
+                {vpnMessage || 'Connecting...'}
+              </Text>
+            ) : (
+              <Text style={[styles.orbStatus, { color: ct.accent }]}>
+                {protection.isActive ? 'PROTECTION SECURE' : 'SHIELD INACTIVE'}
+              </Text>
             )}
-            <TouchableOpacity activeOpacity={0.9} onPress={toggleProtection} disabled={isStarting} style={[styles.orb, { borderColor: protection.isActive ? ct.accent : '#334155', opacity: isStarting ? 0.7 : 1 }]}>
-              <View style={[styles.orbInner, { backgroundColor: protection.isActive ? ct.accent : 'transparent' }]}>
-                <ShieldIcon size={40} color={protection.isActive ? (theme === 'light' ? '#fff' : '#000') : ct.accent} />
+          </View>
+
+          {/* Analytics */}
+          <View style={styles.analytics}>
+            <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
+              <GlobeIcon size={16} color={ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
+              <Text style={[styles.statVal, { color: ct.accent }]}>{pings[selectedServer.id] || 0} ms</Text>
+              <Text style={styles.statKey}>LATENCY</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
+              <ShieldIcon size={16} color={vpnStatus === 'LOADING' ? '#eab308' : ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
+              <Text adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.5}
+                style={[styles.statVal, { color: vpnStatus === 'LOADING' ? '#eab308' : ct.accent, textAlign: 'center', width: '100%' }]}>
+                {vpnStatus === 'LOADING' ? 'LOADING...' : vpnStatus}
+              </Text>
+              <Text style={styles.statKey}>STATUS</Text>
+            </View>
+          </View>
+
+          {/* Controls */}
+          <View style={styles.controls}>
+            <View style={[styles.controlRow, { backgroundColor: ct.secondary }]}>
+              <View style={styles.controlInfo}>
+                <GlobeIcon size={20} color={ct.accent} />
+                <Text style={[styles.controlLabel, { color: ct.text }]}>VPN Encryption</Text>
+              </View>
+              <View style={styles.controlActions}>
+                <TouchableOpacity style={styles.nodePicker} onPress={() => setShowServerPicker(true)}>
+                  <Text style={[styles.nodePickerText, { color: ct.accent }]}>{selectedServer.id.toUpperCase()}</Text>
+                  <ChevronDownIcon size={12} color={ct.accent} style={{ marginLeft: 4 }} />
+                </TouchableOpacity>
+                <Switch value={protection.vpnEnabled} onValueChange={toggleVpn} trackColor={{ false: '#334155', true: ct.accent }} thumbColor="#fff" />
+              </View>
+            </View>
+            <TouchableOpacity style={[styles.controlRow, { backgroundColor: ct.secondary }]} onPress={() => setShowDnsConfig(true)}>
+              <View style={styles.controlInfo}>
+                <LockIcon size={20} color={ct.accent} />
+                <Text style={[styles.controlLabel, { color: ct.text }]}>Adblock Protocol</Text>
+              </View>
+              <View style={styles.actionBtn}>
+                <Text style={[styles.actionBtnText, { color: ct.accent }]}>CONFIG</Text>
+                <ExternalLinkIcon size={14} color={ct.accent} />
               </View>
             </TouchableOpacity>
           </View>
-          <Text style={[styles.orbStatus, { color: ct.accent }]}>
-            {vpnStatus === 'LOADING' ? (vpnMessage || 'CONNECTING...') : protection.isActive ? 'PROTECTION SECURE' : 'SHIELD INACTIVE'}
-          </Text>
-        </View>
 
-        {/* Analytics */}
-        <View style={styles.analytics}>
-          <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
-            <GlobeIcon size={16} color={ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
-            <Text style={[styles.statVal, { color: ct.accent }]}>{pings[selectedServer.id] || 0} ms</Text>
-            <Text style={styles.statKey}>LATENCY</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: ct.secondary, borderColor: ct.accent + '15' }]}>
-            <ShieldIcon size={16} color={vpnStatus === 'LOADING' ? '#eab308' : ct.accent} style={{ marginBottom: 6, opacity: 0.6 }} />
-            <Text adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.5}
-              style={[styles.statVal, { color: vpnStatus === 'LOADING' ? '#eab308' : ct.accent, textAlign: 'center', width: '100%' }]}>
-              {vpnStatus === 'LOADING' ? 'LOADING...' : vpnStatus}
-            </Text>
-            <Text style={styles.statKey}>STATUS</Text>
-          </View>
-        </View>
-
-        {/* Controls */}
-        <View style={styles.controls}>
-          <View style={[styles.controlRow, { backgroundColor: ct.secondary }]}>
-            <View style={styles.controlInfo}>
-              <GlobeIcon size={20} color={ct.accent} />
-              <Text style={[styles.controlLabel, { color: ct.text }]}>VPN Encryption</Text>
-            </View>
-            <View style={styles.controlActions}>
-              <TouchableOpacity style={styles.nodePicker} onPress={() => setShowServerPicker(true)}>
-                <Text style={[styles.nodePickerText, { color: ct.accent }]}>{selectedServer.id.toUpperCase()}</Text>
-                <ChevronDownIcon size={12} color={ct.accent} style={{ marginLeft: 4 }} />
-              </TouchableOpacity>
-              <Switch value={protection.vpnEnabled} onValueChange={toggleVpn} trackColor={{ false: '#334155', true: ct.accent }} thumbColor="#fff" />
-            </View>
-          </View>
-          <TouchableOpacity style={[styles.controlRow, { backgroundColor: ct.secondary }]} onPress={() => setShowDnsConfig(true)}>
-            <View style={styles.controlInfo}>
-              <LockIcon size={20} color={ct.accent} />
-              <Text style={[styles.controlLabel, { color: ct.text }]}>Adblock Protocol</Text>
-            </View>
-            <View style={styles.actionBtn}>
-              <Text style={[styles.actionBtnText, { color: ct.accent }]}>CONFIG</Text>
-              <ExternalLinkIcon size={14} color={ct.accent} />
-            </View>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
 
         {/* Server Picker Modal */}
         <Modal visible={showServerPicker} transparent animationType="slide">
@@ -452,26 +551,28 @@ export default function App() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 12 },
   brandGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   brandIcon: { width: 28, height: 28, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   brandText: { fontSize: 18, fontWeight: '900', letterSpacing: -1 },
   headerActions: { flexDirection: 'row', gap: 8 },
   circleBtn: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  hero: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  mapContainer: { ...StyleSheet.absoluteFillObject },
-  orbCenter: { width: 300, height: 300, alignItems: 'center', justifyContent: 'center' },
-  orb: { width: 140, height: 140, borderRadius: 70, borderWidth: 1, padding: 6, alignItems: 'center', justifyContent: 'center' },
-  orbInner: { width: '100%', height: '100%', borderRadius: 70, alignItems: 'center', justifyContent: 'center' },
-  radarSweep: { position: 'absolute', width: '100%', height: '100%', borderRadius: 150, borderTopWidth: 2 },
-  glowRing: { position: 'absolute', width: '100%', height: '100%', borderRadius: 150, borderWidth: 1, opacity: 0.2 },
-  orbStatus: { marginTop: 30, fontSize: 10, fontWeight: '900', letterSpacing: 4 },
-  analytics: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginBottom: 16 },
-  statCard: { flex: 1, padding: 20, borderRadius: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
-  statVal: { fontSize: 24, fontWeight: '900' },
+  mapBackground: { position: 'absolute', top: '20%', left: 0, right: 0, alignItems: 'center', justifyContent: 'center', zIndex: 0 },
+  scrollContent: { paddingBottom: 32 },
+  hero: { alignItems: 'center', paddingTop: height * 0.06, paddingBottom: 20 },
+  orbCenter: { width: 240, height: 240, alignItems: 'center', justifyContent: 'center' },
+  orb: { width: 130, height: 130, borderRadius: 65, borderWidth: 1, padding: 6, alignItems: 'center', justifyContent: 'center' },
+  orbInner: { width: '100%', height: '100%', borderRadius: 65, alignItems: 'center', justifyContent: 'center' },
+  radarSweep: { position: 'absolute', width: '100%', height: '100%', borderRadius: 120, borderTopWidth: 2 },
+  glowRing: { position: 'absolute', width: '100%', height: '100%', borderRadius: 120, borderWidth: 1, opacity: 0.2 },
+  orbStatus: { marginTop: 16, fontSize: 10, fontWeight: '900', letterSpacing: 4, textAlign: 'center' },
+  orbStatusLoading: { fontSize: 12, letterSpacing: 1, paddingHorizontal: 24, lineHeight: 20 },
+  analytics: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginBottom: 12 },
+  statCard: { flex: 1, padding: 16, borderRadius: 20, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  statVal: { fontSize: 22, fontWeight: '900' },
   statKey: { color: '#64748b', fontSize: 8, fontWeight: '900', letterSpacing: 2, marginTop: 4 },
-  controls: { paddingHorizontal: 24, gap: 10, paddingBottom: 10 },
-  controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  controls: { paddingHorizontal: 24, gap: 10, marginBottom: 12 },
+  controlRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
   controlInfo: { flexDirection: 'row', alignItems: 'center', gap: 15 },
   controlLabel: { fontSize: 14, fontWeight: '700' },
   controlActions: { flexDirection: 'row', alignItems: 'center', gap: 15 },
@@ -479,6 +580,13 @@ const styles = StyleSheet.create({
   nodePickerText: { fontSize: 10, fontWeight: '900' },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   actionBtnText: { fontSize: 10, fontWeight: '900' },
+  serverList: { paddingHorizontal: 24, gap: 8 },
+  serverListTitle: { fontSize: 11, fontWeight: '900', letterSpacing: 3, marginBottom: 8, opacity: 0.5 },
+  serverCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)' },
+  serverCardName: { fontSize: 14, fontWeight: '700', letterSpacing: 0.5 },
+  serverCardRegion: { fontSize: 10, fontWeight: '600', letterSpacing: 1, marginTop: 2 },
+  serverCardPing: { fontSize: 12, fontWeight: '800', marginRight: 8 },
+  serverActiveIndicator: { width: 8, height: 8, borderRadius: 4 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'flex-end' },
   modalBody: { padding: 32, borderTopLeftRadius: 40, borderTopRightRadius: 40, height: height * 0.7, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.1)' },
   modalTitle: { fontSize: 14, fontWeight: '900', letterSpacing: 2, marginBottom: 20 },

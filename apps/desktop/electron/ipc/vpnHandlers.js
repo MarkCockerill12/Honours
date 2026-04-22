@@ -1,4 +1,4 @@
-const { ipcMain } = require("electron");
+const { ipcMain, BrowserWindow } = require("electron");
 const { EC2Client, StartInstancesCommand, StopInstancesCommand, DescribeInstancesCommand } = require("@aws-sdk/client-ec2");
 
 // VPN Configuration
@@ -88,7 +88,12 @@ async function findInstanceByTag(client, tagName) {
   return instances.find(i => i.State?.Name === "running" || i.State?.Name === "pending") || instances[0];
 }
 
-const shutdownTimers = {};
+function sendVpnStatus(message) {
+  const wins = BrowserWindow.getAllWindows();
+  for (const win of wins) {
+    if (!win.isDestroyed()) win.webContents.send("vpn:status", message);
+  }
+}
 
 function setupVpnHandlers(state, handleVpnToggle) {
   // IPC: VPN Provision (Direct-to-Spoke Architecture)
@@ -115,6 +120,7 @@ function setupVpnHandlers(state, handleVpnToggle) {
       }
 
       // 1. Provision Spoke (Regional Server) — this is the VPN endpoint
+      sendVpnStatus("Locating secure server...");
       console.log(`[VPN Provision] Orchestrating Spoke: ${serverId} in ${region}`);
       const spokeClient = getEC2Client(region);
       const spokeTagName = EC2_TAG_NAMES[serverId];
@@ -129,16 +135,38 @@ function setupVpnHandlers(state, handleVpnToggle) {
 
       let needsWarmup = false;
       if (stateName === "stopped") {
+        sendVpnStatus("Powering up server...");
         console.log(`[VPN Provision] Starting Spoke instance: ${spokeInstance.InstanceId}`);
         await spokeClient.send(new StartInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
         needsWarmup = true;
+      } else if (stateName === "stopping" || stateName === "shutting-down") {
+        // Instance is mid-shutdown — wait up to 30s for it to reach stopped, then start it
+        sendVpnStatus("Waiting for server to finish stopping...");
+        console.log(`[VPN Provision] Spoke is ${stateName}, waiting for it to reach stopped state...`);
+        let alreadyRunning = false;
+        for (let i = 0; i < 10; i++) {
+          await new Promise(r => setTimeout(r, 3000));
+          const checkDesc = await spokeClient.send(new DescribeInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+          const checkState = checkDesc.Reservations?.[0]?.Instances?.[0]?.State?.Name;
+          if (checkState === "stopped") break;
+          if (checkState === "running") { alreadyRunning = true; break; }
+        }
+        if (!alreadyRunning) {
+          sendVpnStatus("Powering up server...");
+          console.log(`[VPN Provision] Starting Spoke after stop...`);
+          await spokeClient.send(new StartInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+          needsWarmup = true;
+        }
       } else if (stateName === "pending" || stateName === "running") {
         console.log(`[VPN Provision] Spoke instance is ${stateName}, proceeding to IP check...`);
       } else {
-        console.warn(`[VPN Provision] Spoke instance is in unexpected state: ${stateName}. This might fail.`);
+        console.warn(`[VPN Provision] Spoke instance is in unexpected state: ${stateName}. Attempting start anyway.`);
+        await spokeClient.send(new StartInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] })).catch(() => {});
+        needsWarmup = true;
       }
 
       // 2. Wait for Spoke IP
+      sendVpnStatus("Waiting for server to come online...");
       console.log(`[VPN Provision] Waiting for Spoke IP allocation...`);
       let spokeIp = "";
       for (let i = 0; i < 30; i++) {
@@ -158,21 +186,19 @@ function setupVpnHandlers(state, handleVpnToggle) {
         return { success: false, error: "Timed out waiting for server ready state." };
       }
 
+      sendVpnStatus("Server ready, initializing...");
       console.log(`[VPN Provision] ✅ Spoke Ready! IP: ${spokeIp}`);
 
       // If we just started the instances, they need time for cloud-init and WireGuard to initialize
       if (needsWarmup) {
-        console.log(`[VPN Provision] ⏳ New instance detected. Waiting 45s for WireGuard + WARP initialization...`);
-        await new Promise(r => setTimeout(r, 45000));
+        sendVpnStatus("Warming up tunnel...");
+        console.log(`[VPN Provision] ⏳ New instance detected. Waiting for server initialization...`);
+        await new Promise(r => setTimeout(r, 20000));
       }
 
-      // 3. Set Lifecycle Timer for Spoke (auto-shutdown after 30 minutes idle)
-      if (shutdownTimers[spokeInstance.InstanceId]) clearTimeout(shutdownTimers[spokeInstance.InstanceId]);
-      shutdownTimers[spokeInstance.InstanceId] = setTimeout(async () => {
-        console.log(`[Lifecycle] ⏰ Auto-shutdown: Stopping idle spoke ${spokeInstance.InstanceId} after 30min`);
-        await spokeClient.send(new StopInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] })).catch(console.error);
-        delete shutdownTimers[spokeInstance.InstanceId];
-      }, 30 * 60 * 1000); // 30 minutes
+      sendVpnStatus("Connecting...");
+
+      // 3. (Server handles auto-shutdown)
 
       // 4. Build Config — Connect DIRECTLY to Spoke
       const config = {
@@ -206,12 +232,6 @@ function setupVpnHandlers(state, handleVpnToggle) {
       if (existing?.InstanceId) {
         await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
         console.log(`[VPN Deprovision] ✅ Spoke ${existing.InstanceId} stopping.`);
-
-        // Clear shutdown timer if exists
-        if (shutdownTimers[existing.InstanceId]) {
-          clearTimeout(shutdownTimers[existing.InstanceId]);
-          delete shutdownTimers[existing.InstanceId];
-        }
       }
 
       return { success: true, message: "Server stopped." };
@@ -232,12 +252,6 @@ function setupVpnHandlers(state, handleVpnToggle) {
           if (existing?.InstanceId) {
             console.log(`[VPN Cleanup] Stopping ${existing.InstanceId}`);
             await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
-
-            // Clear timer
-            if (shutdownTimers[existing.InstanceId]) {
-              clearTimeout(shutdownTimers[existing.InstanceId]);
-              delete shutdownTimers[existing.InstanceId];
-            }
           }
         }
       }
@@ -261,4 +275,4 @@ function setupVpnHandlers(state, handleVpnToggle) {
   });
 }
 
-module.exports = { setupVpnHandlers, SERVER_REGION_MAP, EC2_TAG_NAMES, WG_PUBLIC_KEYS, getEC2Client, findInstanceByTag, shutdownTimers };
+module.exports = { setupVpnHandlers, SERVER_REGION_MAP, EC2_TAG_NAMES, WG_PUBLIC_KEYS, getEC2Client, findInstanceByTag };

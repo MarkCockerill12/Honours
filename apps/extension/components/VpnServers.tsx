@@ -40,15 +40,15 @@ export function VpnServers({
                 ${isLoading && !isSelected ? "opacity-40 cursor-not-allowed" : "active:scale-[0.98]"}
               `}
             >
-              <div className="flex items-center gap-3">
-                <span className="text-2xl leading-none" role="img" aria-label={`${server.country} flag`}>
-                  {server.flag}
-                </span>
-                <div className="flex flex-col items-start overflow-hidden">
-                  <span className={`text-sm font-bold tracking-tight truncate w-full ${isSelected ? colors.success : colors.text}`}>
-                    {server.name}
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className={`w-7 h-5 rounded flex items-center justify-center text-[9px] font-black tracking-wider flex-shrink-0 ${isSelected ? 'bg-primary/20 text-primary' : 'bg-zinc-500/10 ' + colors.textSecondary}`}>
+                  {server.id.toUpperCase()}
+                </div>
+                <div className="flex items-baseline gap-2 overflow-hidden min-w-0">
+                  <span className={`text-sm font-bold tracking-tight whitespace-nowrap ${isSelected ? colors.success : colors.text}`}>
+                    {server.name.trim()}
                   </span>
-                  <span className={`text-[10px] uppercase font-black tracking-widest truncate w-full ${colors.textSecondary} opacity-70`}>
+                  <span className={`text-[9px] uppercase font-black tracking-widest whitespace-nowrap ${colors.textSecondary} opacity-60`}>
                     {server.country}
                   </span>
                 </div>

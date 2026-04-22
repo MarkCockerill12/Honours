@@ -4,6 +4,8 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
+  --font-headline: "Inter", sans-serif;
+  --font-body: "Inter", sans-serif;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -85,7 +87,9 @@
 }
 
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback";
+  --font-headline: var(--font-headline);
+  --font-body: var(--font-body);
+  --font-sans: var(--font-body);
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -130,7 +134,7 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-body;
     margin: 0;
     padding: 0;
     overflow-x: hidden;
@@ -141,6 +145,19 @@
 html {
   width: 100%;
   height: 100%;
+}
+
+[data-theme="vaporwave"] body,
+[data-theme="vaporwave"] .vaporwave-grid {
+  background:
+    linear-gradient(180deg, transparent 0%, #0a0015 100%),
+    repeating-linear-gradient(90deg, #b967ff22 0px, transparent 1px, transparent 60px),
+    repeating-linear-gradient(0deg, #b967ff22 0px, transparent 1px, transparent 60px);
+  background-size: 100% 100%, 60px 60px, 60px 60px;
+}
+
+[data-theme="frutiger-aero"] body {
+  background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 40%, #bae6fd 100%) !important;
 }
 
 /* Custom animations for Blocker */

@@ -29,28 +29,28 @@ const themeConfigs: Record<Theme, ThemeColors> = {
     danger: "text-[#dc2626]",
   },
   vaporwave: {
-    bg: "bg-[#2b0b3f]",
-    bgSecondary: "bg-[#4a154b]",
-    text: "text-[#00ffff]",
-    textSecondary: "text-[#ffb8ff]",
-    accent: "bg-[#ff00ff]",
-    accentSecondary: "bg-[#b800b8]",
-    border: "border-[#ff00ff]/30",
-    success: "text-[#00ffff]",
-    warning: "text-[#ffee00]",
-    danger: "text-[#ff0055]",
+    bg: "bg-[#0a0015]",
+    bgSecondary: "bg-[#1a0030]",
+    text: "text-[#ff71ce]",
+    textSecondary: "text-[#b967ff]",
+    accent: "bg-[#ff6ac1]",
+    accentSecondary: "bg-[#7b2d8e]",
+    border: "border-[#3d0066]",
+    success: "text-[#05ffa1]",
+    warning: "text-[#fffb96]",
+    danger: "text-[#ff4d6a]",
   },
   "frutiger-aero": {
-    bg: "bg-[#0369a1]", 
-    bgSecondary: "bg-white/80",
-    text: "text-[#002d44]", 
-    textSecondary: "text-[#004d6e]",
-    accent: "bg-[#22c55e]",
-    accentSecondary: "bg-white/95",
-    border: "border-white/90",
-    success: "text-[#166534]",
-    warning: "text-[#854d0e]",
-    danger: "text-[#991b1b]",
+    bg: "bg-[#d0eaf8]",
+    bgSecondary: "bg-[#e8f4fd]/90",
+    text: "text-[#0c2d48]",
+    textSecondary: "text-[#2a6496]",
+    accent: "bg-[#0284c7]",
+    accentSecondary: "bg-[#bfdbfe]/60",
+    border: "border-[#7ec8e3]",
+    success: "text-[#0369a1]",
+    warning: "text-[#b45309]",
+    danger: "text-[#be123c]",
   },
   cyberpunk: {
     bg: "bg-[#000000]",
@@ -91,15 +91,15 @@ export function ThemeProvider({
 }) {
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const isDark = theme === "dark" || theme === "vaporwave" || theme === "frutiger-aero";
+    const isDark = theme === "dark" || theme === "vaporwave";
     document.documentElement.classList.toggle("dark", isDark);
     document.documentElement.setAttribute("data-theme", theme);
     
     const bgMap = {
       dark: "#09090b",
       light: "#ffffff",
-      vaporwave: "#2b0b3f",
-      "frutiger-aero": "#0369a1",
+      vaporwave: "#0a0015",
+      "frutiger-aero": "#f0f9ff",
       cyberpunk: "#000000"
     };
     document.body.style.backgroundColor = bgMap[theme];

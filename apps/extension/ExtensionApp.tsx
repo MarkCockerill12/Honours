@@ -30,6 +30,7 @@ import { SmartFilters } from "./components/SmartFilters";
 import { CyberScanner } from "./components/CyberScanner";
 import { Translator } from "./components/Translator";
 import { AdBlockExceptions } from "./components/AdBlockExceptions";
+import { FilterDomainExclusions } from "./components/FilterDomainExclusions";
 import { AiSummary } from "./components/AiSummary";
 import { VpnServers } from "./components/VpnServers";
 import { getBlockStats } from "./utils/adBlockEngine";
@@ -88,13 +89,15 @@ export default function ExtensionApp({
   const [blockStats, setBlockStats] = useState<BlockStats | null>(null);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [shouldFlashTutorial, setShouldFlashTutorial] = useState(false);
 
   useEffect(() => {
-    // Show tutorial on first install
     if (typeof chrome !== "undefined" && chrome?.storage?.local) {
       chrome.storage.local.get(["has_seen_tutorial"], (result) => {
         if (!result.has_seen_tutorial) {
-          setShowTutorial(true);
+          setShouldFlashTutorial(true);
+          const timer = setTimeout(() => setShouldFlashTutorial(false), 5000);
+          return () => clearTimeout(timer);
         }
       });
     }
@@ -183,9 +186,94 @@ export default function ExtensionApp({
     return () => clearInterval(interval);
   }, []);
 
+  const powerBtnContainerRef = useRef<HTMLDivElement>(null);
+
+  const triggerLightningBurst = (container: HTMLElement) => {
+    const isVaporwave = theme === 'vaporwave';
+    const isDarkTheme = theme === 'dark' || theme === 'vaporwave';
+    const primary = isVaporwave ? '#ff71ce' : isDarkTheme ? '#81ecff' : '#3b82f6';
+    const secondary = isVaporwave ? '#b967ff' : isDarkTheme ? '#a5f3fc' : '#60a5fa';
+    const rayCount = 10;
+    // Burst goes OUTSIDE the button — use fixed positioning relative to viewport center
+    const rect = container.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const btnR = rect.width / 2;
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = `position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:99999;overflow:visible;`;
+    document.body.appendChild(wrapper);
+
+    for (let i = 0; i < rayCount; i++) {
+      const angle = (360 / rayCount) * i + Math.random() * 12 - 6;
+      const rad = (angle * Math.PI) / 180;
+      const color = i % 2 === 0 ? primary : secondary;
+      const len = 45 + Math.random() * 35;
+      const startR = btnR + 2;
+      const endR = btnR + len;
+
+      const sx = cx + Math.sin(rad) * startR;
+      const sy = cy - Math.cos(rad) * startR;
+      const ex = cx + Math.sin(rad) * endR;
+      const ey = cy - Math.cos(rad) * endR;
+
+      // SVG lightning bolt from start to end with jagged path
+      const midX = (sx + ex) / 2 + (Math.random() - 0.5) * 14;
+      const midY = (sy + ey) / 2 + (Math.random() - 0.5) * 14;
+      const svgNS = "http://www.w3.org/2000/svg";
+      const svg = document.createElementNS(svgNS, "svg");
+      const viewSize = len + 40;
+      svg.style.cssText = `position:fixed;top:${Math.min(sy,ey,midY)-20}px;left:${Math.min(sx,ex,midX)-20}px;width:${viewSize}px;height:${viewSize}px;pointer-events:none;overflow:visible;`;
+      const path = document.createElementNS(svgNS, "path");
+      const lsx = sx - (Math.min(sx,ex,midX)-20);
+      const lsy = sy - (Math.min(sy,ey,midY)-20);
+      const lmx = midX - (Math.min(sx,ex,midX)-20);
+      const lmy = midY - (Math.min(sy,ey,midY)-20);
+      const lex = ex - (Math.min(sx,ex,midX)-20);
+      const ley = ey - (Math.min(sy,ey,midY)-20);
+      path.setAttribute("d", `M${lsx},${lsy} L${lmx},${lmy} L${lex},${ley}`);
+      path.setAttribute("stroke", color);
+      path.setAttribute("stroke-width", `${2 + Math.random() * 1.5}`);
+      path.setAttribute("fill", "none");
+      path.setAttribute("stroke-linecap", "round");
+      path.style.cssText = `filter:drop-shadow(0 0 4px ${color}) drop-shadow(0 0 8px ${color});opacity:0;`;
+      svg.appendChild(path);
+      wrapper.appendChild(svg);
+
+      // Orb at tip
+      const orb = document.createElement('div');
+      const orbSize = 5 + Math.random() * 5;
+      orb.style.cssText = `position:fixed;width:${orbSize}px;height:${orbSize}px;border-radius:50%;background:${color};left:${sx}px;top:${sy}px;transform:translate(-50%,-50%);opacity:0;box-shadow:0 0 ${orbSize*2}px ${color},0 0 ${orbSize*4}px ${color};`;
+      wrapper.appendChild(orb);
+
+      const delay = Math.random() * 80;
+      anime({ targets: path, opacity: [0, 1, 0], strokeWidth: [`${2 + Math.random()}`, '0.5'], duration: 450 + Math.random() * 150, easing: 'easeOutExpo', delay });
+      anime({
+        targets: orb,
+        opacity: [0, 1, 0],
+        translateX: ['-50%', `calc(-50% + ${(ex - sx) * 0.8}px)`],
+        translateY: ['-50%', `calc(-50% + ${(ey - sy) * 0.8}px)`],
+        scale: [0.5, 1.2, 0],
+        duration: 500 + Math.random() * 150,
+        easing: 'easeOutCubic',
+        delay,
+        complete: i === rayCount - 1 ? () => wrapper.remove() : undefined,
+      });
+    }
+
+    // Central flash
+    const flash = document.createElement('div');
+    flash.style.cssText = `position:fixed;width:${btnR * 2.2}px;height:${btnR * 2.2}px;border-radius:50%;background:radial-gradient(circle,${primary}99,transparent);left:${cx}px;top:${cy}px;transform:translate(-50%,-50%);opacity:0;pointer-events:none;`;
+    wrapper.appendChild(flash);
+    anime({ targets: flash, opacity: [0, 1, 0], scale: [0.8, 1.4, 2], duration: 380, easing: 'easeOutExpo' });
+  };
+
   const handleProtectionToggleWithLightning = async () => {
     onProtectionToggle();
     if (!protection.isActive) {
+      if (powerBtnContainerRef.current) {
+        triggerLightningBurst(powerBtnContainerRef.current);
+      }
       if (typeof chrome !== "undefined" && chrome.tabs) {
         try {
           const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -237,13 +325,12 @@ export default function ExtensionApp({
         {/* Minimal Header Area - Fixed height */}
         <header className={`w-full h-12 flex-none flex items-center justify-between px-4 z-50 border-b ${colors.border} ${colors.bgSecondary} popup-anim-item shadow-sm`}>
           <div className="flex items-center gap-2">
-            <Shield className={`w-4.5 h-4.5 ${protection.isActive ? colors.success : colors.textSecondary}`} />
             <span className={`text-sm font-bold tracking-[0.15em] font-headline uppercase ${protection.isActive ? colors.success : colors.textSecondary}`}>PRIVACY SENTINEL</span>
           </div>
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={() => setShowTutorial(true)}
-              className={`p-1.5 rounded-lg transition-colors hover:bg-zinc-500/10 ${colors.textSecondary} pointer-events-auto`}
+              className={`p-1.5 rounded-lg transition-colors hover:bg-zinc-500/10 ${colors.textSecondary} pointer-events-auto ${shouldFlashTutorial ? 'animate-pulse text-emerald-400' : ''}`}
               title="Show Tutorial"
             >
               <HelpCircle className="w-4 h-4" />
@@ -267,9 +354,10 @@ export default function ExtensionApp({
           <div ref={tabContentRef} className="flex-1 min-h-0 overflow-y-auto custom-scrollbar px-4 pt-2 pb-4">
             
             <TabsContent value="shield" className="mt-0 flex flex-col items-center justify-between h-full py-0 gap-0 overflow-hidden">
+              <div className={`w-full text-[10px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 pt-1`}>Dashboard</div>
               {/* Central Power Button Section */}
-              <div className="flex flex-col items-center gap-0 popup-anim-item">
-                <div className="hover:scale-105 active:scale-95 transition-transform duration-200 mt-0.5">
+              <div className="flex flex-col items-center gap-0 popup-anim-item pt-5">
+                <div ref={powerBtnContainerRef} className="hover:scale-105 active:scale-95 transition-transform duration-200 relative">
                   <ActivationButton protection={protection} onToggle={handleProtectionToggleWithLightning} size="md" />
                 </div>
                 <div className="flex flex-col items-center min-h-[20px] justify-center mt-0">
@@ -287,7 +375,7 @@ export default function ExtensionApp({
                         {protection.vpnEnabled ? 'VPN ACTIVE' : 'PROTECTED'}
                       </span>
                       <span className={`text-[8px] ${colors.textSecondary} uppercase tracking-tighter font-black opacity-60 leading-none mt-0.5`}>
-                        {currentServer?.name || 'Active'}
+                        {protection.vpnEnabled ? (currentServer?.name || 'Connected') : 'All Systems Online'}
                       </span>
                     </>
                   )}
@@ -324,24 +412,33 @@ export default function ExtensionApp({
             </TabsContent>
 
             <TabsContent value="vpn" className="mt-0 h-full animate-in fade-in slide-in-from-bottom-2">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-3`}>VPN Servers</div>
               <VpnServers servers={VPN_SERVERS} selectedServerId={selectedServerId} onServerSelect={handleServerSelect} isLoading={isVpnLoading} />
             </TabsContent>
 
             <TabsContent value="scanner" className="mt-0 h-full animate-in fade-in slide-in-from-bottom-2">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-3`}>Page Scanner</div>
               <CyberScanner />
             </TabsContent>
 
-            <TabsContent value="filters" className="mt-0 h-full space-y-4 animate-in fade-in slide-in-from-bottom-2">
+            <TabsContent value="filters" className="mt-0 h-full space-y-3 animate-in fade-in slide-in-from-bottom-2">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-1`}>Smart Filters</div>
               <SmartFilters filters={filters} onFiltersChange={setFilters} isActive={protection.isActive} />
               <div className={`pt-3 border-t ${colors.border}`}>
-                <AdBlockExceptions />
+                <div className={`text-[9px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-1.5`}>Domain Exclusions for Filter</div>
+                <FilterDomainExclusions />
               </div>
             </TabsContent>
 
             <TabsContent value="ai" className="mt-0 h-full space-y-4 animate-in fade-in slide-in-from-bottom-2">
+              <div className={`text-[10px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-1`}>AI Assistant</div>
               <AiSummary />
               <div className={`pt-3 border-t ${colors.border}`}>
                 <Translator />
+              </div>
+              <div className={`pt-3 border-t ${colors.border}`}>
+                <div className={`text-[9px] font-black uppercase tracking-widest ${colors.textSecondary} opacity-60 px-1 mb-1.5`}>Domain Exclusions for Ad Block</div>
+                <AdBlockExceptions />
               </div>
             </TabsContent>
           </div>
@@ -402,7 +499,7 @@ export default function ExtensionApp({
                     <button onClick={() => { closeTutorial(); setTutorialStep(0); }} className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-black tracking-wider text-[10px] transition-all active:scale-95 pointer-events-auto shadow-lg shadow-emerald-500/20">INITIALIZE</button>
                   )}
                 </div>
-                <button onClick={() => { setShowTutorial(false); setTutorialStep(0); }} className="text-[9px] text-zinc-500 font-black tracking-widest pointer-events-auto hover:text-zinc-300">SKIP</button>
+                <button onClick={() => { closeTutorial(); setTutorialStep(0); }} className="text-[9px] text-zinc-500 font-black tracking-widest pointer-events-auto hover:text-zinc-300">SKIP</button>
               </div>
             </div>
           );

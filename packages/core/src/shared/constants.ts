@@ -16,14 +16,14 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     blockTerm: "facebook",
     exceptWhen: "",
     enabled: true,
-    blockScope: "word",
+    blockScope: "blur",
   },
   {
     id: "2",
     blockTerm: "advertisement",
     exceptWhen: "",
     enabled: true,
-    blockScope: "paragraph",
+    blockScope: "redact",
   },
   {
     id: "3",
@@ -37,7 +37,7 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     blockTerm: "doubleclick",
     exceptWhen: "",
     enabled: true,
-    blockScope: "word",
+    blockScope: "blur",
   },
 ];
 

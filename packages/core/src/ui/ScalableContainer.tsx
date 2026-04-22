@@ -22,30 +22,29 @@ export function ScalableContainer({
     if (theme === "vaporwave") {
       return {
         background:
-          "linear-gradient(180deg, #1a0a2e 0%, #16213e 50%, #0f0f23 100%)",
+          "linear-gradient(180deg, #0a0015 0%, #1a0030 100%)",
         backgroundImage: `
-          linear-gradient(180deg, #1a0a2e 0%, #16213e 50%, #0f0f23 100%),
-          repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 40px,
-            rgba(244, 114, 182, 0.03) 40px,
-            rgba(244, 114, 182, 0.03) 41px
-          ),
+          linear-gradient(180deg, transparent 0%, #0a0015 100%),
           repeating-linear-gradient(
             90deg,
-            transparent,
-            transparent 40px,
-            rgba(34, 211, 238, 0.03) 40px,
-            rgba(34, 211, 238, 0.03) 41px
+            rgba(185, 103, 255, 0.13) 0px,
+            transparent 1px,
+            transparent 60px
+          ),
+          repeating-linear-gradient(
+            0deg,
+            rgba(185, 103, 255, 0.13) 0px,
+            transparent 1px,
+            transparent 60px
           )
         `,
+        backgroundSize: "100% 100%, 60px 60px, 60px 60px",
       };
     }
     if (theme === "frutiger-aero") {
       return {
         background:
-          "linear-gradient(135deg, #e0f2fe 0%, #d1fae5 50%, #cffafe 100%)",
+          "linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 40%, #bae6fd 100%)",
       };
     }
     return {};

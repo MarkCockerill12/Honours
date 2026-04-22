@@ -82,7 +82,7 @@ export async function provisionServer(serverId: string): Promise<{ ip: string } 
   }
 
   try {
-    notify("STARTING", "Powering on secure server...");
+    notify("STARTING", "Locating your server...");
     const client = getEC2Client(region);
     const tagName = EC2_TAG_NAMES[serverId];
     const instance = await findInstanceByTag(client, tagName);
@@ -97,7 +97,7 @@ export async function provisionServer(serverId: string): Promise<{ ip: string } 
       await client.send(new StartInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
     }
 
-    notify("WAITING_IP", "Acquiring secure IP...");
+    notify("WAITING_IP", "Server coming online...");
     let ip = "";
     for (let i = 0; i < 30; i++) {
       const desc = await client.send(new DescribeInstancesCommand({ InstanceIds: [instance.InstanceId!] }));
@@ -115,7 +115,7 @@ export async function provisionServer(serverId: string): Promise<{ ip: string } 
     }
 
     if (wasStopped) {
-      notify("WAITING_IP", "Waiting for services to initialize...");
+      notify("WAITING_IP", "Warming up secure tunnel...");
       await new Promise((r) => setTimeout(r, 30000));
     }
 
@@ -141,48 +141,65 @@ export async function connectVpn(serverId: string, useAdGuard: boolean = true): 
       return false;
     }
 
-    const provision = await provisionServer(serverId);
-    if (!provision) return false;
-
-    // Use shared client key (same as desktop - slot #2)
     const clientPrivateKey = decodeKey(extra.wgClientPrivateKey || "");
-    const clientIp = "172.16.10.2";
-
     if (!clientPrivateKey) {
-      notify("ERROR", "WireGuard key not configured in app.config.js");
+      notify("ERROR", "WireGuard client key not configured in app.config.js");
       return false;
     }
 
-    // Server public key is same for all spokes
     const spokePublicKey = decodeKey(extra.wgServerPublicKey || "");
-
-    notify("CONNECTING", "Establishing WireGuard tunnel...");
-    const dns = useAdGuard ? ["94.140.14.14", "94.140.15.15"] : ["1.1.1.1", "8.8.8.8"];
-
-    await WireGuardVpn.connect({
-      privateKey: clientPrivateKey,
-      publicKey: spokePublicKey,
-      endpoint: `${provision.ip}:443`,
-      address: `${clientIp}/32`,
-      allowedIPs: ["0.0.0.0/0", "::/0"],
-      dns,
-      mtu: 1280,
-      persistentKeepalive: 25,
-    });
-
-    notify("VERIFYING", "Verifying connection...");
-    await new Promise((r) => setTimeout(r, 3000));
-
-    const status = await WireGuardVpn.getStatus();
-    if (status?.tunnelState === "UP" || status?.tunnelState === "ACTIVE") {
-      notify("CONNECTED", "Protection active");
-      return true;
+    if (!spokePublicKey) {
+      notify("ERROR", "Server public key not configured in app.config.js");
+      return false;
     }
 
-    notify("CONNECTED", "Connected (verifying...)");
+    // Validate keys look like base64 WireGuard keys (44 chars)
+    if (clientPrivateKey.length < 40 || spokePublicKey.length < 40) {
+      notify("ERROR", `Key decode failed — check WG_CLIENT_PRIVATE_KEY and WG_US_PUBLIC_KEY in .env.local`);
+      console.error("[VPN] Key lengths:", clientPrivateKey.length, spokePublicKey.length);
+      return false;
+    }
+
+    // Tear down any stale tunnel before provisioning so the backend starts clean
+    try {
+      await WireGuardVpn.disconnect();
+    } catch {
+      // Ignore — nothing was connected
+    }
+
+    const provision = await provisionServer(serverId);
+    if (!provision) return false;
+
+    const clientIp = extra.wgClientAddress || "172.16.10.2";
+    const dns = useAdGuard ? ["94.140.14.14", "94.140.15.15"] : ["1.1.1.1", "8.8.8.8"];
+
+    notify("CONNECTING", "Establishing secure tunnel...");
+
+    // Fresh initialize every connect — GoBackend holds context that must be reset
+    await WireGuardVpn.initialize();
+
+    const wgConfig = {
+      privateKey: clientPrivateKey,
+      publicKey: spokePublicKey,
+      serverAddress: provision.ip,
+      serverPort: 443,
+      address: clientIp + "/32",
+      allowedIPs: ["0.0.0.0/0"],
+      dns,
+      mtu: 1420,
+    };
+
+    console.log("[VPN] Connecting to", provision.ip, "with client IP", clientIp);
+
+    // connect() is synchronous at the native level — it blocks until UP or throws
+    await WireGuardVpn.connect(wgConfig);
+
+    notify("CONNECTED", "You're protected!");
     return true;
   } catch (err: any) {
-    notify("ERROR", err.message);
+    const msg: string = err?.message ?? String(err);
+    console.error("[VPN] Connection error:", msg);
+    notify("ERROR", msg.length > 120 ? msg.substring(0, 120) + "…" : msg);
     return false;
   }
 }

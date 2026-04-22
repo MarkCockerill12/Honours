@@ -82,3 +82,7 @@ REPORT/
 .agent_memory.json
 
 .claude/
+
+
+.expo
+tools/

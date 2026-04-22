@@ -1,5 +1,5 @@
  
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
 const { exec } = require("node:child_process");
 const { promisify } = require("node:util");
@@ -123,9 +123,9 @@ async function removeBypassRoute(serverIp) {
   }
 }
 
-async function verifyConnectivity(retries = 3) {
+async function verifyConnectivity(retries = 5) {
   console.log(`[Connectivity] Verification starting (ping 8.8.8.8)...`);
-  const pingCmd = process.platform === 'win32' ? "ping -n 1 -w 5000 8.8.8.8" : "ping -c 1 -W 5 8.8.8.8";
+  const pingCmd = process.platform === 'win32' ? "ping -n 1 -w 1000 8.8.8.8" : "ping -c 1 -W 1 8.8.8.8";
   
   for (let i = 0; i < retries; i++) {
     try {
@@ -134,7 +134,7 @@ async function verifyConnectivity(retries = 3) {
       return true;
     } catch (err) {
       console.warn(`[Connectivity] Attempt ${i + 1}/${retries} failed: ${err.message}`);
-      if (i < retries - 1) await new Promise(r => setTimeout(r, 2000));
+      if (i < retries - 1) await new Promise(r => setTimeout(r, 1000));
     }
   }
   return false;
@@ -204,7 +204,7 @@ function generateWgConfig(config, dnsServers) {
 PrivateKey = ${clientPrivateKey}
 Address = ${clientIp}
 DNS = ${dnsServers}
-MTU = 1280
+MTU = 1420
 
 [Peer]
 PublicKey = ${config.PublicKey}
@@ -233,27 +233,32 @@ async function pollGateway(gateways, maxWait = 60000) {
   return { ok: false };
 }
 
+function sendVpnStatus(message) {
+  const wins = BrowserWindow.getAllWindows();
+  for (const win of wins) {
+    if (!win.isDestroyed()) win.webContents.send("vpn:status", message);
+  }
+}
+
 async function startVpn(config) {
   console.log(`[VPN Toggle] starting VPN engine...`);
   if (!config?.PublicIp) {
     console.error(`[VPN Toggle] ERROR: Invalid config received:`, config);
-    throw new Error("Invalid config.");
+    return { success: false, message: "No server config available — provision the server first." };
   }
-  
+
   const wg = await getWgCmd();
   if (!wg) throw new Error("WireGuard engine not found.");
 
   state.activeVpnConfig = config;
   
-  // Use state.adblockEnabled as the primary source of truth for the VPN DNS
   const useAdGuard = state.adblockEnabled;
-  const dnsServers = useAdGuard ? "94.140.14.14, 94.140.15.15, 2a10:50c0::ad1:ff, 2a10:50c0::ad2:ff" : "1.1.1.1, 8.8.8.8";
-  
-  console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp} (DNS: ${useAdGuard ? 'Protected' : 'Standard'})`);
-  const confContent = generateWgConfig(config, dnsServers);
+  const dnsServers = useAdGuard ? "94.140.14.14, 94.140.15.15" : "1.1.1.1, 8.8.8.8";
+
+  console.log(`[VPN Toggle] Configuring for server: ${config.Id} at ${config.PublicIp} (DNS: ${useAdGuard ? 'Protected' : 'Standard'})`);  const confContent = generateWgConfig(config, dnsServers);
   console.log(`[VPN Toggle] 📝 Generated Config (First 50 chars): ${confContent.substring(0, 50)}...`);
 
-  const vpnDataDir = path.join(app.getPath("userData"), "vpn");
+  const vpnDataDir = path.join(app.getPath("temp"), "ps-vpn");
   if (!fs.existsSync(vpnDataDir)) fs.mkdirSync(vpnDataDir, { recursive: true });
   const tunnelName = `ps-${config.Id}`;
   const persistentPath = path.join(vpnDataDir, `${tunnelName}.conf`);
@@ -268,7 +273,7 @@ async function startVpn(config) {
   
   let tunnelConfigPath = persistentPath;
   if (process.platform === 'win32') {
-    const bridgeDir = "C:\\Users\\Public\\PrivacyShield";
+    const bridgeDir = path.join(app.getPath("temp"), "PrivacyShieldBridge");
     if (!fs.existsSync(bridgeDir)) fs.mkdirSync(bridgeDir, { recursive: true });
     tunnelConfigPath = path.join(bridgeDir, `${tunnelName}.conf`);
     try {
@@ -282,6 +287,7 @@ async function startVpn(config) {
 
   state.activeVpnFile = persistentPath;
   
+  sendVpnStatus("Installing tunnel...");
   console.log(`[VPN Toggle] Installing tunnel: ${tunnelName} (via ${wg.path})`);
   try {
     await addBypassRoute(config.PublicIp);
@@ -299,19 +305,18 @@ async function startVpn(config) {
     await removeBypassRoute(config.PublicIp);
     throw err;
   }
-  
-  console.log(`[VPN Toggle] Wait for interface to initialize...`);
-  await new Promise(r => setTimeout(r, 5000));
-  
-  // Diagnostic Ping: Check if Public IP is even reachable first
-  const publicPingCmd = process.platform === 'win32' ? `ping -n 1 -w 1000 ${config.PublicIp}` : `ping -c 1 -W 1 ${config.PublicIp}`;
-  try {
-    await execAsync(publicPingCmd);
-    console.log(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is reachable.`);
-  } catch {
-    console.warn(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is NOT reachable. Server might be down or blocking ICMP.`);
-  }
 
+  console.log(`[VPN Toggle] Wait for interface to initialize...`);
+  await new Promise(r => setTimeout(r, 2000));
+
+  // Diagnostic Ping: Check if Public IP is even reachable (non-blocking)
+  const publicPingCmd = process.platform === 'win32' ? `ping -n 1 -w 1000 ${config.PublicIp}` : `ping -c 1 -W 1 ${config.PublicIp}`;
+  execAsync(publicPingCmd).then(
+    () => console.log(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is reachable.`),
+    () => console.warn(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is NOT reachable. Server might be down or blocking ICMP.`)
+  );
+
+  sendVpnStatus("Establishing secure connection...");
   const { ok, gw, time } = await pollGateway(["172.16.10.1"]);
 
   if (!ok) {
@@ -322,57 +327,58 @@ async function startVpn(config) {
   }
 
   console.log(`[Connectivity] OK: Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
-  
+
+  sendVpnStatus("Verifying connectivity...");
   const isOnline = await verifyConnectivity();
   if (isOnline) return { success: true, message: "Connected & Verified." };
 
-  console.warn(`[VPN Toggle] Tunnel established but no internet. WARP egress may need more time.`);
+  console.warn(`[VPN Toggle] Tunnel established but no internet. Server may still be initializing.`);
   const retryOnline = await verifyConnectivity(2);
   if (retryOnline) return { success: true, message: "Connected & Verified." };
 
+  // Server can take time on cold-started instances — give it one more chance
+  sendVpnStatus("Almost there...");
+  console.warn(`[VPN Toggle] Extended wait: giving server 10 more seconds...`);
+  await new Promise(r => setTimeout(r, 10000));
+  const finalRetry = await verifyConnectivity(3);
+  if (finalRetry) return { success: true, message: "Connected & Verified." };
+
   await stopVpn();
-  return { success: false, message: "Tunnel established but internet unreachable. Server may still be initializing WARP — try again in 60 seconds." };
+  return { success: false, message: "Tunnel established but internet unreachable. Server may still be initializing — try again in 60 seconds." };
 }
 
 async function handleVpnToggle(config) {
-  if (state.activeVpnFile) {
-    return await stopVpn();
-  } else {
-    return await startVpn(config);
+  if (state.isVpnToggling) {
+    return { success: false, message: "Operation in progress" };
+  }
+  state.isVpnToggling = true;
+  try {
+    if (state.activeVpnFile) {
+      return await stopVpn();
+    } else {
+      return await startVpn(config);
+    }
+  } finally {
+    state.isVpnToggling = false;
   }
 }
 
 async function updateVpnDnsIfActive() {
-  // Update DNS without restarting the tunnel by modifying Windows network adapter DNS directly
   if (!state.activeVpnFile || !state.activeVpnConfig) return;
 
-  const tunnelName = path.basename(state.activeVpnFile, '.conf');
   const useAdGuard = state.adblockEnabled;
-  const dnsServers = useAdGuard ? "94.140.14.14,94.140.15.15" : "1.1.1.1,8.8.8.8";
+  console.log(`[VPN DNS Update] → ${useAdGuard ? 'Protected (AdGuard)' : 'Standard'}`);
+  console.log(`[VPN DNS Update] Restarting tunnel to apply DNS natively...`);
+
+  // Clone config before stopVpn nullifies it
+  const config = { ...state.activeVpnConfig };
 
   try {
-    // Use netsh to update DNS on the WireGuard adapter without restarting
-    const adapterName = `WireGuardTunnel$${tunnelName}`;
-    console.log(`[VPN DNS Update] Changing DNS to: ${useAdGuard ? 'Protected' : 'Standard'} on ${adapterName}`);
-
-    // Clear existing DNS
-    await execAsync(`netsh interface ipv4 delete dns "${adapterName}" all`).catch(() => {});
-
-    // Add new DNS servers
-    const servers = dnsServers.split(',');
-    for (let i = 0; i < servers.length; i++) {
-      const cmd = i === 0
-        ? `netsh interface ipv4 set dns "${adapterName}" static ${servers[i]}`
-        : `netsh interface ipv4 add dns "${adapterName}" ${servers[i]} index=${i + 1}`;
-      await execAsync(cmd).catch(() => {});
-    }
-
-    // Flush DNS cache
-    await execAsync('ipconfig /flushdns').catch(() => {});
-    console.log(`[VPN DNS Update] ✅ DNS updated successfully without tunnel restart`);
+    await stopVpn();
+    await startVpn(config);
+    console.log(`[VPN DNS Update] ✅ DNS updated successfully with quick tunnel restart`);
   } catch (err) {
-    console.warn(`[VPN DNS Update] Failed to update DNS dynamically: ${err.message}`);
-    console.log(`[VPN DNS Update] Note: DNS will apply on next VPN connect`);
+    console.error(`[VPN DNS Update] Failed to restart tunnel: ${err.message}`);
   }
 }
 

@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -18,10 +22,20 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@privacy-shield/core": ["packages/core/src"],
-      "@privacy-shield/core/*": ["packages/core/src/*"]
+      "@privacy-shield/core": [
+        "packages/core/src"
+      ],
+      "@privacy-shield/core/*": [
+        "packages/core/src/*"
+      ]
     },
-    "types": ["node", "chrome"]
+    "types": [
+      "node",
+      "chrome"
+    ]
   },
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ],
+  "extends": "expo/tsconfig.base"
 }
