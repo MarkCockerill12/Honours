@@ -336,11 +336,51 @@ const initializeBackground = async () => {
   }
 };
 
+const WORDLIST_URL = "https://raw.githubusercontent.com/awdev1/better-profane-words/main/words.json";
+
+async function fetchAndCacheWordlists() {
+  console.log("[Background] Fetching online wordlists...");
+  try {
+    const resp = await fetch(WORDLIST_URL);
+    if (!resp.ok) throw new Error(`Failed to fetch wordlist: ${resp.status}`);
+    const words = await resp.json();
+    
+    // Process and store in local storage
+    await chrome.storage.local.set({ 
+      cachedWordlists: words,
+      wordlistsLastUpdated: Date.now() 
+    });
+    console.log("[Background] Wordlists cached successfully.");
+    
+    // Notify content scripts that filters might need updating
+    const tabs = await chrome.tabs.query({});
+    tabs.forEach(tab => {
+      if (tab.id) chrome.tabs.sendMessage(tab.id, { action: "WORDLISTS_UPDATED" }).catch(() => {});
+    });
+  } catch (err) {
+    console.error("[Background] Failed to update wordlists:", err);
+  }
+}
+
+// Set up alarm for weekly updates
+chrome.alarms.create("update-wordlists", { periodInMinutes: 7 * 24 * 60 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "update-wordlists") {
+    fetchAndCacheWordlists();
+  }
+});
+
 chrome.runtime.onInstalled.addListener(async () => {
   try {
-    const res = await chrome.storage.local.get(["protectionState", "filters"]);
+    const res = await chrome.storage.local.get(["protectionState", "filters", "cachedWordlists"]);
     if (!res.protectionState) await chrome.storage.local.set({ protectionState: DEFAULT_PROTECTION_STATE });
     if (!res.filters) await chrome.storage.local.set({ filters: DEFAULT_FILTERS });
+    
+    // Initial fetch if not present
+    if (!res.cachedWordlists) {
+      fetchAndCacheWordlists();
+    }
+    
     await initBlockStats();
     await syncState();
   } catch {

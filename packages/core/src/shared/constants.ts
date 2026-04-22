@@ -19,6 +19,7 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     isPreset: true,
     blockScope: "page-warning",
     filterStyle: "blur",
+    wordlistCategories: ["sexual"],
   },
   {
     id: "preset-violence",
@@ -28,6 +29,7 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     isPreset: true,
     blockScope: "paragraph",
     filterStyle: "blur",
+    wordlistCategories: ["violence"],
   },
   {
     id: "preset-drugs",
@@ -37,6 +39,7 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     isPreset: true,
     blockScope: "word",
     filterStyle: "redact",
+    wordlistCategories: ["drug"],
   },
   {
     id: "preset-swearing",
@@ -46,6 +49,7 @@ export const DEFAULT_FILTERS: SmartFilter[] = [
     isPreset: true,
     blockScope: "word",
     filterStyle: "blur",
+    wordlistCategories: ["insult", "bodily", "slur_racial", "slur_gender"],
   },
   {
     id: "1",

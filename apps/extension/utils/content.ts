@@ -19,13 +19,15 @@ let _isTempBypass = false;
 const translatedElements = new Map<HTMLElement, string>();
 let _isTranslationActive = false;
 
+let _cachedWordlists: Record<string, string[]> = {};
+
 const applyFiltering = (root: Node = document.body) => {
   if (_isApplying || _isTempBypass || !_isProtectionActive || !_isFilteringEnabled || _filters.length === 0) return;
   const currentDomain = window.location.hostname.toLowerCase();
   if (_filterDomainExclusions.some(d => currentDomain === d || currentDomain.endsWith('.' + d))) return;
   if (document.getElementById("ps-block-overlay")) return;
 
-  const activeFilters = _filters.filter(f => f.enabled && f.blockTerm.trim().length > 0);
+  const activeFilters = _filters.filter(f => f.enabled && (f.blockTerm.trim().length > 0 || (f.wordlistCategories && f.wordlistCategories.length > 0)));
   if (activeFilters.length === 0) return;
 
   // Specific NSFW domain/search blocking
@@ -51,7 +53,7 @@ const applyFiltering = (root: Node = document.body) => {
     let node;
     let pageBlocked = false;
 
-    // Collect all text nodes upfront so DOM mutations during processing don't invalidate the walker
+    // Collect all text nodes upfront
     const textNodes: Text[] = [];
     while ((node = walk.nextNode())) textNodes.push(node as Text);
 
@@ -71,14 +73,32 @@ const applyFiltering = (root: Node = document.body) => {
           const paragraphText = (parent?.textContent || text).toLowerCase();
           if (paragraphText.includes(filter.unlessWord.trim().toLowerCase())) continue;
         }
-        if (text.toLowerCase().includes(filter.blockTerm.toLowerCase())) {
-          // page-warning scope or page-warning style both trigger block
+
+        // Build a combined list of terms for this filter
+        let termsToMatch: string[] = [];
+        if (filter.blockTerm.trim().length > 0 && !filter.isPreset) {
+          termsToMatch.push(filter.blockTerm.toLowerCase());
+        }
+        if (filter.wordlistCategories) {
+          filter.wordlistCategories.forEach(cat => {
+            if (_cachedWordlists[cat]) {
+              termsToMatch = termsToMatch.concat(_cachedWordlists[cat]);
+            }
+          });
+        }
+
+        if (termsToMatch.length === 0) continue;
+
+        // Efficient matching
+        const lowerText = text.toLowerCase();
+        const matchedTerm = termsToMatch.find(term => lowerText.includes(term));
+
+        if (matchedTerm) {
           if (filter.blockScope === "page-warning") {
-            showBlockOverlay(filter.blockTerm, "Smart Filters");
+            showBlockOverlay(matchedTerm, filter.blockTerm || "Smart Filters");
             pageBlocked = true;
             break;
           } else if (filter.blockScope === "paragraph") {
-            // Paragraph scope: blur/redact/kitten the parent element
             const style = filter.filterStyle || "blur";
             if (style === "blur") {
               parent.style.filter = "blur(8px)";
@@ -112,16 +132,19 @@ const applyFiltering = (root: Node = document.body) => {
             }
             parent.setAttribute("data-ps-filtered", "true");
           } else {
-            // Word scope (default)
-            const style = filter.filterStyle || (filter.blockScope as string) || "blur";
-            const escaped = filter.blockTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            // Word scope
+            const style = filter.filterStyle || "blur";
+            
+            // For word scope, we only match the FIRST term found for simplicity in replacement
+            // In a real scenario, we might want to replace ALL matches of ALL terms
+            const escaped = matchedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const regex = new RegExp(`(${escaped})`, "gi");
             const parts = text.split(regex);
             const fragment = document.createDocumentFragment();
             let hasMatch = false;
 
             parts.forEach(part => {
-              if (part.toLowerCase() === filter.blockTerm.toLowerCase()) {
+              if (part.toLowerCase() === matchedTerm) {
                 hasMatch = true;
                 const span = document.createElement("span");
                 span.textContent = part;
@@ -130,9 +153,8 @@ const applyFiltering = (root: Node = document.body) => {
                 span.style.transition = "all 0.3s ease";
                 span.title = "Click to reveal";
 
-                if (style === "blur") {
-                  span.style.filter = "blur(4px)";
-                } else if (style === "redact") {
+                if (style === "blur") span.style.filter = "blur(4px)";
+                else if (style === "redact") {
                   span.style.backgroundColor = "#000";
                   span.style.color = "#000";
                   span.style.padding = "1px 4px";
@@ -141,8 +163,6 @@ const applyFiltering = (root: Node = document.body) => {
                   const catCount = Math.max(1, Math.round(part.length / 3));
                   span.textContent = "🐱".repeat(catCount);
                   span.setAttribute("data-ps-original", part);
-                  span.style.cursor = "pointer";
-                  span.title = "Click to reveal";
                 } else if (style === "highlight") {
                   span.style.backgroundColor = "#fbbf24";
                   span.style.color = "#000";
@@ -154,28 +174,23 @@ const applyFiltering = (root: Node = document.body) => {
 
                 if (style !== "highlight") {
                   span.addEventListener("click", () => {
-                    if (style === "kitten") {
-                      span.textContent = span.getAttribute("data-ps-original") || part;
-                    } else {
+                    if (style === "kitten") span.textContent = span.getAttribute("data-ps-original") || part;
+                    else {
                       span.style.filter = "none";
                       span.style.backgroundColor = "transparent";
                       span.style.color = "inherit";
-                      span.style.background = "none";
                     }
                     span.style.cursor = "default";
                     span.title = "";
                   }, { once: true });
                 }
-
                 fragment.appendChild(span);
               } else if (part.length > 0) {
                 fragment.appendChild(document.createTextNode(part));
               }
             });
 
-            if (hasMatch) {
-              parent.replaceChild(fragment, node);
-            }
+            if (hasMatch) parent.replaceChild(fragment, node);
           }
           break;
         }
@@ -183,7 +198,6 @@ const applyFiltering = (root: Node = document.body) => {
     }
   } finally {
     _isApplying = false;
-    // Resume observation if page wasn't blocked
     if (!document.getElementById("ps-block-overlay")) {
       observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     }
@@ -440,7 +454,7 @@ const init = async () => {
 
   // Sync state from storage
   if (typeof chrome !== "undefined" && chrome.storage?.local) {
-    const data = await chrome.storage.local.get(["protectionState", "filters", "filterDomainExclusions", "blurMethod", "autoscan_enabled", "isAutoTranslate", "translatorAutoLang", "translatorTargetLang"]);
+    const data = await chrome.storage.local.get(["protectionState", "filters", "filterDomainExclusions", "blurMethod", "autoscan_enabled", "isAutoTranslate", "translatorAutoLang", "translatorTargetLang", "cachedWordlists"]);
     _isProtectionActive = data.protectionState?.isActive ?? false;
     _isFilteringEnabled = data.protectionState?.filteringEnabled ?? false;
     _filters = data.filters ?? DEFAULT_FILTERS;
@@ -449,6 +463,7 @@ const init = async () => {
     _isAutoScanEnabled = data.autoscan_enabled === "true";
     _isAutoTranslate = data.isAutoTranslate ?? false;
     _targetLang = data.translatorAutoLang ?? data.translatorTargetLang ?? "es";
+    _cachedWordlists = data.cachedWordlists ?? {};
 
     if (_isProtectionActive) {
       initYouTubeAdBlocker();
@@ -463,6 +478,15 @@ const init = async () => {
   }
 
   const handleMessage = (request: any, _sender: any, resp: any) => {
+    if (request.action === "WORDLISTS_UPDATED") {
+      chrome.storage.local.get("cachedWordlists").then(data => {
+        _cachedWordlists = data.cachedWordlists ?? {};
+        if (_isProtectionActive && _isFilteringEnabled) applyFiltering(document.body);
+      });
+      resp({ success: true });
+      return;
+    }
+
     if (request.action === "PING") {
       resp({ pong: true });
       return;

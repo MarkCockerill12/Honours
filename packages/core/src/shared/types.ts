@@ -67,6 +67,7 @@ export interface SmartFilter {
   isPreset?: boolean;   // if true, cannot be deleted
   blockScope?: FilterScope;  // what to match: word | paragraph | page-warning
   filterStyle?: FilterStyle; // how to render: blur | redact | highlight | kitten
+  wordlistCategories?: string[]; // categories from better-profane-words
 }
 
 export interface ServerLocation {
