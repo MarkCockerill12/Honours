@@ -9,6 +9,26 @@ function withWireGuardService(config) {
   return withAndroidManifest(config, (config) => {
     const mainApplication = config.modResults.manifest.application[0];
 
+    // Ensure permissions are present
+    if (!config.modResults.manifest['uses-permission']) {
+      config.modResults.manifest['uses-permission'] = [];
+    }
+    
+    const permissions = [
+      'android.permission.BIND_VPN_SERVICE',
+      'android.permission.FOREGROUND_SERVICE',
+      'android.permission.INTERNET',
+      'android.permission.POST_NOTIFICATIONS',
+    ];
+
+    permissions.forEach(permission => {
+      if (!config.modResults.manifest['uses-permission'].some(p => p.$['android:name'] === permission)) {
+        config.modResults.manifest['uses-permission'].push({
+          $: { 'android:name': permission }
+        });
+      }
+    });
+
     // 1. Add .WireGuardVpnService
     if (!mainApplication.service) mainApplication.service = [];
     
@@ -35,17 +55,23 @@ function withWireGuardService(config) {
       });
     }
 
-    // 2. Add WireGuard GoBackend Service
+    // 2. Add WireGuard GoBackend Service with tools:replace to avoid merge conflict
     const hasGoBackend = mainApplication.service.some(
       (s) => s.$['android:name'] === 'com.wireguard.android.backend.GoBackend$VpnService'
     );
 
     if (!hasGoBackend) {
+      // Ensure tools namespace is present
+      if (!config.modResults.manifest.$['xmlns:tools']) {
+        config.modResults.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
+      }
+
       mainApplication.service.push({
         $: {
           'android:name': 'com.wireguard.android.backend.GoBackend$VpnService',
           'android:permission': 'android.permission.BIND_VPN_SERVICE',
-          'android:exported': 'true',
+          'android:exported': 'false',
+          'tools:replace': 'android:exported',
         },
         'intent-filter': [
           {

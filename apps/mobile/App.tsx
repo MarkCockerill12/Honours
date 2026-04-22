@@ -15,11 +15,12 @@ import * as SecureStore from 'expo-secure-store';
 import * as Clipboard from 'expo-clipboard';
 import { WorldMap } from './components/WorldMap';
 import { VPN_SERVERS, ServerLocation } from '@privacy-shield/core/src/shared';
+import VpnPermission, { VpnEventEmitter } from './modules/vpn-permission';
 import {
   connectVpn, disconnectVpn, setStatusCallback,
+  getVpnStatus,
   type VpnStage, type VpnStatusUpdate
 } from './services/vpnService';
-
 const { height } = Dimensions.get('window');
 
 type Theme = 'dark' | 'light' | 'vaporwave' | 'frutiger-aero';
@@ -143,6 +144,32 @@ function PrivacySentinelApp() {
     );
     rotationLoop.current.start();
 
+    console.log('[VPN] VpnPermission module status:', !!VpnPermission ? 'Loaded' : 'MISSING');
+
+    // Listen for native disconnect (from notification bar)
+    const subscription = VpnEventEmitter.addListener('onNativeDisconnect', () => {
+      console.log('[VPN] Received native disconnect event');
+      setProtection(prev => ({ ...prev, isActive: false }));
+      setVpnStatus('READY');
+      setVpnMessage('Disconnected via notification');
+    });
+
+    // Check actual VPN status on launch
+    const checkInitialState = async () => {
+      const savedServerId = await SecureStore.getItemAsync('selected_server_id');
+      if (savedServerId) {
+        const s = VPN_SERVERS.find(v => v.id === savedServerId);
+        if (s) setSelectedServer(s);
+      }
+
+      const status = await getVpnStatus();
+      if (status === 'connected' || status === 'up') {
+        setProtection(prev => ({ ...prev, isActive: true }));
+        setVpnStatus('SECURE');
+      }
+    };
+    checkInitialState();
+
     refreshPings();
 
     setStatusCallback((update: VpnStatusUpdate) => {
@@ -156,6 +183,7 @@ function PrivacySentinelApp() {
     return () => {
       pulseLoop.current?.stop();
       rotationLoop.current?.stop();
+      subscription.remove();
     };
   }, []);
 
@@ -214,6 +242,7 @@ function PrivacySentinelApp() {
 
   const selectServer = useCallback(async (s: ServerLocation) => {
     setSelectedServer(s);
+    SecureStore.setItemAsync('selected_server_id', s.id);
     setShowServerPicker(false);
     if (protection.isActive) {
       setIsStarting(true);
@@ -295,13 +324,20 @@ function PrivacySentinelApp() {
           {/* Hero - power button area */}
           <View style={styles.hero}>
             <View style={styles.orbCenter}>
-              {protection.isActive && (
+              {(protection.isActive || vpnStatus === 'LOADING') && (
                 <>
-                  <Animated.View style={[styles.radarSweep, { borderColor: ct.accent, transform: [{ rotate }] }]} />
-                  <Animated.View style={[styles.glowRing, { borderColor: ct.accent, transform: [{ scale: pulseAnim }] }]} />
+                  {vpnStatus === 'LOADING' && (
+                    <Animated.View style={[styles.radarSweep, { borderColor: ct.accent, transform: [{ rotate }] }]} />
+                  )}
+                  <Animated.View style={[styles.glowRing, { borderColor: ct.accent, transform: [{ scale: pulseAnim }], opacity: protection.isActive ? 0.4 : 0.2 }]} />
                 </>
               )}
-              <TouchableOpacity activeOpacity={0.9} onPress={toggleProtection} disabled={isStarting} style={[styles.orb, { borderColor: protection.isActive ? ct.accent : '#334155', opacity: isStarting ? 0.7 : 1 }]}>
+              <TouchableOpacity activeOpacity={0.9} onPress={toggleProtection} disabled={isStarting} 
+                style={[styles.orb, { 
+                  borderColor: protection.isActive ? ct.accent : '#334155', 
+                  opacity: isStarting ? 0.7 : 1,
+                  backgroundColor: protection.isActive ? ct.accent + '10' : 'transparent'
+                }]}>
                 <View style={[styles.orbInner, { backgroundColor: protection.isActive ? ct.accent : 'transparent' }]}>
                   <ShieldIcon size={40} color={protection.isActive ? (theme === 'light' ? '#fff' : '#000') : ct.accent} />
                 </View>
@@ -561,8 +597,8 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 32 },
   hero: { alignItems: 'center', paddingTop: height * 0.06, paddingBottom: 20 },
   orbCenter: { width: 240, height: 240, alignItems: 'center', justifyContent: 'center' },
-  orb: { width: 130, height: 130, borderRadius: 65, borderWidth: 1, padding: 6, alignItems: 'center', justifyContent: 'center' },
-  orbInner: { width: '100%', height: '100%', borderRadius: 65, alignItems: 'center', justifyContent: 'center' },
+  orb: { width: 130, height: 130, borderRadius: 65, borderWidth: 1, padding: 6, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  orbInner: { width: '100%', height: '100%', borderRadius: 60, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   radarSweep: { position: 'absolute', width: '100%', height: '100%', borderRadius: 120, borderTopWidth: 2 },
   glowRing: { position: 'absolute', width: '100%', height: '100%', borderRadius: 120, borderWidth: 1, opacity: 0.2 },
   orbStatus: { marginTop: 16, fontSize: 10, fontWeight: '900', letterSpacing: 4, textAlign: 'center' },

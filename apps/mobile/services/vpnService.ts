@@ -1,4 +1,5 @@
 import WireGuardVpn from "react-native-wireguard-vpn";
+import VpnPermission from "../modules/vpn-permission";
 import {
   EC2Client,
   StartInstancesCommand,
@@ -191,14 +192,28 @@ export async function connectVpn(serverId: string, useAdGuard: boolean = true): 
 
     console.log("[VPN] Connecting to", provision.ip, "with client IP", clientIp);
 
+    // Ensure we have Android VPN permissions before calling the backend
+    const hasPermission = await VpnPermission.requestVpnPermission();
+    if (!hasPermission) {
+      notify("ERROR", "VPN permission was denied by the user.");
+      return false;
+    }
+
     // connect() is synchronous at the native level — it blocks until UP or throws
     await WireGuardVpn.connect(wgConfig);
+
+    // Save state for persistence
+    await SecureStore.setItemAsync('selected_server_id', serverId);
+
+    // Show control notification
+    VpnPermission.showNotification(server.name);
 
     notify("CONNECTED", "You're protected!");
     return true;
   } catch (err: any) {
     const msg: string = err?.message ?? String(err);
     console.error("[VPN] Connection error:", msg);
+    VpnPermission.hideNotification();
     notify("ERROR", msg.length > 120 ? msg.substring(0, 120) + "…" : msg);
     return false;
   }
@@ -207,9 +222,11 @@ export async function connectVpn(serverId: string, useAdGuard: boolean = true): 
 export async function disconnectVpn(): Promise<void> {
   try {
     await WireGuardVpn.disconnect();
+    VpnPermission.hideNotification();
     notify("IDLE", "Disconnected");
   } catch (err: any) {
     console.warn("[VPN] Disconnect error:", err.message);
+    VpnPermission.hideNotification();
     notify("IDLE", "Disconnected");
   }
 }

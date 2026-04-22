@@ -13,6 +13,17 @@
       "package": "com.markcockerill.privacyshield",
       "predictiveBackGestureEnabled": false
     },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "newArchEnabled": true,
+            "abiFilters": ["arm64-v8a"]
+          }
+        }
+      ]
+    ],
     "extra": {
       "wgKeyVersion": "3"
     }
