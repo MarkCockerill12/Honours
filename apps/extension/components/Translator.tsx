@@ -28,8 +28,8 @@ const SUPPORTED_LANGUAGES = [
 ];
 
 export function Translator() {
-  const [targetLang, setTargetLang] = useState("es");   // manual "translate to"
-  const [autoLang, setAutoLang] = useState("es");        // auto-translate default language
+  const [targetLang, setTargetLang] = useState("en");   // manual "translate to"
+  const [autoLang, setAutoLang] = useState("en");        // auto-translate default language
   const [isAutoTranslate, setIsAutoTranslate] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [status, setStatus] = useState<{type: 'success' | 'error', text: string} | null>(null);
@@ -144,7 +144,12 @@ export function Translator() {
               <SelectTrigger className={`${colors.bg} border ${colors.border} rounded-xl px-4 py-2.5 h-10 w-full border-none shadow-inner pointer-events-auto hover:bg-zinc-500/5 transition-colors`}>
                 <SelectValue className={`text-[10px] font-bold ${colors.text}`} placeholder={currentLangName} />
               </SelectTrigger>
-              <SelectContent className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100`}>
+              <SelectContent 
+                position="popper" 
+                side="bottom"
+                sideOffset={4}
+                className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100 max-h-[160px] overflow-y-auto shadow-2xl`}
+              >
                 {SUPPORTED_LANGUAGES.map((lang) => (
                   <SelectItem key={lang.code} value={lang.code} className={`text-[10px] uppercase font-bold tracking-wider ${theme === 'dark' || theme === 'vaporwave' ? 'text-white' : 'text-zinc-900'}`}>
                     {lang.flag} {lang.name}
@@ -169,7 +174,12 @@ export function Translator() {
                 <SelectTrigger className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-2.5 h-10 w-full shadow-inner pointer-events-auto hover:bg-amber-500/15 transition-colors">
                   <SelectValue className="text-[10px] font-bold text-amber-500" placeholder={currentAutoLangName} />
                 </SelectTrigger>
-                <SelectContent className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100`}>
+                <SelectContent 
+                position="popper" 
+                side="bottom"
+                sideOffset={4}
+                className={`${theme === 'dark' || theme === 'vaporwave' ? 'bg-[#18181b] text-white' : 'bg-white text-zinc-900'} border-zinc-800/50 z-[9999] pointer-events-auto opacity-100 max-h-[160px] overflow-y-auto shadow-2xl`}
+              >
                   {SUPPORTED_LANGUAGES.map((lang) => (
                     <SelectItem key={lang.code} value={lang.code} className={`text-[10px] uppercase font-bold tracking-wider ${theme === 'dark' || theme === 'vaporwave' ? 'text-white' : 'text-zinc-900'}`}>
                       {lang.flag} {lang.name}

@@ -1,69 +1,82 @@
-# Privacy Shield
+# Privacy Sentinel — Integrated Security Suite
 
-Privacy Shield is a comprehensive, multi-platform privacy suite designed to secure user connections and block intrusive trackers. It consists of three distinct frontends—a Browser Extension, a Desktop App, and a Mobile App—all managed within a unified monorepo architecture.
+Privacy Sentinel is a high-performance, multi-platform digital defence suite designed to restore digital sovereignty. It provides a unified security framework across Desktop, Mobile, and Browser environments, featuring WireGuard-based regional tunneling, AI-driven content filtering, and heuristic phishing detection.
 
-## 🚀 Functionality
-- **Ad & Tracker Blocking:** Integrated with Ghostery's AdBlocker engine to block ads and trackers at the network/browser level.
-- **Virtual Private Network (VPN):** Native WireGuard VPN integration across platforms.
-- **On-Demand Cloud Infrastructure:** Uses AWS EC2 SDKs to programmatically spin up and configure VPN servers (e.g., in `us`, `uk`, `de`, `jp`, `au`) on the fly to protect user traffic.
+## 🚀 Key Features
 
-## 💻 Tech Stack
-- **Package Manager:** `pnpm` (v10) with Turborepo workspaces.
-- **Frameworks & Libraries:** React 19, Next.js 16, Expo (React Native), Electron.
-- **Styling & UI:** Tailwind CSS v4, Radix UI primitives, Lucide React (Icons), Anime.js for animations.
-- **VPN / Core logic:** `@ghostery/adblocker`, `react-native-wireguard-vpn`, AWS SDK (`@aws-sdk/client-ec2`).
+-   **Direct-to-Spoke VPN:** Low-latency WireGuard tunneling across 5 global regions (US, UK, Germany, Japan, Sydney).
+-   **AI Guardian (Groq LPU):** Real-time website summarisation and automated Trigger Warning detection.
+-   **Intelligent Content Filter:** DOM-level blurring and redaction with "Kitten Mode" for mental well-being.
+-   **CyberScanner:** Heuristic-based analysis of suspicious domains and phishing links.
+-   **Dynamic Orchestration:** Automated "Wake-up" and "Auto-shutdown" of AWS Graviton infrastructure to balance cost and availability.
+-   **B4ST10N Protocol:** Build-time XOR obfuscation for sensitive infrastructure credentials.
 
-## 📁 Project Structure (Monorepo)
-- `apps/desktop/` - The Desktop App (Electron + Next.js)
-- `apps/extension/` - The Browser Extension (Next.js Export + Ghostery WebExtension)
-- `apps/mobile/` - The Mobile App (React Native via Expo)
-- `packages/core/` - Shared UI components and configurations
+## 💻 Technical Stack
 
-## 🏃 How to Run the Applications
+-   **Package Manager:** `pnpm` (v10) with Turborepo.
+-   **Runtime:** `Bun` (v1.2) for ultra-fast compilation and script execution.
+-   **Desktop:** `Electron` (v40) + `Next.js`.
+-   **Extension:** `Next.js` Static Export (MV3 compatible).
+-   **Mobile:** `Expo` (React Native) with native WireGuard modules.
+-   **Infrastructure:** `Terraform` (IaC) on `AWS Graviton (ARM64)`.
+-   **AI Engine:** `Groq LPU` (Multi-model fallback chain).
 
-### 1. Browser Extension
-To build the browser extension:
+## 📁 Project Structure
+
 ```bash
-pnpm --filter @privacy-shield/extension run build
+apps/
+├── desktop/      # Electron Dashboard (System-wide VPN/AdBlock)
+├── extension/    # Web Extension (AI Guardian/Smart Filters)
+└── mobile/       # React Native App (Native Android Tunneling)
+packages/
+└── core/         # Shared Logic, Types, and Security Decoders
+tools/            # Infrastructure scripts and Auto-shutdown watchdog
 ```
-Once the build completes, open your browser's extension management page (e.g., `chrome://extensions`), enable "Developer mode", and load the generated `apps/extension/out` folder as an unpacked extension.
 
-### 2. Desktop Application (Electron)
-The desktop app utilizes Electron wrapping a Next.js frontend.
+## 🛠 Installation and Setup
+
+### 1. Prerequisites
+Ensure you have the following installed:
+-   **Bun 1.2+** (`curl -fsSL https://bun.sh/install | bash`)
+-   **pnpm 10** (`npm install -g pnpm`)
+-   **AWS CLI** (configured with IAM permissions for EC2)
+
+### 2. Dependencies
+Install the monorepo dependencies:
 ```bash
-cd apps/desktop
-pnpm run dev
+pnpm install
 ```
-*(You can also use the root command `pnpm run dev:desktop`)*
 
-### 3. Mobile Application (React Native / Expo)
-The mobile app uses a custom native module (`react-native-wireguard-vpn`) and therefore **cannot be run in the standard Expo Go app**. Since you are testing on a physical device via cable and may not have a local Android SDK, the best approach is to use **EAS (Expo Application Services)** to build a custom "Development Client" in the cloud.
+### 3. Environment Configuration
+Create a `.env` file in the root with your regional identifiers and AWS keys. The build pipeline will automatically encode these using the XOR mask to ensure safety in public repositories.
 
-**Step 1: Build the Custom Development Client (Cloud Build)**
-This creates an APK specifically for your project that includes the native WireGuard code. You only need to do this once (or whenever native dependencies change).
-1. `npm install -g eas-cli` (if not installed)
-2. `cd apps/mobile`
-3. `eas build --profile development --platform android`
-4. Download the resulting APK from the link provided by EAS and install it on your phone.
+## 🏃 Running the Suite
 
-**Step 2: Run and Develop**
-Once the custom app is installed on your phone, you can develop with hot-reloading just like Expo Go:
-1. `cd apps/mobile`
-2. `npx expo start --dev-client`
-3. Open the "Privacy Shield" app on your phone and it will connect to your local dev server.
+### Desktop Dashboard
+```bash
+pnpm run dev:desktop
+```
 
-**Building a Standalone Installable APK (For Any Device):**
-To generate a final, shareable `.apk` file:
+### Web Extension
+```bash
+pnpm --filter @privacy-sentinel/extension run build
+# Load apps/extension/out as an unpacked extension in Chrome/Edge
+```
+
+### Mobile App (Physical Device)
 ```bash
 cd apps/mobile
-eas build -p android --profile preview
+eas build --profile development --platform android
+# Install the resulting APK and run with:
+npx expo start --dev-client
 ```
 
-## ⚙️ Backend & Infrastructure (AWS EC2)
-Instead of a traditional persistent backend, Privacy Shield interacts directly with AWS EC2 using the AWS SDK (`@aws-sdk/client-ec2`). When a user activates the VPN, the client authenticates and issues a command to boot an EC2 instance in the desired region (e.g., `VPN-US` for `us-east-1`). The instance runs WireGuard to securely tunnel traffic.
+## 🛡 Security and Integrity
 
-## 🛠 Prerequisites
-- Node.js 22+
-- `pnpm` (`npx only-allow pnpm`)
-- Bun (used for some internal build scripts)
-- Android Studio / Android SDK (for mobile compilation)
+Privacy Sentinel is built with a **Privacy-by-Design** philosophy. 
+- **Zero-Logs:** No traffic metadata or DNS queries are recorded on the spokes.
+- **Data Minimization:** No user accounts or personal identifiable information (PII) required.
+- **Resilience:** Daily encrypted backups to OneDrive and build-time obfuscation of all infrastructure secrets.
+
+## 📄 Documentation
+For detailed operation instructions and technical architecture, please refer to the **User and Technical Manual** (`REPORT/User_Manual.tex`) and the **Final Honours Report**.
