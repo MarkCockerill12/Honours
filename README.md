@@ -77,6 +77,3 @@ Privacy Sentinel is built with a **Privacy-by-Design** philosophy.
 - **Zero-Logs:** No traffic metadata or DNS queries are recorded on the spokes.
 - **Data Minimization:** No user accounts or personal identifiable information (PII) required.
 - **Resilience:** Daily encrypted backups to OneDrive and build-time obfuscation of all infrastructure secrets.
-
-## 📄 Documentation
-For detailed operation instructions and technical architecture, please refer to the **User and Technical Manual** (`REPORT/User_Manual.tex`) and the **Final Honours Report**.
