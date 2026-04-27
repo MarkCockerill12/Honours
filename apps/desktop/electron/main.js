@@ -307,44 +307,42 @@ async function startVpn(config) {
   }
 
   console.log(`[VPN Toggle] Wait for interface to initialize...`);
-  await new Promise(r => setTimeout(r, 2000));
+  await new Promise(r => setTimeout(r, 500)); // Reduced from 2000ms
 
   // Diagnostic Ping: Check if Public IP is even reachable (non-blocking)
   const publicPingCmd = process.platform === 'win32' ? `ping -n 1 -w 1000 ${config.PublicIp}` : `ping -c 1 -W 1 ${config.PublicIp}`;
-  execAsync(publicPingCmd).then(
-    () => console.log(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is reachable.`),
-    () => console.warn(`[Connectivity] Diagnostic: Public IP ${config.PublicIp} is NOT reachable. Server might be down or blocking ICMP.`)
-  );
+  execAsync(publicPingCmd).catch(() => {});
 
   sendVpnStatus("Establishing secure connection...");
   const { ok, gw, time } = await pollGateway(["172.16.10.1"]);
 
   if (!ok) {
     console.error(`[VPN Toggle] ERROR: Handshake Timeout. Unified Gateway 172.16.10.1 did not reply.`);
-    console.error(`[VPN Toggle] TIP: Server may need time to initialize WireGuard after cold start.`);
     await stopVpn();
     return { success: false, message: "Connection failed — server did not respond. Try again in 30 seconds." };
   }
 
   console.log(`[Connectivity] OK: Handshake Verified (Ping Gateway ${gw} OK) after ${time}s.`);
 
-  sendVpnStatus("Verifying connectivity...");
-  const isOnline = await verifyConnectivity();
-  if (isOnline) return { success: true, message: "Connected & Verified." };
+  // If handshake was instant (< 3s), skip heavy verification to speed up "warm" starts
+  if (time < 3) {
+    sendVpnStatus("Connected");
+    return { success: true, message: "Connected & Verified." };
+  }
 
-  console.warn(`[VPN Toggle] Tunnel established but no internet. Server may still be initializing.`);
-  const retryOnline = await verifyConnectivity(2);
-  if (retryOnline) return { success: true, message: "Connected & Verified." };
+  sendVpnStatus("Verifying connectivity...");
+  const isOnline = await verifyConnectivity(2);
+  if (isOnline) return { success: true, message: "Connected & Verified." };
 
   // Server can take time on cold-started instances — give it one more chance
   sendVpnStatus("Almost there...");
-  console.warn(`[VPN Toggle] Extended wait: giving server 10 more seconds...`);
-  await new Promise(r => setTimeout(r, 10000));
-  const finalRetry = await verifyConnectivity(3);
+  console.warn(`[VPN Toggle] Extended wait: giving server 5 more seconds...`);
+  await new Promise(r => setTimeout(r, 5000));
+  const finalRetry = await verifyConnectivity(2);
   if (finalRetry) return { success: true, message: "Connected & Verified." };
 
   await stopVpn();
-  return { success: false, message: "Tunnel established but internet unreachable. Server may still be initializing — try again in 60 seconds." };
+  return { success: false, message: "Tunnel established but internet unreachable." };
 }
 
 async function handleVpnToggle(config) {

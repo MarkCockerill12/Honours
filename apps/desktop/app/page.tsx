@@ -156,10 +156,7 @@ export default function DesktopPage() {
             setServerStatuses(prev => ({ ...prev, [vpnStatus.serverId!]: "active" }));
             const activeServer = VPN_SERVERS.find(s => s.id === vpnStatus.serverId);
             if (activeServer) {
-              setSelectedServer(current => {
-                if (!current) return activeServer;
-                return current;
-              });
+              setSelectedServer(activeServer);
             }
           }
         }

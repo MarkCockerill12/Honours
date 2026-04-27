@@ -230,57 +230,28 @@ export const scanUrl = (urlString: string): ScanResult => {
     const hostname = url.hostname.toLowerCase();
     const pathname = url.pathname.toLowerCase();
 
-    // 0. Trusted Domain Check (Fast bailout) — applies to all sub-resources too
-    if (isTrustedDomain(hostname)) {
-      console.log(`[Security] Whitelisted domain detected: ${hostname}`);
-      return { url: urlString, isSafe: true, isMalicious: false, threatType: "safe", score: 0 };
-    }
+    const urlLower = urlString.toLowerCase();
 
-    // 1. Check Known Phishing DB (exact match)
-    if (
-      THREAT_DB.PHISHING_DOMAINS.some((domain) => hostname.includes(domain))
-    ) {
-      console.log(`[Security] THREAT: Phishing domain detected in ${hostname}`);
-      return {
-        url: urlString,
-        isSafe: false,
-        isMalicious: true,
-        threatType: "phishing",
-        details: "Known Phishing Domain",
-        score: 10,
-      };
-    }
-
-    // 2. Check URL shorteners (flag as redirect risk)
-    if (
-      THREAT_DB.URL_SHORTENERS.some(
-        (shortener) =>
-          hostname === shortener || hostname.endsWith("." + shortener),
-      )
-    ) {
-      console.log(`[Security] WARNING: URL shortener detected - ${hostname}`);
-      return {
-        url: urlString,
-        isSafe: false,
-        isMalicious: false, // Redirects aren't inherently malicious
-        threatType: "redirect",
-        details: "URL Shortener (potential redirect risk)",
-        score: 4,
-      };
-    }
-
-    // 3. Check for TRULY dangerous file extensions only
-    const extension = pathname.split(".").pop();
-    if (extension && THREAT_DB.DANGEROUS_EXTENSIONS.includes(extension)) {
-      console.log(`[Security] THREAT: Dangerous file extension .${extension}`);
+    // 0. Check for TRULY dangerous file extensions FIRST (even on trusted domains)
+    const dangerousExt = THREAT_DB.DANGEROUS_EXTENSIONS.find(ext => 
+      urlLower.match(new RegExp(`\\.${ext}([/?#]|$)`))
+    );
+    if (dangerousExt) {
+      console.log(`[Security] THREAT: Dangerous file extension .${dangerousExt}`);
       return {
         url: urlString,
         isSafe: false,
         isMalicious: true,
         threatType: "malware",
-        details: `Dangerous .${extension} file download`,
+        details: `Dangerous .${dangerousExt} file download`,
         score: 8,
       };
+    }
+
+    // 1. Trusted Domain Check (Fast bailout) — applies to all sub-resources too
+    if (isTrustedDomain(hostname)) {
+      console.log(`[Security] Whitelisted domain detected: ${hostname}`);
+      return { url: urlString, isSafe: true, isMalicious: false, threatType: "safe", score: 0 };
     }
 
     // 4. Check tracking domains

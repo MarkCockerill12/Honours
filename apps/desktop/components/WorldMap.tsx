@@ -74,11 +74,11 @@ export const WorldMap: React.FC<WorldMapProps> = ({
   return (
     <div className="w-full h-full relative flex items-center justify-center overflow-hidden">
       <ComposableMap
-        // Increased scale from 160 to 210 to zoom in and reduce collision
-        // Adjusted center to ensure all markers (especially Sydney) stay in view
+        // Reverted scale to 210 to ensure Sydney (Australia) is fully visible
+        // Adjusted center slightly to the east to better balance the global view
         projectionConfig={{ 
           scale: 210,
-          center: [10, 10] 
+          center: [20, 0] 
         }}
         className={`w-full h-full transition-all duration-1000 ${isMapMode ? 'opacity-100 scale-105' : 'opacity-60 scale-100'}`}
       >
@@ -108,8 +108,14 @@ export const WorldMap: React.FC<WorldMapProps> = ({
           let labelYOffset = isSelected ? -18 : -16;
           let labelXOffset = 0;
           
-          if (server.id === "uk") labelXOffset = -15; // Shift London label left
-          if (server.id === "de") labelXOffset = 15;  // Shift Frankfurt label right
+          if (server.id === "uk") {
+            labelXOffset = -45; // Move London further left
+            labelYOffset -= 2;  // Nudge London up slightly
+          }
+          if (server.id === "de") {
+            labelXOffset = 45;  // Move Frankfurt further right
+            labelYOffset += 2;  // Nudge Frankfurt down slightly
+          }
 
           return (
             <Marker key={server.id} coordinates={[server.lng, server.lat]}>

@@ -85,4 +85,8 @@ REPORT/
 
 
 .expo
-tools/
+tools/
+
+
+.expo/
+apps/mobile/.expo/devices.json

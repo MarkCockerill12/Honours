@@ -166,19 +166,22 @@ function setupVpnHandlers(state, handleVpnToggle) {
       }
 
       // 2. Wait for Spoke IP
-      sendVpnStatus("Waiting for server to come online...");
-      console.log(`[VPN Provision] Waiting for Spoke IP allocation...`);
-      let spokeIp = "";
-      for (let i = 0; i < 30; i++) {
-        const spokeDesc = await spokeClient.send(new DescribeInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
-        const s = spokeDesc.Reservations?.[0]?.Instances?.[0];
+      let spokeIp = spokeInstance.PublicIpAddress || "";
+      
+      if (!spokeIp || stateName !== "running") {
+        sendVpnStatus("Waiting for server to come online...");
+        console.log(`[VPN Provision] Waiting for Spoke IP allocation...`);
+        for (let i = 0; i < 20; i++) { // Fewer retries, but faster
+          const spokeDesc = await spokeClient.send(new DescribeInstancesCommand({ InstanceIds: [spokeInstance.InstanceId] }));
+          const s = spokeDesc.Reservations?.[0]?.Instances?.[0];
 
-        if (s?.State?.Name === "running" && s?.PublicIpAddress) {
-          spokeIp = s.PublicIpAddress;
-          break;
+          if (s?.State?.Name === "running" && s?.PublicIpAddress) {
+            spokeIp = s.PublicIpAddress;
+            break;
+          }
+          console.log(`[VPN Provision] Waiting... attempt ${i+1}/20`);
+          await new Promise(r => setTimeout(r, 3000)); // 3s polling instead of 5s
         }
-        console.log(`[VPN Provision] Waiting... attempt ${i+1}/30`);
-        await new Promise(r => setTimeout(r, 5000));
       }
 
       if (!spokeIp) {
@@ -186,14 +189,13 @@ function setupVpnHandlers(state, handleVpnToggle) {
         return { success: false, error: "Timed out waiting for server ready state." };
       }
 
-      sendVpnStatus("Server ready, initializing...");
-      console.log(`[VPN Provision] ✅ Spoke Ready! IP: ${spokeIp}`);
-
       // If we just started the instances, they need time for cloud-init and WireGuard to initialize
       if (needsWarmup) {
         sendVpnStatus("Warming up tunnel...");
         console.log(`[VPN Provision] ⏳ New instance detected. Waiting for server initialization...`);
-        await new Promise(r => setTimeout(r, 20000));
+        await new Promise(r => setTimeout(r, 10000)); // 10s warmup instead of 20s
+      } else {
+        console.log(`[VPN Provision] ✅ Server already warm. IP: ${spokeIp}`);
       }
 
       sendVpnStatus("Connecting...");
@@ -221,43 +223,13 @@ function setupVpnHandlers(state, handleVpnToggle) {
 
   // IPC: VPN Deprovision
   ipcMain.handle("vpn:deprovision", async (_event, serverId) => {
-    console.log(`[VPN Deprovision] Stopping spoke: ${serverId}`);
-    try {
-      const region = SERVER_REGION_MAP[serverId];
-      if (!region) return { success: false, error: "Invalid serverId" };
-
-      const client = getEC2Client(region);
-      const tagName = EC2_TAG_NAMES[serverId];
-      const existing = await findInstanceByTag(client, tagName);
-      if (existing?.InstanceId) {
-        await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
-        console.log(`[VPN Deprovision] ✅ Spoke ${existing.InstanceId} stopping.`);
-      }
-
-      return { success: true, message: "Server stopped." };
-    } catch (err) {
-      return { success: false, error: err.message };
-    }
+    console.log(`[VPN Deprovision] Detaching from spoke: ${serverId} (relying on 30-min auto-shutdown)`);
+    return { success: true, message: "Server detached." };
   });
 
   // Export a way to cleanly stop everything on exit
   state.deprovisionAll = async () => {
-    console.log(`[VPN Cleanup] Stopping active spoke...`);
-    try {
-      if (state.activeVpnConfig?.Id) {
-        const region = SERVER_REGION_MAP[state.activeVpnConfig.Id];
-        if (region) {
-          const client = getEC2Client(region);
-          const existing = await findInstanceByTag(client, EC2_TAG_NAMES[state.activeVpnConfig.Id]);
-          if (existing?.InstanceId) {
-            console.log(`[VPN Cleanup] Stopping ${existing.InstanceId}`);
-            await client.send(new StopInstancesCommand({ InstanceIds: [existing.InstanceId] }));
-          }
-        }
-      }
-    } catch (e) {
-      console.warn(`[VPN Cleanup] Warning: ${e.message}`);
-    }
+    console.log(`[VPN Cleanup] Detaching active spoke (relying on 30-min auto-shutdown)...`);
   };
 
   // IPC: VPN get-status

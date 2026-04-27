@@ -181,9 +181,9 @@ const injectContentScripts = async () => {
     const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
     for (const tab of tabs) {
       if (!tab.id || !tab.url) continue;
-      try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: false }, files: ["content-script.js"] }); } catch { }
+      try { await chrome.scripting.executeScript({ target: { tabId: tab.id, allFrames: false }, files: ["content-script.js"] }); } catch { /* ignore */ }
     }
-  } catch { }
+  } catch { /* ignore */ }
 };
 
 const initializeBackground = async () => {
@@ -218,7 +218,7 @@ chrome.runtime.onInstalled.addListener(async () => {
     if (!res.filters) await chrome.storage.local.set({ filters: DEFAULT_FILTERS });
     if (!res.cachedWordlists) fetchAndCacheWordlists();
     await initBlockStats(); await syncState();
-  } catch { }
+  } catch { /* ignore */ }
 });
 
 initializeBackground();
@@ -229,7 +229,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   try {
     const normalize = (s: string) => s.toLowerCase().replace(/\\/g, "/").replace(/^file:\/\/\//, "");
     const normalizedUrl = normalize(url); if (filterExclusions.some(ex => ex && normalizedUrl.includes(normalize(ex)))) return;
-  } catch { }
+  } catch { /* ignore */ }
   if (changeInfo.status === "loading") { if (isPdfUrl(url) && !hasBypassParam(url)) { const warningUrl = chrome.runtime.getURL(`pdf-warning.html?url=${encodeURIComponent(url)}`); chrome.tabs.update(tabId, { url: warningUrl }); } }
 });
 
@@ -248,9 +248,9 @@ async function handleVpnProvisioning(serverId: string) {
       await notifyVpnStatus("WAITING_IP", `Server coming online... (${i+1}/30)`); await new Promise(r => setTimeout(r, 3000));
     }
     if (!ip) throw new Error("Server failed to assign an IP.");
-    let userIp = ""; try { const ipResp = await fetch("https://checkip.amazonaws.com"); userIp = (await ipResp.text()).trim(); } catch { }
+    let userIp = ""; try { const ipResp = await fetch("https://checkip.amazonaws.com"); userIp = (await ipResp.text()).trim(); } catch { /* ignore */ }
     if (instance.SecurityGroups && instance.SecurityGroups.length > 0) {
-      try { const ingressIp = userIp ? `${userIp}/32` : "0.0.0.0/0"; await client.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: instance.SecurityGroups[0].GroupId, IpPermissions: [{ IpProtocol: "tcp", FromPort: 1080, ToPort: 1080, IpRanges: [{ CidrIp: ingressIp }] }] })); } catch { }
+      try { const ingressIp = userIp ? `${userIp}/32` : "0.0.0.0/0"; await client.send(new AuthorizeSecurityGroupIngressCommand({ GroupId: instance.SecurityGroups[0].GroupId, IpPermissions: [{ IpProtocol: "tcp", FromPort: 1080, ToPort: 1080, IpRanges: [{ CidrIp: ingressIp }] }] })); } catch { /* ignore */ }
     }
     await notifyVpnStatus("VERIFYING", "Almost ready...");
     await chrome.storage.local.set({ vpnConfig: { PublicIp: ip, Id: serverId } }); await syncState(true);
@@ -277,43 +277,101 @@ async function callGroqApi(messages: Array<{role: string; content: string}>, max
 }
 
 async function handleSummarize(text: string, url: string) {
-  const truncated = text.substring(0, 4000); const prompt = `Summarize the following webpage in 4-6 concise bullet points. Format: - [Point]... TRIGGER WARNING: [List topics or "None"] URL: ${url} Content: ${truncated}`;
+  const truncated = text.substring(0, 4000); const prompt = `Summarize the following webpage in 4-6 concise bullet points. Format: - [Point]... URL: ${url} Content: ${truncated}`;
   const summary = await callGroqApi([{ role: "user", content: prompt }], 350); return { success: true, summary };
 }
 
-// RELIABLE GOOGLE TRANSLATE ENGINE
-async function handleTranslate(texts: string[], targetLang: string) {
-  const finalResults: string[] = new Array(texts.length).fill(""); const toFetch: { index: number; text: string }[] = [];
-  texts.forEach((text, i) => { const cacheKey = `${targetLang}:${text}`; if (TRANSLATION_CACHE.has(cacheKey)) finalResults[i] = TRANSLATION_CACHE.get(cacheKey)!; else toFetch.push({ index: i, text }); });
-  if (toFetch.length === 0) return { success: true, translatedTexts: finalResults };
-  const chunks: { index: number; text: string }[][] = []; let currentChunk: { index: number; text: string }[] = []; let currentLength = 0;
-  toFetch.forEach(item => { if (currentLength + item.text.length > 2000) { chunks.push(currentChunk); currentChunk = []; currentLength = 0; } currentChunk.push(item); currentLength += item.text.length + 1; });
-  if (currentChunk.length > 0) chunks.push(currentChunk);
+// GLOBAL TRANSLATION LOCK & QUEUE
+let translationQueue: Promise<any> = Promise.resolve();
 
-  await Promise.all(chunks.map(async (chunk) => {
-    const combinedText = chunk.map(c => c.text).join("\n");
-    try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(combinedText)}`;
-      const res = await fetch(url); if (!res.ok) throw new Error("Failed");
-      const data = await res.json();
-      
-      // Google returns an array of segments. We map these segments back to our original chunk based on content matches or position.
-      let segmentIndex = 0;
-      chunk.forEach((item) => {
-        let translatedNodeText = "";
-        // Collect segments until we've matched the approximate length or reached a newline
-        while (segmentIndex < data[0].length) {
-          const segment = data[0][segmentIndex];
-          translatedNodeText += segment[0];
-          segmentIndex++;
-          if (segment[1] && (segment[1].includes("\n") || segment[0].includes("\n"))) break;
+async function handleTranslate(texts: string[], targetLang: string) {
+  // Wrap in a global queue to ensure we NEVER blast Google with parallel requests from different tabs
+  return new Promise((resolve) => {
+    translationQueue = translationQueue.then(async () => {
+      const result = await executeTranslation(texts, targetLang);
+      // Add a human-like randomized delay between batches (3-6 seconds)
+      await new Promise(r => setTimeout(r, 3000 + Math.random() * 3000));
+      resolve(result);
+    }).catch(() => resolve({ success: false, translatedTexts: texts }));
+  });
+}
+
+async function executeTranslation(texts: string[], targetLang: string) {
+  const finalResults: string[] = new Array(texts.length).fill(""); 
+  const toFetch: { index: number; text: string }[] = [];
+  
+  texts.forEach((text, i) => { 
+    const cacheKey = `${targetLang}:${text}`; 
+    if (TRANSLATION_CACHE.has(cacheKey)) finalResults[i] = TRANSLATION_CACHE.get(cacheKey)!; 
+    else toFetch.push({ index: i, text }); 
+  });
+  
+  if (toFetch.length === 0) return { success: true, translatedTexts: finalResults };
+
+  const batchSize = 10;
+  const DELIMITER = "\n";
+  for (let i = 0; i < toFetch.length; i += batchSize) {
+    const chunk = toFetch.slice(i, i + batchSize);
+    const combinedText = chunk.map(item => item.text.replace(/\n/g, " ")).join(DELIMITER);
+
+    const body = new URLSearchParams();
+    body.append("sl", "auto");
+    body.append("tl", targetLang);
+    body.append("dt", "t");
+    body.append("q", combinedText);
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: body.toString()
+        });
+        
+        if (res.status === 429) {
+          console.warn(`[Translation] 429 detected. Waiting 30s...`);
+          await new Promise(r => setTimeout(r, 30000));
+          continue;
         }
-        const result = translatedNodeText.trim() || item.text;
-        finalResults[item.index] = result;
-        if (TRANSLATION_CACHE.size < MAX_CACHE_SIZE) TRANSLATION_CACHE.set(`${targetLang}:${item.text}`, result);
-      });
-    } catch { chunk.forEach(item => { finalResults[item.index] = item.text; }); }
-  }));
+        
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        
+        if (Array.isArray(data) && data[0]) {
+          const responseLines = data[0] as any[][];
+          const resultMap = new Map<string, string>();
+          
+          responseLines.forEach(line => {
+             const trans = line[0] as string;
+             const orig = (line[1] as string || "").trim();
+             if (trans && orig) {
+                // Collect results. If Google split one line into many, they'll have the same 'orig' entry.
+                resultMap.set(orig, (resultMap.get(orig) || "") + trans);
+             }
+          });
+          
+          chunk.forEach((item) => {
+             const cleanOrig = item.text.replace(/\n/g, " ").trim();
+             const translated = resultMap.get(cleanOrig);
+             finalResults[item.index] = translated || item.text;
+             if (translated && TRANSLATION_CACHE.size < MAX_CACHE_SIZE) {
+               TRANSLATION_CACHE.set(`${targetLang}:${item.text}`, finalResults[item.index]);
+             }
+          });
+        }
+        break; 
+      } catch (err: any) {
+        if (attempt === 2) {
+          console.error("[Translation] Permanent failure for batch:", err.message);
+          chunk.forEach(item => { finalResults[item.index] = item.text; });
+        } else {
+          await new Promise(r => setTimeout(r, 5000));
+        }
+      }
+    }
+  }
+
   chrome.storage.local.set({ translation_cache: Object.fromEntries(TRANSLATION_CACHE.entries()) });
   return { success: true, translatedTexts: finalResults };
 }

@@ -232,6 +232,9 @@ export const chromeBridge = {
                   if (msg.includes("Could not establish connection") || msg.includes("Receiving end does not exist")) {
                     console.debug("[Chrome Bridge] Content ready-check (silenced):", msg);
                     r({ success: false, error: "not_ready" });
+                  } else if (msg.includes("context invalidated")) {
+                    console.warn("[Chrome Bridge] Context invalidated:", msg);
+                    r({ success: false, error: "Extension updated. Please refresh the page." });
                   } else {
                     console.warn(`[Chrome Bridge] sendMessage(${message.action}) error:`, msg);
                     r({ success: false, error: msg });

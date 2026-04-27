@@ -214,7 +214,12 @@ export function DesktopApp({
   const [pings, setPings] = useState<Record<string, number>>({});
 
   useEffect(() => {
+    let isInitial = true;
     const pingRegions = async () => {
+      // Don't spam if we aren't in map mode or just started
+      if (!isMapMode && !isInitial) return;
+      isInitial = false;
+
       const newPings: Record<string, number> = {};
       const SERVER_REGION_MAP: Record<string, string> = {
         us: "us-east-1", uk: "eu-west-2", de: "eu-central-1", jp: "ap-northeast-1", au: "ap-southeast-2"
@@ -225,7 +230,8 @@ export function DesktopApp({
         try {
           const region = SERVER_REGION_MAP[s.id];
           const ctrl = new AbortController();
-          const tid = setTimeout(() => ctrl.abort(), 2000);
+          const tid = setTimeout(() => ctrl.abort(), 1500); // Tighter timeout
+          // Use a faster endpoint
           await fetch(`https://dynamodb.${region}.amazonaws.com`, { method: "HEAD", mode: "no-cors", signal: ctrl.signal });
           clearTimeout(tid);
           newPings[s.id] = Date.now() - start;
@@ -237,9 +243,9 @@ export function DesktopApp({
     };
 
     pingRegions();
-    const interval = setInterval(pingRegions, 10000);
+    const interval = setInterval(pingRegions, 30000); // 30s instead of 10s
     return () => clearInterval(interval);
-  }, [servers]);
+  }, [servers, isMapMode]);
 
   return (
     <div className={`fixed inset-0 ${colors.bg} ${colors.text} font-body transition-all duration-1000 overflow-hidden`}>
