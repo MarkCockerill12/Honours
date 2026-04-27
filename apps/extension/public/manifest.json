@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Privacy Sentinel",
+  "version": "1.2.0",
+  "description": "Zero-trust privacy protection with VPN, ad blocking, content filtering, and AI security scanning.",
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "declarativeNetRequest",
+    "declarativeNetRequestWithHostAccess",
+    "declarativeNetRequestFeedback",
+    "webRequest",
+    "alarms",
+    "proxy"
+  ],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "extension.html",
+    "default_title": "Privacy Sentinel"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["content-script.js", "blocked.html", "pdf-warning.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "sentinel@privacy-sentinel.com",
+      "strict_min_version": "109.0"
+    }
+  }
+}

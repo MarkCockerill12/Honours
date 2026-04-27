@@ -1,0 +1,46 @@
+{
+  "name": "@privacy-shield/mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "dev": "expo start -c",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "lint": "eslint .",
+    "clean": "rimraf .turbo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ec2": "^3.600.0",
+    "@privacy-shield/core": "workspace:*",
+    "d3-geo": "^3.1.1",
+    "dotenv": "^16.4.7",
+    "expo": "~53.0.27",
+    "expo-build-properties": "~0.14.8",
+    "expo-clipboard": "^7.1.5",
+    "expo-constants": "~17.1.8",
+    "expo-dev-client": "~5.2.4",
+    "expo-haptics": "~14.1.4",
+    "expo-intent-launcher": "^12.1.5",
+    "expo-linear-gradient": "~14.1.5",
+    "expo-modules-autolinking": "^2.1.15",
+    "expo-secure-store": "~14.2.4",
+    "expo-status-bar": "~2.2.3",
+    "lucide-react-native": "^0.577.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "react-native": "0.79.6",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-get-random-values": "~1.11.0",
+    "react-native-reanimated": "~3.17.5",
+    "react-native-safe-area-context": "5.4.0",
+    "react-native-svg": "15.11.2",
+    "react-native-url-polyfill": "^3.0.0",
+    "react-native-wireguard-vpn": "^1.0.22",
+    "topojson-client": "^3.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.14",
+    "typescript": "~5.8.3"
+  }
+}

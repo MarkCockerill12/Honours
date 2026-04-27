@@ -1,0 +1,9 @@
+{
+  "platforms": ["android", "ios"],
+  "android": {
+    "package": "expo.modules.vpnpermission",
+    "modules": [
+      "expo.modules.vpnpermission.VpnPermissionModule"
+    ]
+  }
+}

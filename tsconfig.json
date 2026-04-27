@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "target": "ES2022",
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -13,29 +17,25 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
-    }
+      "@privacy-shield/core": [
+        "packages/core/src"
+      ],
+      "@privacy-shield/core/*": [
+        "packages/core/src/*"
+      ]
+    },
+    "types": [
+      "node",
+      "chrome"
+    ]
   },
-  "include": [
-    "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
-  ],
   "exclude": [
-    "node_modules",
-    "backend",
-    "electron",
-    "scripts",
-    "out",
-    "public/background.js",
-    "public/content-script.js"
-  ]
+    "node_modules"
+  ],
+  "extends": "expo/tsconfig.base"
 }

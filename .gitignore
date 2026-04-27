@@ -1,7 +1,17 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
 # dependencies
-/node_modules
+node_modules/
+apps/desktop/bin/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+packages/ui/node_modules
+.node_modules/
+*/node_modules
+
 /.pnp
 .pnp.*
 .yarn/*
@@ -14,12 +24,12 @@
 /coverage
 
 # next.js
-/.next/
-/out/
-/extension-dist/
+.next/
+out/
+extension-dist/
 
 # production
-/build
+.build/
 
 # misc
 .DS_Store
@@ -30,9 +40,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -43,3 +55,38 @@ next-env.d.ts
 
 .geminiignore
 .report_draft.md
+.turbo/
+dist/
+report_draft.md
+lint_output.txt
+
+# local / tmp
+tmp/
+.gemini/
+bin/
+*.conf
+vpn_infrastructure_docs.md
+apps/desktop/electron/_env.js
+
+keysETC/
+
+# native
+android/
+ios/
+
+infrastructure/
+
+
+REPORT/
+# Agent Memory
+.agent_memory.json
+
+.claude/
+
+
+.expo
+tools/
+
+
+.expo/
+apps/mobile/.expo/devices.json
